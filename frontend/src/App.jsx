@@ -1,0 +1,244 @@
+import React, { useState, useEffect } from "react";
+import Login from "./Login.jsx";
+import Wallet from "./Wallet.jsx";
+import GameLobby from "./Gamelobby.jsx";
+import LiveGame from "./Livegame.jsx";
+import { disconnectSocket } from "./socket";
+import { useTelegram } from "./useTelegram";
+
+function App() {
+  useTelegram(); // expands the Telegram WebApp viewport as early as possible
+
+  const [user, setUser] = useState(null);
+  const [balance, setBalance] = useState(0);
+  const [roomCode, setRoomCode] = useState(null);
+  const [activeTab, setActiveTab] = useState("Game");
+  
+  // Admin stats state
+  const [adminStats, setAdminStats] = useState({ activeUsers: 0, registeredUsers: 0 });
+  const [copySuccess, setCopySuccess] = useState(false);
+
+  // ⚠️ እዚህ ጋር የእርስዎን ትክክለኛ የቴሌግራም ዩዘር ID ቁጥር (Telegram ID) ያስገቡ
+  const ADMIN_TELEGRAM_IDS = ["494653076"]; // ምሳሌ: "123456789"
+
+  // Dynamically generate tabs based on whether the user is an admin
+  const getTabs = (currentUser) => {
+    const tabs = [
+      { id: "Game", label: "Game", icon: "🎮" },
+      { id: "History", label: "History", icon: "📜" },
+      { id: "Wallet", label: "Wallet", icon: "💳" },
+      { id: "Profile", label: "Profile", icon: "👤" },
+    ];
+
+    // Check if user is admin (በ ዳታቤዝ ሚና ወይም በ ቴሌግራም ID ማረጋገጥ)
+    const isUserAdmin = 
+      (currentUser && (currentUser.isAdmin || currentUser.role === "admin")) ||
+      (currentUser && currentUser.telegramId && ADMIN_TELEGRAM_IDS.includes(String(currentUser.telegramId)));
+
+    if (isUserAdmin) {
+      tabs.push({ id: "Admin", label: "Admin", icon: "⚙️" });
+    }
+
+    return tabs;
+  };
+
+  useEffect(() => {
+    const isUserAdmin = 
+      (user && (user.isAdmin || user.role === "admin")) ||
+      (user && user.telegramId && ADMIN_TELEGRAM_IDS.includes(String(user.telegramId)));
+
+    if (isUserAdmin && activeTab === "Admin") {
+      fetch("/api/admin/stats", {
+        headers: {
+          Authorization: `Bearer ${user.token || ""}`,
+        },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data) {
+            setAdminStats({
+              activeUsers: data.activeUsers || 1,
+              registeredUsers: data.registeredUsers || 6,
+            });
+          }
+        })
+        .catch(() => {
+          setAdminStats({ activeUsers: 1, registeredUsers: 6 });
+        });
+    }
+  }, [user, activeTab]);
+
+  if (!user) {
+    return (
+      <Login
+        onLoggedIn={(u) => {
+          setUser(u);
+          setBalance(u.balance);
+        }}
+      />
+    );
+  }
+
+  function handleExitGame() {
+    disconnectSocket();
+    setRoomCode(null);
+  }
+
+  const handleCopyInviteLink = () => {
+    const botUsername = "fetanbingobot"; // ትክክለኛውን የቦት ስምዎ እዚህ ያስገቡ
+    const inviteLink = `https://t.me/${botUsername}?start=ref_${user.telegramId}`;
+    navigator.clipboard.writeText(inviteLink).then(() => {
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2500);
+    });
+  };
+
+  const tabs = getTabs(user);
+  const userInitial = user.firstName ? user.firstName.charAt(0).toUpperCase() : (user.username ? user.username.charAt(0).toUpperCase() : "U");
+
+  return (
+    <div className="app">
+      <header className="app-header">
+        <h1>🎱 Fetan Lottery</h1>
+        <span>Hi, {user.firstName || user.username}</span>
+      </header>
+
+      {activeTab === "Game" && (
+        <>
+          <Wallet balance={balance} setBalance={setBalance} />
+          {roomCode ? (
+            <LiveGame
+              roomCode={roomCode}
+              setBalance={setBalance}
+              telegramId={user.telegramId}
+              onExit={handleExitGame}
+            />
+          ) : (
+            <GameLobby onJoin={setRoomCode} />
+          )}
+        </>
+      )}
+
+      {activeTab === "History" && (
+        <Wallet balance={balance} setBalance={setBalance} showHistory />
+      )}
+
+      {activeTab === "Wallet" && (
+        <Wallet balance={balance} setBalance={setBalance} />
+      )}
+
+      {activeTab === "Profile" && (
+        <div className="page-view profile-view" style={{ padding: "15px", textAlign: "center" }}>
+          {/* Avatar Circle */}
+          <div style={{
+            width: "80px",
+            height: "80px",
+            borderRadius: "50%",
+            background: "linear-gradient(135deg, #3498db, #2980b9)",
+            color: "#fff",
+            fontSize: "36px",
+            fontWeight: "bold",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 10px auto",
+            boxShadow: "0 4px 10px rgba(52, 152, 219, 0.3)",
+            border: "2px solid #f39c12"
+          }}>
+            {userInitial}
+          </div>
+
+          <h2 style={{ color: "#fff", margin: "5px 0 2px 0", fontSize: "22px" }}>
+            {user.firstName || "User"} {user.lastName || ""}
+          </h2>
+          <p style={{ color: "#f39c12", margin: "0 0 20px 0", fontSize: "14px" }}>
+            {user.username ? `@${user.username}` : `@id_${user.telegramId}`}
+          </p>
+
+          {/* Wallets Row */}
+          <div style={{ display: "flex", gap: "10px", marginBottom: "15px" }}>
+            <div style={{ flex: 1, background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "15px" }}>
+              <div style={{ color: "#f39c12", fontSize: "12px", marginBottom: "5px" }}>💳 Main Wallet</div>
+              <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>{balance} ETB</div>
+            </div>
+            <div style={{ flex: 1, background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "15px" }}>
+              <div style={{ color: "#f39c12", fontSize: "12px", marginBottom: "5px" }}>💳 Play Wallet</div>
+              <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>{user.bonusBalance || 0} ETB</div>
+            </div>
+          </div>
+
+          {/* Stats Row */}
+          <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
+            <div style={{ flex: 1, background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: "12px", padding: "15px" }}>
+              <div style={{ color: "#aaa", fontSize: "12px", marginBottom: "5px" }}>🏆 Games Won</div>
+              <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>{user.gamesWon ?? 0}</div>
+            </div>
+            <div style={{ flex: 1, background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: "12px", padding: "15px" }}>
+              <div style={{ color: "#aaa", fontSize: "12px", marginBottom: "5px" }}>👥 Total Invite</div>
+              <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>{user.referralCount ?? 0}</div>
+            </div>
+          </div>
+
+          {/* Invite Box */}
+          <div style={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: "14px", padding: "20px", textAlign: "center" }}>
+            <div style={{ fontSize: "16px", fontWeight: "bold", color: "#f39c12", marginBottom: "8px" }}>
+              🎁 ጓደኞች ይጋብዙ (Invite Friends)
+            </div>
+            <p style={{ color: "#bbb", fontSize: "12px", lineHeight: "1.5", marginBottom: "15px" }}>
+              የእርስዎን የመጋበዣ ሊንክ ለአርደኞችዎ በመላክ በእያንዳንዱ ግንኙነት ተጨማሪ ቦነስ ይደርስል!
+            </p>
+            <button
+              onClick={handleCopyInviteLink}
+              style={{
+                width: "100%",
+                background: "linear-gradient(135deg, #0088cc, #006699)",
+                color: "#fff",
+                border: "none",
+                borderRadius: "10px",
+                padding: "12px",
+                fontSize: "14px",
+                fontWeight: "bold",
+                cursor: "pointer",
+                boxShadow: "0 4px 10px rgba(0, 136, 204, 0.3)"
+              }}
+            >
+              🔗 {copySuccess ? "ተቀድቷል! (Copied!)" : "የመጋበዣ ሊንክ ቅዳ (Copy Invite Link)"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "Admin" && (
+        <div className="page-view admin-panel" style={{ padding: "20px", textAlign: "center" }}>
+          <h2 style={{ color: "#f39c12", marginBottom: "20px" }}>Admin Dashboard</h2>
+          
+          <div style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "20px", marginBottom: "15px" }}>
+            <h3 style={{ fontSize: "28px", color: "#fff", margin: "0 0 5px 0" }}>{adminStats.activeUsers}</h3>
+            <p style={{ color: "#aaa", margin: 0, textTransform: "uppercase", fontSize: "12px", letterSpacing: "1px" }}>Active Users</p>
+          </div>
+
+          <div style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "20px" }}>
+            <h3 style={{ fontSize: "28px", color: "#fff", margin: "0 0 5px 0" }}>{adminStats.registeredUsers}</h3>
+            <p style={{ color: "#aaa", margin: 0, textTransform: "uppercase", fontSize: "12px", letterSpacing: "1px" }}>Registered Users</p>
+          </div>
+        </div>
+      )}
+
+      <nav className="bottom-nav">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={activeTab === tab.id ? "nav-item active" : "nav-item"}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            <span>{tab.icon}</span>
+            <span>{tab.label}</span>
+          </button>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
+export default App;
