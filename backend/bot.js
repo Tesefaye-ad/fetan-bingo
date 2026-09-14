@@ -92,8 +92,16 @@ async function getOrCreateUser(ctx, referredBy) {
   }
 }
 
+// ፎቶ በሰዓት ገደብ (Timeout) ለመላክ የሚረዳ ደህንነቱ የተጠበቀ ተግባር
+async function safeReplyWithPhoto(ctx, photo, options, timeoutMs = 4000) {
+  return Promise.race([
+    ctx.replyWithPhoto(photo, options),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Photo timeout")), timeoutMs))
+  ]);
+}
+
 // ---------------------------------------------------------------------
-// /start - ባነር እና ቁልፎችን በአንድ ላይ መላክ
+// /start - ባነር እና ቁልፎችን በአንድ ላይ ማሳየት (ጊዜ ካለፈ በጽሁፍ በሰዓቱ ይመልሳል)
 // ---------------------------------------------------------------------
 bot.start(async (ctx) => {
   try {
@@ -106,18 +114,23 @@ bot.start(async (ctx) => {
     }
 
     const banner = getBannerSource();
+    let sentPhoto = false;
+
     if (banner) {
       try {
-        await ctx.replyWithPhoto(banner, {
+        await safeReplyWithPhoto(banner, {
           caption: MAIN_MENU_TEXT,
           ...mainKeyboard(),
-        });
-        return;
+        }, 4000); // ከ 4 ሰከንድ በላይ ከዘገየ በራሱ ቆርጦ ወደ ቴክስት ይገባል
+        sentPhoto = true;
       } catch (photoErr) {
-        console.error("[/start] photo reply failed, falling back to text:", photoErr.message);
+        console.error("[/start] photo reply skipped or timed out:", photoErr.message);
       }
     }
-    await ctx.reply(MAIN_MENU_TEXT, mainKeyboard());
+
+    if (!sentPhoto) {
+      await ctx.reply(MAIN_MENU_TEXT, mainKeyboard());
+    }
   } catch (err) {
     console.error("[/start] error:", err.message);
     try {
