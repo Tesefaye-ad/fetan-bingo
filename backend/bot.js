@@ -13,7 +13,6 @@ const mongoose = require("mongoose");
 const connectDB = require("./config/db");
 const User = require("./models/User");
 const Transaction = require("./models/Transaction");
-const { getBannerSource } = require("./utils/bannerSource");
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WEBAPP_URL = process.env.BOT_WEBAPP_URL; 
@@ -93,7 +92,7 @@ async function getOrCreateUser(ctx, referredBy) {
 }
 
 // ---------------------------------------------------------------------
-// /start
+// /start - ፎቶውን በማስወገድ በጽሁፍ ብቻ እንዲሰራ ተደርጓል (socket hang up ይከላከላል)
 // ---------------------------------------------------------------------
 bot.start(async (ctx) => {
   try {
@@ -105,18 +104,6 @@ bot.start(async (ctx) => {
       return ctx.reply("Something went wrong. Please try /start again.");
     }
 
-    const banner = getBannerSource();
-    if (banner) {
-      try {
-        await ctx.replyWithPhoto(banner, {
-          caption: MAIN_MENU_TEXT,
-          ...mainKeyboard(),
-        });
-        return;
-      } catch (photoErr) {
-        console.error("[/start] photo reply failed, falling back to text:", photoErr.message);
-      }
-    }
     await ctx.reply(MAIN_MENU_TEXT, mainKeyboard());
   } catch (err) {
     console.error("[/start] error:", err.message);
@@ -357,7 +344,6 @@ async function main() {
     await new Promise((resolve) => mongoose.connection.once("connected", resolve));
   }
   
-  // 👈 የድሮውን ዌብሁክ እናጠፋለን፣ ይህም /start የማይሰራበትን ችግር ያስወግዳል
   try {
     await bot.telegram.deleteWebhook({ drop_pending_updates: true });
     console.log("[bot] Webhook cleared successfully.");
