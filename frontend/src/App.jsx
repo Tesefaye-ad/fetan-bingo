@@ -22,6 +22,10 @@ function App() {
   // ⚠️ እዚህ ጋር የእርስዎን ትክክለኛ የቴሌግራም ዩዘር ID ቁጥር (Telegram ID) ያስገቡ
   const ADMIN_TELEGRAM_IDS = ["494653076"]; // ምሳሌ: "123456789"
 
+  const isUserAdmin =
+    (user && (user.isAdmin || user.role === "admin")) ||
+    (user && user.telegramId && ADMIN_TELEGRAM_IDS.includes(String(user.telegramId)));
+
   // Dynamically generate tabs based on whether the user is an admin
   const getTabs = () => {
     const tabs = [
@@ -38,10 +42,7 @@ function App() {
     return tabs;
   };
 
-  const isUserAdmin =
-    (user && (user.isAdmin || user.role === "admin")) ||
-    (user && user.telegramId && ADMIN_TELEGRAM_IDS.includes(String(user.telegramId)));
-
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     // Refresh the admin stats whenever an admin lands on the Game or Admin
     // tab, since the stake screen also shows the stats for admins.
@@ -49,7 +50,7 @@ function App() {
       const apiBase = process.env.REACT_APP_API_URL || "";
       fetch(`${apiBase}/api/admin/stats`, {
         headers: {
-          Authorization: `Bearer ${user.token || ""}`,
+          Authorization: `Bearer ${user?.token || ""}`,
         },
       })
         .then((res) => res.json())
@@ -65,7 +66,6 @@ function App() {
           setAdminStats({ activeUsers: 1, registeredUsers: 6 });
         });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, activeTab, isUserAdmin]);
 
   if (!user) {
