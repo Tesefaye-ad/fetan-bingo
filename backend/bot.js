@@ -1,6 +1,6 @@
 /**
  * Fetan Bingo - Telegram bot
- *
+ * 
  * Runs as its OWN process (node bot.js), separate from Server.js. It
  * shares the same MongoDB models as the web app backend, so balances
  * shown here and in the Web App are always the same numbers.
@@ -30,13 +30,13 @@ if (!BOT_TOKEN) {
 }
 
 const bot = new Telegraf(BOT_TOKEN);
-
 const pendingAction = new Map();
 
 const MAIN_MENU_TEXT =
   "👋 Welcome to Fetan Bingo! Choose an option below.\n\n" +
   "እንኳን ወደ Fetan Bingo በደህና መጡ! ከታች ያሉትን ቁልፎች በመጠቀም ጨዋታውን መጫወት ይችላሉ።";
 
+// ዋናው የቁልፍ ሰሌዳ ማዘጋጃ
 function mainKeyboard() {
   const playButton = WEBAPP_URL
     ? Markup.button.webApp("Play 🎮", WEBAPP_URL)
@@ -49,8 +49,8 @@ function mainKeyboard() {
     [Markup.button.text("Instruction 📖"), Markup.button.text("Contact Support ☎️")],
     [Markup.button.text("Convert Bonus 💱")],
   ])
-    .resize() 
-    .persistent(); 
+    .resize()
+    .persistent();
 }
 
 async function getOrCreateUser(ctx, referredBy) {
@@ -92,7 +92,7 @@ async function getOrCreateUser(ctx, referredBy) {
   }
 }
 
-// ፎቶ በሰዓት ገደብ (Timeout) ለመላክ የሚረዳ ደህንነቱ የተጠበቀ ተግባር
+// ፎቶ በሰዓት ገደብ (Timeout) ለመላክ የሚረዳ ተግባር
 async function safeReplyWithPhoto(ctx, photo, options, timeoutMs = 4000) {
   return Promise.race([
     ctx.replyWithPhoto(photo, options),
@@ -101,7 +101,7 @@ async function safeReplyWithPhoto(ctx, photo, options, timeoutMs = 4000) {
 }
 
 // ---------------------------------------------------------------------
-// /start - ባነር እና ቁልፎችን በአንድ ላይ ማሳየት (ጊዜ ካለፈ በጽሁፍ በሰዓቱ ይመልሳል)
+// /start - ባነር እና ቁልፎችን በአንድ ላይ ማሳየት
 // ---------------------------------------------------------------------
 bot.start(async (ctx) => {
   try {
@@ -118,10 +118,10 @@ bot.start(async (ctx) => {
 
     if (banner) {
       try {
-        await safeReplyWithPhoto(banner, {
+        await safeReplyWithPhoto(ctx, banner, {
           caption: MAIN_MENU_TEXT,
           ...mainKeyboard(),
-        }, 4000); // ከ 4 ሰከንድ በላይ ከዘገየ በራሱ ቆርጦ ወደ ቴክስት ይገባል
+        }, 4000);
         sentPhoto = true;
       } catch (photoErr) {
         console.error("[/start] photo reply skipped or timed out:", photoErr.message);
@@ -155,7 +155,8 @@ bot.hears("Register 📝", async (ctx) => {
     const user = await getOrCreateUser(ctx);
     if (!user) return;
     await ctx.reply(
-      `✅ You're registered, ${user.firstName || "player"}!\nTelegram ID: ${user.telegramId}\n\nTap "Play 🎮" any time to jump into a game.`
+      `✅ You're registered, ${user.firstName || "player"}!\nTelegram ID: ${user.telegramId}\n\nTap "Play 🎮" any time to jump into a game.`,
+      mainKeyboard()
     );
   } catch (err) {
     console.error("[Register] error:", err.message);
@@ -167,7 +168,8 @@ bot.hears("Check Balance 💰", async (ctx) => {
     const user = await getOrCreateUser(ctx);
     if (!user) return;
     await ctx.reply(
-      `💰 Main balance: ${user.balance} ETB\n🎁 Bonus balance: ${user.bonusBalance} ETB (use "Convert Bonus 💱" to move it to your main balance)`
+      `💰 Main balance: ${user.balance} ETB\n🎁 Bonus balance: ${user.bonusBalance} ETB (use "Convert Bonus 💱" to move it to your main balance)`,
+      mainKeyboard()
     );
   } catch (err) {
     console.error("[Check Balance] error:", err.message);
@@ -179,7 +181,8 @@ bot.hears("Deposit 💵", async (ctx) => {
     await getOrCreateUser(ctx);
     pendingAction.set(String(ctx.from.id), { type: "deposit" });
     await ctx.reply(
-      `How much would you like to deposit? (minimum ${MIN_DEPOSIT} ETB)\nJust type a number, e.g. 100`
+      `How much would you like to deposit? (minimum ${MIN_DEPOSIT} ETB)\nJust type a number, e.g. 100`,
+      mainKeyboard()
     );
   } catch (err) {
     console.error("[Deposit] error:", err.message);
@@ -192,12 +195,14 @@ bot.hears("Withdraw 🤑", async (ctx) => {
     if (!user) return;
     if (user.balance < MIN_WITHDRAW) {
       return ctx.reply(
-        `Your balance (${user.balance} ETB) is below the minimum withdrawal of ${MIN_WITHDRAW} ETB.`
+        `Your balance (${user.balance} ETB) is below the minimum withdrawal of ${MIN_WITHDRAW} ETB.`,
+        mainKeyboard()
       );
     }
     pendingAction.set(String(ctx.from.id), { type: "withdraw" });
     await ctx.reply(
-      `How much would you like to withdraw? (minimum ${MIN_WITHDRAW} ETB, balance: ${user.balance} ETB)\nJust type a number, e.g. 100`
+      `How much would you like to withdraw? (minimum ${MIN_WITHDRAW} ETB, balance: ${user.balance} ETB)\nJust type a number, e.g. 100`,
+      mainKeyboard()
     );
   } catch (err) {
     console.error("[Withdraw] error:", err.message);
@@ -211,7 +216,8 @@ bot.hears("Invite 🔗", async (ctx) => {
     const me = await ctx.telegram.getMe();
     const link = `https://t.me/${me.username}?start=ref_${user.telegramId}`;
     await ctx.reply(
-      `🔗 Share your invite link - you earn 5 ETB bonus for every friend who joins:\n\n${link}\n\nFriends invited so far: ${user.referralCount}`
+      `🔗 Share your invite link - you earn 5 ETB bonus for every friend who joins:\n\n${link}\n\nFriends invited so far: ${user.referralCount}`,
+      mainKeyboard()
     );
   } catch (err) {
     console.error("[Invite] error:", err.message);
@@ -232,7 +238,8 @@ bot.hears("Instruction 📖", async (ctx) => {
         "2. ክፍል ይቀላቀሉ ወይም ይፍጠሩ - መግቢያ ክፍያው ከሂሳብዎ ይቀነሳል።\n" +
         "3. 2 ወይም ከዚያ በላይ ተጫዋቾች ሲቀላቀሉ ቁጥሮች በራስ-ሰር ይጠራሉ።\n" +
         "4. የተጠራውን ቁጥር በካርድዎ ላይ ይንኩ።\n" +
-        "5. ረድፍ፣ አምድ፣ ዲያጎናል ወይም ሙሉ ካርድ ሲያጠናቅቁ BINGO! የሚለውን ይንኩ。"
+        "5. ረድፍ፣ አምድ፣ ዲያጎናል ወይም ሙሉ ካርድ ሲያጠናቅቁ BINGO! የሚለውን ይንኩ。",
+      mainKeyboard()
     );
   } catch (err) {
     console.error("[Instruction] error:", err.message);
@@ -241,7 +248,7 @@ bot.hears("Instruction 📖", async (ctx) => {
 
 bot.hears("Contact Support ☎️", async (ctx) => {
   try {
-    await ctx.reply(`☎️ Need help? Message ${SUPPORT_CONTACT} and we'll get back to you.`);
+    await ctx.reply(`☎️ Need help? Message ${SUPPORT_CONTACT} and we'll get back to you.`, mainKeyboard());
   } catch (err) {
     console.error("[Contact Support] error:", err.message);
   }
@@ -252,7 +259,7 @@ bot.hears("Convert Bonus 💱", async (ctx) => {
     const user = await getOrCreateUser(ctx);
     if (!user) return;
     if (user.bonusBalance <= 0) {
-      return ctx.reply("You don't have any bonus balance to convert yet.");
+      return ctx.reply("You don't have any bonus balance to convert yet.", mainKeyboard());
     }
 
     const converted = user.bonusBalance * BONUS_CONVERSION_RATE;
@@ -268,7 +275,7 @@ bot.hears("Convert Bonus 💱", async (ctx) => {
       meta: { source: "bonus_conversion" },
     });
 
-    await ctx.reply(`✅ Converted your bonus into ${converted} ETB. New balance: ${user.balance} ETB.`);
+    await ctx.reply(`✅ Converted your bonus into ${converted} ETB. New balance: ${user.balance} ETB.`, mainKeyboard());
   } catch (err) {
     console.error("[Convert Bonus] error:", err.message);
   }
@@ -282,7 +289,7 @@ bot.on("text", async (ctx) => {
 
     const amount = Number(ctx.message.text.trim());
     if (!amount || amount <= 0) {
-      return ctx.reply("Please send a valid positive number, or tap a menu button to cancel.");
+      return ctx.reply("Please send a valid positive number, or tap a menu button to cancel.", mainKeyboard());
     }
 
     const user = await getOrCreateUser(ctx);
@@ -290,7 +297,7 @@ bot.on("text", async (ctx) => {
 
     if (step.type === "deposit") {
       if (amount < MIN_DEPOSIT) {
-        return ctx.reply(`Minimum deposit is ${MIN_DEPOSIT} ETB. Please send a higher amount.`);
+        return ctx.reply(`Minimum deposit is ${MIN_DEPOSIT} ETB. Please send a higher amount.`, mainKeyboard());
       }
 
       const reference = `DEP-${Date.now()}`;
@@ -305,7 +312,8 @@ bot.on("text", async (ctx) => {
 
       pendingAction.delete(key);
       await ctx.reply(
-        `📥 To deposit ${amount} ETB:\nSend it via Telebirr to ${DEPOSIT_PHONE}, then send us a screenshot here.\nReference: ${reference}\n\nYour balance updates once an admin confirms the transfer.`
+        `📥 To deposit ${amount} ETB:\nSend it via Telebirr to ${DEPOSIT_PHONE}, then send us a screenshot here.\nReference: ${reference}\n\nYour balance updates once an admin confirms the transfer.`,
+        mainKeyboard()
       );
       notifyAdmin(
         `🆕 Deposit request\nUser: ${user.firstName || user.username} (${user.telegramId})\nAmount: ${amount} ETB\nReference: ${reference}`
@@ -314,11 +322,11 @@ bot.on("text", async (ctx) => {
 
     if (step.type === "withdraw") {
       if (amount < MIN_WITHDRAW) {
-        return ctx.reply(`Minimum withdrawal is ${MIN_WITHDRAW} ETB.`);
+        return ctx.reply(`Minimum withdrawal is ${MIN_WITHDRAW} ETB.`, mainKeyboard());
       }
       if (amount > user.balance) {
         pendingAction.delete(key);
-        return ctx.reply(`Insufficient balance. Your balance is ${user.balance} ETB.`);
+        return ctx.reply(`Insufficient balance. Your balance is ${user.balance} ETB.`, mainKeyboard());
       }
 
       user.balance -= amount;
@@ -334,7 +342,8 @@ bot.on("text", async (ctx) => {
 
       pendingAction.delete(key);
       await ctx.reply(
-        `📤 Withdrawal of ${amount} ETB requested. New balance: ${user.balance} ETB.\nIt will be paid out and marked complete by an admin shortly.`
+        `📤 Withdrawal of ${amount} ETB requested. New balance: ${user.balance} ETB.\nIt will be paid out and marked complete by an admin shortly.`,
+        mainKeyboard()
       );
       notifyAdmin(
         `🆕 Withdrawal request\nUser: ${user.firstName || user.username} (${user.telegramId})\nAmount: ${amount} ETB`
@@ -375,6 +384,22 @@ async function main() {
     console.log("[bot] Webhook cleared successfully.");
   } catch (err) {
     console.error("[bot] Failed to clear webhook:", err.message);
+  }
+
+  // Set Bot Commands Menu
+  try {
+    await bot.telegram.setMyCommands([
+      { command: "start", description: "Start" },
+      { command: "register", description: "Register" },
+      { command: "play", description: "Play" },
+      { command: "deposit", description: "Deposit" },
+      { command: "balance", description: "Balance" },
+      { command: "withdraw", description: "Withdraw" },
+      { command: "invite", description: "Invite" },
+      { command: "instruction", description: "Instruction" }
+    ]);
+  } catch (err) {
+    console.error('Menu setup error:', err);
   }
 
   bot.launch().catch((err) => {
