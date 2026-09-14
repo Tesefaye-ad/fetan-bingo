@@ -8,6 +8,15 @@ const { verifySocketToken } = require("../middleware/auth");
 // stop them when the game ends. Keyed by roomCode.
 const activeCallers = new Map();
 
+// Tracks currently-connected userIds so the admin dashboard can show a live
+// "Active Users" count. A Set is used because one user can open multiple
+// sockets (e.g. two tabs) without inflating the count.
+const activeUserIds = new Set();
+
+function getActiveUserCount() {
+  return activeUserIds.size;
+}
+
 function randomUncalledNumber(calledNumbers, maxNumber) {
   const pool = [];
   for (let i = 1; i <= maxNumber; i++) {
@@ -38,6 +47,7 @@ function initGameSocket(io) {
 
   io.on("connection", (socket) => {
     console.log(`[socket] connected: user ${socket.telegramId}`);
+    activeUserIds.add(socket.userId);
 
     // ---- JOIN ROOM & SELECT CARD ID --------------------------------------
     socket.on("join_room", async ({ roomCode, cardId }) => {
@@ -263,6 +273,12 @@ function initGameSocket(io) {
 
     socket.on("disconnect", () => {
       console.log(`[socket] disconnected: user ${socket.telegramId}`);
+      // Only drop the user from the active set once their last socket closes
+      // (they may have more than one tab/device open).
+      const stillConnected = [...io.sockets.sockets.values()].some(
+        (s) => s.userId === socket.userId
+      );
+      if (!stillConnected) activeUserIds.delete(socket.userId);
     });
   });
 }
@@ -317,4 +333,4 @@ async function startGame(io, roomCode) {
   activeCallers.set(roomCode, handle);
 }
 
-module.exports = { initGameSocket };
+module.exports = { initGameSocket, getActiveUserCount };

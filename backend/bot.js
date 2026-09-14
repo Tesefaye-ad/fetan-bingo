@@ -17,10 +17,10 @@ const mongoose = require("mongoose");
 const connectDB = require("./config/db");
 const User = require("./models/User");
 const Transaction = require("./models/Transaction");
+const { getBannerSource } = require("./utils/bannerSource");
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WEBAPP_URL = process.env.BOT_WEBAPP_URL; // e.g. https://your-frontend.onrender.com
-const BANNER_URL = process.env.BOT_BANNER_URL; // optional: hosted image for the /start banner
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID; // your (or a group's) chat id, for deposit/withdraw alerts
 const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "@FetanBingoSupport";
 const DEPOSIT_PHONE = process.env.DEPOSIT_TELEBIRR_PHONE || "0920790583";
@@ -102,8 +102,9 @@ bot.start(async (ctx) => {
 
     await getOrCreateUser(ctx, referredBy);
 
-    if (BANNER_URL) {
-      await ctx.replyWithPhoto(BANNER_URL, {
+    const banner = getBannerSource();
+    if (banner) {
+      await ctx.replyWithPhoto(banner, {
         caption: MAIN_MENU_TEXT,
         ...mainKeyboard(),
       });

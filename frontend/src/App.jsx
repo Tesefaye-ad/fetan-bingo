@@ -12,6 +12,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [balance, setBalance] = useState(0);
   const [roomCode, setRoomCode] = useState(null);
+  const [cardId, setCardId] = useState(null);
   const [activeTab, setActiveTab] = useState("Game");
   
   // Admin stats state
@@ -22,18 +23,13 @@ function App() {
   const ADMIN_TELEGRAM_IDS = ["494653076"]; // ምሳሌ: "123456789"
 
   // Dynamically generate tabs based on whether the user is an admin
-  const getTabs = (currentUser) => {
+  const getTabs = () => {
     const tabs = [
       { id: "Game", label: "Game", icon: "🎮" },
       { id: "History", label: "History", icon: "📜" },
       { id: "Wallet", label: "Wallet", icon: "💳" },
       { id: "Profile", label: "Profile", icon: "👤" },
     ];
-
-    // Check if user is admin (በ ዳታቤዝ ሚና ወይም በ ቴሌግራም ID ማረጋገጥ)
-    const isUserAdmin = 
-      (currentUser && (currentUser.isAdmin || currentUser.role === "admin")) ||
-      (currentUser && currentUser.telegramId && ADMIN_TELEGRAM_IDS.includes(String(currentUser.telegramId)));
 
     if (isUserAdmin) {
       tabs.push({ id: "Admin", label: "Admin", icon: "⚙️" });
@@ -42,13 +38,16 @@ function App() {
     return tabs;
   };
 
-  useEffect(() => {
-    const isUserAdmin = 
-      (user && (user.isAdmin || user.role === "admin")) ||
-      (user && user.telegramId && ADMIN_TELEGRAM_IDS.includes(String(user.telegramId)));
+  const isUserAdmin =
+    (user && (user.isAdmin || user.role === "admin")) ||
+    (user && user.telegramId && ADMIN_TELEGRAM_IDS.includes(String(user.telegramId)));
 
-    if (isUserAdmin && activeTab === "Admin") {
-      fetch("/api/admin/stats", {
+  useEffect(() => {
+    // Refresh the admin stats whenever an admin lands on the Game or Admin
+    // tab, since the stake screen also shows the stats for admins.
+    if (isUserAdmin && (activeTab === "Admin" || activeTab === "Game")) {
+      const apiBase = process.env.REACT_APP_API_URL || "";
+      fetch(`${apiBase}/api/admin/stats`, {
         headers: {
           Authorization: `Bearer ${user.token || ""}`,
         },
@@ -66,7 +65,8 @@ function App() {
           setAdminStats({ activeUsers: 1, registeredUsers: 6 });
         });
     }
-  }, [user, activeTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, activeTab, isUserAdmin]);
 
   if (!user) {
     return (
@@ -82,6 +82,12 @@ function App() {
   function handleExitGame() {
     disconnectSocket();
     setRoomCode(null);
+    setCardId(null);
+  }
+
+  function handleJoinRoom(code, selectedCardId) {
+    setRoomCode(code);
+    setCardId(selectedCardId);
   }
 
   const handleCopyInviteLink = () => {
@@ -93,7 +99,7 @@ function App() {
     });
   };
 
-  const tabs = getTabs(user);
+  const tabs = getTabs();
   const userInitial = user.firstName ? user.firstName.charAt(0).toUpperCase() : (user.username ? user.username.charAt(0).toUpperCase() : "U");
 
   return (
@@ -109,12 +115,17 @@ function App() {
           {roomCode ? (
             <LiveGame
               roomCode={roomCode}
+              cardId={cardId}
               setBalance={setBalance}
               telegramId={user.telegramId}
               onExit={handleExitGame}
             />
           ) : (
-            <GameLobby onJoin={setRoomCode} />
+            <GameLobby
+              onJoin={handleJoinRoom}
+              isAdmin={isUserAdmin}
+              adminStats={adminStats}
+            />
           )}
         </>
       )}

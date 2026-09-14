@@ -9,7 +9,7 @@ Frontend: React (Create React App) + socket.io-client.
 Your uploaded project had a **real Telegram bot token committed in `backend/.env`**
 (and in the repo's `.git` history). Treat that token as compromised:
 
-1. Open @BotFather → your bot → **API Token** 
+1. Open @BotFather → your bot → **API Token** → **Revoke current token**.
 2. Put the new token only in Render's environment variables (Dashboard →
    your service → Environment) — never in a file you commit to Git.
 3. If you already pushed this repo anywhere public, the old token is
