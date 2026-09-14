@@ -1,6 +1,9 @@
 /**
  * Fetan Bingo - Telegram bot
- * Runs as its OWN process (node bot.js), separate from Server.js.
+ *
+ * Runs as its OWN process (node bot.js), separate from Server.js. It
+ * shares the same MongoDB models as the web app backend, so balances
+ * shown here and in the Web App are always the same numbers.
  */
 require("dotenv").config();
 const express = require("express");
@@ -10,6 +13,7 @@ const mongoose = require("mongoose");
 const connectDB = require("./config/db");
 const User = require("./models/User");
 const Transaction = require("./models/Transaction");
+const { getBannerSource } = require("./utils/bannerSource");
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WEBAPP_URL = process.env.BOT_WEBAPP_URL; 
@@ -20,15 +24,13 @@ const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 20);
 const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 50);
 const BONUS_CONVERSION_RATE = Number(process.env.BONUS_CONVERSION_RATE || 1);
 
-// የባነር ፎቶ ሊንክ (እዚህ ጋር የሚፈልጉትን የፎቶ ሊንክ ማስገባት ይችላሉ)
-const BANNER_URL = process.env.BOT_BANNER_URL || "https://i.imgur.com/4AiXn6W.jpg";
-
 if (!BOT_TOKEN) {
   console.error("[bot] TELEGRAM_BOT_TOKEN is missing. Aborting.");
   process.exit(1);
 }
 
 const bot = new Telegraf(BOT_TOKEN);
+
 const pendingAction = new Map();
 
 const MAIN_MENU_TEXT =
@@ -91,7 +93,7 @@ async function getOrCreateUser(ctx, referredBy) {
 }
 
 // ---------------------------------------------------------------------
-// /start - ባነር ፎቶውን ከሰላምታው ጋር በደህንነት (try/catch) ማሳየት
+// /start - ባነር እና ቁልፎችን በአንድ ላይ መላክ
 // ---------------------------------------------------------------------
 bot.start(async (ctx) => {
   try {
@@ -103,15 +105,19 @@ bot.start(async (ctx) => {
       return ctx.reply("Something went wrong. Please try /start again.");
     }
 
-    try {
-      await ctx.replyWithPhoto(BANNER_URL, {
-        caption: MAIN_MENU_TEXT,
-        ...mainKeyboard(),
-      });
-    } catch (photoErr) {
-      console.warn("[/start] Photo banner failed, falling back to text:", photoErr.message);
-      await ctx.reply(MAIN_MENU_TEXT, mainKeyboard());
+    const banner = getBannerSource();
+    if (banner) {
+      try {
+        await ctx.replyWithPhoto(banner, {
+          caption: MAIN_MENU_TEXT,
+          ...mainKeyboard(),
+        });
+        return;
+      } catch (photoErr) {
+        console.error("[/start] photo reply failed, falling back to text:", photoErr.message);
+      }
     }
+    await ctx.reply(MAIN_MENU_TEXT, mainKeyboard());
   } catch (err) {
     console.error("[/start] error:", err.message);
     try {
@@ -202,7 +208,7 @@ bot.hears("Invite 🔗", async (ctx) => {
 bot.hears("Instruction 📖", async (ctx) => {
   try {
     await ctx.reply(
-      "📖 How to play Fetan Bingo:\n" +
+      "📖 How to play:\n" +
         "1. Tap Play 🎮 to open the game.\n" +
         "2. Join or create a room - the entry fee is deducted from your balance.\n" +
         "3. Once 2+ players join, numbers are called automatically.\n" +
@@ -375,7 +381,7 @@ async function main() {
     }
   }
 
-  console.log("[bot] Fetan Bingo bot is running");
+  console.log("[bot] Fetan bingo bot is running");
 }
 
 main().catch((err) => {
