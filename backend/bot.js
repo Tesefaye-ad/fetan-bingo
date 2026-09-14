@@ -36,21 +36,19 @@ const MAIN_MENU_TEXT =
   "👋 Welcome to Fetan Bingo! Choose an option below.\n\n" +
   "እንኳን ወደ Fetan Bingo በደህና መጡ! ከታች ያሉትን ቁልፎች በመጠቀም ጨዋታውን መጫወት ይችላሉ።";
 
-// ዋናው የቁልፍ ሰሌዳ ማዘጋጃ
+// ዋናው የኢንላይን ኪቦርድ (ቁልፎቹ ከላይ ከመልዕክቱ ጋር እንዲታዩ)
 function mainKeyboard() {
   const playButton = WEBAPP_URL
     ? Markup.button.webApp("Play 🎮", WEBAPP_URL)
     : Markup.button.callback("Play 🎮", "play_not_configured");
 
-  return Markup.keyboard([
-    [playButton, Markup.button.text("Register 📝")],
-    [Markup.button.text("Check Balance 💰"), Markup.button.text("Deposit 💵")],
-    [Markup.button.text("Withdraw 🤑"), Markup.button.text("Invite 🔗")],
-    [Markup.button.text("Instruction 📖"), Markup.button.text("Contact Support ☎️")],
-    [Markup.button.text("Convert Bonus 💱")],
-  ])
-    .resize()
-    .persistent();
+  return Markup.inlineKeyboard([
+    [playButton, Markup.button.callback("Register 📝", "action_register")],
+    [Markup.button.callback("Check Balance 💰", "action_balance"), Markup.button.callback("Deposit 💵", "action_deposit")],
+    [Markup.button.callback("Withdraw 🤑", "action_withdraw"), Markup.button.callback("Invite 🔗", "action_invite")],
+    [Markup.button.callback("Instruction 📖", "action_instruction"), Markup.button.callback("Contact Support ☎️", "action_support")],
+    [Markup.button.callback("Convert Bonus 💱", "action_convert")],
+  ]);
 }
 
 async function getOrCreateUser(ctx, referredBy) {
@@ -150,7 +148,9 @@ bot.action("play_not_configured", async (ctx) => {
   }
 });
 
-bot.hears("Register 📝", async (ctx) => {
+// --- ተግባራት (Handlers) ለሁለቱም ቴክስት እና ኢንላይን ቁልፎች ---
+
+const handleRegister = async (ctx) => {
   try {
     const user = await getOrCreateUser(ctx);
     if (!user) return;
@@ -161,9 +161,12 @@ bot.hears("Register 📝", async (ctx) => {
   } catch (err) {
     console.error("[Register] error:", err.message);
   }
-});
+};
 
-bot.hears("Check Balance 💰", async (ctx) => {
+bot.hears("Register 📝", handleRegister);
+bot.action("action_register", async (ctx) => { await ctx.answerCbQuery(); await handleRegister(ctx); });
+
+const handleBalance = async (ctx) => {
   try {
     const user = await getOrCreateUser(ctx);
     if (!user) return;
@@ -174,9 +177,12 @@ bot.hears("Check Balance 💰", async (ctx) => {
   } catch (err) {
     console.error("[Check Balance] error:", err.message);
   }
-});
+};
 
-bot.hears("Deposit 💵", async (ctx) => {
+bot.hears("Check Balance 💰", handleBalance);
+bot.action("action_balance", async (ctx) => { await ctx.answerCbQuery(); await handleBalance(ctx); });
+
+const handleDeposit = async (ctx) => {
   try {
     await getOrCreateUser(ctx);
     pendingAction.set(String(ctx.from.id), { type: "deposit" });
@@ -187,9 +193,12 @@ bot.hears("Deposit 💵", async (ctx) => {
   } catch (err) {
     console.error("[Deposit] error:", err.message);
   }
-});
+};
 
-bot.hears("Withdraw 🤑", async (ctx) => {
+bot.hears("Deposit 💵", handleDeposit);
+bot.action("action_deposit", async (ctx) => { await ctx.answerCbQuery(); await handleDeposit(ctx); });
+
+const handleWithdraw = async (ctx) => {
   try {
     const user = await getOrCreateUser(ctx);
     if (!user) return;
@@ -207,9 +216,12 @@ bot.hears("Withdraw 🤑", async (ctx) => {
   } catch (err) {
     console.error("[Withdraw] error:", err.message);
   }
-});
+};
 
-bot.hears("Invite 🔗", async (ctx) => {
+bot.hears("Withdraw 🤑", handleWithdraw);
+bot.action("action_withdraw", async (ctx) => { await ctx.answerCbQuery(); await handleWithdraw(ctx); });
+
+const handleInvite = async (ctx) => {
   try {
     const user = await getOrCreateUser(ctx);
     if (!user) return;
@@ -222,9 +234,12 @@ bot.hears("Invite 🔗", async (ctx) => {
   } catch (err) {
     console.error("[Invite] error:", err.message);
   }
-});
+};
 
-bot.hears("Instruction 📖", async (ctx) => {
+bot.hears("Invite 🔗", handleInvite);
+bot.action("action_invite", async (ctx) => { await ctx.answerCbQuery(); await handleInvite(ctx); });
+
+const handleInstruction = async (ctx) => {
   try {
     await ctx.reply(
       "📖 How to play:\n" +
@@ -244,17 +259,23 @@ bot.hears("Instruction 📖", async (ctx) => {
   } catch (err) {
     console.error("[Instruction] error:", err.message);
   }
-});
+};
 
-bot.hears("Contact Support ☎️", async (ctx) => {
+bot.hears("Instruction 📖", handleInstruction);
+bot.action("action_instruction", async (ctx) => { await ctx.answerCbQuery(); await handleInstruction(ctx); });
+
+const handleSupport = async (ctx) => {
   try {
     await ctx.reply(`☎️ Need help? Message ${SUPPORT_CONTACT} and we'll get back to you.`, mainKeyboard());
   } catch (err) {
     console.error("[Contact Support] error:", err.message);
   }
-});
+};
 
-bot.hears("Convert Bonus 💱", async (ctx) => {
+bot.hears("Contact Support ☎️", handleSupport);
+bot.action("action_support", async (ctx) => { await ctx.answerCbQuery(); await handleSupport(ctx); });
+
+const handleConvert = async (ctx) => {
   try {
     const user = await getOrCreateUser(ctx);
     if (!user) return;
@@ -279,7 +300,10 @@ bot.hears("Convert Bonus 💱", async (ctx) => {
   } catch (err) {
     console.error("[Convert Bonus] error:", err.message);
   }
-});
+};
+
+bot.hears("Convert Bonus 💱", handleConvert);
+bot.action("action_convert", async (ctx) => { await ctx.answerCbQuery(); await handleConvert(ctx); });
 
 bot.on("text", async (ctx) => {
   try {
