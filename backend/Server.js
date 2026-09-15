@@ -5,7 +5,6 @@ const mongoose = require("mongoose");
 const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
-const { Telegraf } = require("telegraf");
 
 const connectDB = require("./config/db");
 
@@ -53,35 +52,6 @@ app.use((err, req, res, next) => {
 });
 
 initGameSocket(io);
-
-// ==========================================
-// Telegram Bot Integration (በዚሁ ሰርቨር ውስጥ አብሮ የሚሰራ)
-// ==========================================
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const WEBAPP_URL = process.env.BOT_WEBAPP_URL || process.env.CLIENT_URL || "https://fetan-bingo.vercel.app";
-
-if (BOT_TOKEN) {
-  const bot = new Telegraf(BOT_TOKEN);
-
-  bot.start((ctx) => {
-    ctx.reply("እንኳን ወደ Fetan Lottery በሰላም መጡ! 🎮\nጨዋታውን ለመጀመር ከታች ያለውን ቁልፍ ይጫኑ።", {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "🚀 ጨዋታውን ክፈት (Open Game)", web_app: { url: WEBAPP_URL } }]
-        ]
-      }
-    });
-  });
-
-  bot.launch()
-    .then(() => console.log("[telegram-bot] Bot started successfully alongside the server!"))
-    .catch((err) => console.error("[telegram-bot] Startup error:", err));
-
-  process.once("SIGINT", () => bot.stop("SIGINT"));
-  process.once("SIGTERM", () => bot.stop("SIGTERM"));
-} else {
-  console.warn("[telegram-bot] TELEGRAM_BOT_TOKEN is not defined in environment variables.");
-}
 
 const PORT = process.env.PORT || 10000;
 
