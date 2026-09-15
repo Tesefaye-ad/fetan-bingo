@@ -23,7 +23,7 @@ export function useTelegram() {
         setTelegramUser(tg.initDataUnsafe.user);
       }
     } else {
-      // 💻 ከቴሌግራም ውጭ (በብሮውዘር) ሲከፈት እንዳይዘጋ በነባሪነት (Fallback) አድሚን ዩዘር መስጠት
+      // 💻 ከቴሌግራም ውጭ ወይም በብሮውዘር ሲከፈት በራስ ሰር እንደ አድሚን እንዲገባ የሚያደርግ ፎልባክ
       setTelegramUser({
         id: 494653076,
         first_name: "Tesfaye",
@@ -34,7 +34,7 @@ export function useTelegram() {
 
   return {
     telegramUser,
-    isTelegram: true, // አፑ በምንም መልኩ እንዳይዘጋ ሁልጊዜ true እንዲሆን ተደርጓል
+    isTelegram: true,
     initData,
     webApp: getTg(),
   };

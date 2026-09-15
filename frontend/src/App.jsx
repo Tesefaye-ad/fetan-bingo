@@ -7,7 +7,7 @@ import { disconnectSocket } from "./socket";
 import { useTelegram } from "./useTelegram";
 
 function App() {
-  useTelegram(); // expands the Telegram WebApp viewport as early as possible
+  useTelegram();
 
   const [user, setUser] = useState(null);
   const [balance, setBalance] = useState(0);
@@ -15,18 +15,15 @@ function App() {
   const [cardId, setCardId] = useState(null);
   const [activeTab, setActiveTab] = useState("Game");
   
-  // Admin stats state
   const [adminStats, setAdminStats] = useState({ activeUsers: 0, registeredUsers: 0 });
   const [copySuccess, setCopySuccess] = useState(false);
 
-  // ⚠️ የእርስዎን ትክክለኛ የቴሌግራም ዩዘር ID ቁጥር (Telegram ID)
   const ADMIN_TELEGRAM_IDS = ["494653076"]; 
 
   const isUserAdmin =
     (user && (user.isAdmin || user.role === "admin")) ||
     (user && user.telegramId && ADMIN_TELEGRAM_IDS.includes(String(user.telegramId)));
 
-  // Dynamically generate tabs based on whether the user is an admin
   const getTabs = () => {
     const tabs = [
       { id: "Game", label: "Game", icon: "🎮" },
@@ -89,7 +86,7 @@ function App() {
   }
 
   const handleCopyInviteLink = () => {
-    const botUsername = "fetanbingobot"; // ትክክለኛውን የቦት ስምዎ እዚህ ያስገቡ
+    const botUsername = "fetanbingobot";
     const inviteLink = `https://t.me/${botUsername}?start=ref_${user.telegramId}`;
     navigator.clipboard.writeText(inviteLink).then(() => {
       setCopySuccess(true);
@@ -101,7 +98,7 @@ function App() {
   const userInitial = user.firstName ? user.firstName.charAt(0).toUpperCase() : (user.username ? user.username.charAt(0).toUpperCase() : "U");
 
   return (
-    <div className="app" style={{ paddingBottom: "80px" }}> {/* 💡 ከታች ያለው ናቪጌሽን ይዘቱን እንዳይሸፍነው የተደረገ ማስተካከያ */}
+    <div className="app" style={{ paddingBottom: "80px" }}>
       <header className="app-header">
         <h1>🎱 Fetan Lottery</h1>
         <span>Hi, {user.firstName || user.username}</span>
@@ -138,7 +135,6 @@ function App() {
 
       {activeTab === "Profile" && (
         <div className="page-view profile-view" style={{ padding: "15px", textAlign: "center" }}>
-          {/* Avatar Circle */}
           <div style={{
             width: "80px",
             height: "80px",
@@ -164,7 +160,6 @@ function App() {
             {user.username ? `@${user.username}` : `@id_${user.telegramId}`}
           </p>
 
-          {/* Wallets Row */}
           <div style={{ display: "flex", gap: "10px", marginBottom: "15px" }}>
             <div style={{ flex: 1, background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "15px" }}>
               <div style={{ color: "#f39c12", fontSize: "12px", marginBottom: "5px" }}>💳 Main Wallet</div>
@@ -176,7 +171,6 @@ function App() {
             </div>
           </div>
 
-          {/* Stats Row */}
           <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
             <div style={{ flex: 1, background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: "12px", padding: "15px" }}>
               <div style={{ color: "#aaa", fontSize: "12px", marginBottom: "5px" }}>🏆 Games Won</div>
@@ -188,13 +182,12 @@ function App() {
             </div>
           </div>
 
-          {/* Invite Box */}
           <div style={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: "14px", padding: "20px", textAlign: "center" }}>
             <div style={{ fontSize: "16px", fontWeight: "bold", color: "#f39c12", marginBottom: "8px" }}>
-              🎁 ጓደኞች ይጋбаты (Invite Friends)
+              🎁 ጓደኞች ይጋብዙ (Invite Friends)
             </div>
             <p style={{ color: "#bbb", fontSize: "12px", lineHeight: "1.5", marginBottom: "15px" }}>
-              የእርስዎን የመጋበዣ ሊንክ ለአርደኞችዎ በመላክ በእያንዳንዱ ግንኙነት ተጨማሪ ቦነስ ይደርስል!
+              የእርስዎን የመጋበዣ ሊንክ ለጓደኞችዎ በመላክ በእያንዳንዱ ግንኙነት ተጨማሪ ቦነስ ይደርስል!
             </p>
             <button
               onClick={handleCopyInviteLink}

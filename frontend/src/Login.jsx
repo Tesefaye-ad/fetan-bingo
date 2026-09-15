@@ -3,7 +3,7 @@ import { useTelegram } from "./useTelegram";
 import { loginWithTelegram } from "./api";
 
 export default function Login({ onLoggedIn }) {
-  const { initData, telegramUser, isTelegram } = useTelegram();
+  const { initData, telegramUser } = useTelegram();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -51,7 +51,6 @@ export default function Login({ onLoggedIn }) {
         onLoggedIn(user);
       } catch (err) {
         console.error("Login process error:", err);
-        // ስህተት ቢፈጠርም አፑን ከቶውንም ላለመዝጋት አድሚን ዩዘር መስጠት
         onLoggedIn({
           id: "fallback_id",
           telegramId: "494653076",
@@ -66,10 +65,9 @@ export default function Login({ onLoggedIn }) {
       }
     }
 
-    // ቴሌግራም ዌብአፕ ሙሉ በሙሉ ሎድ እስኪሆን ትንሽ ጊዜ መስጠት (500 ሚሊሰከንድ)
     const timer = setTimeout(() => {
       handleLogin();
-    }, 500);
+    }, 300);
 
     return () => clearTimeout(timer);
   }, [initData, telegramUser, onLoggedIn]);
@@ -86,10 +84,10 @@ export default function Login({ onLoggedIn }) {
       fontFamily: "sans-serif"
     }}>
       <div style={{ fontSize: "18px", color: "#38bdf8", fontWeight: "bold", marginBottom: "8px" }}>
-        Fetan Bingo is loading...
+        Fetan Lottery is loading...
       </div>
       <div style={{ fontSize: "12px", color: "#94a3b8" }}>
-        Connecting to Telegram...
+        Preparing your dashboard...
       </div>
     </div>
   );
