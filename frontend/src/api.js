@@ -12,9 +12,20 @@ api.interceptors.request.use((config) => {
 });
 
 export async function loginWithTelegram(initData) {
-  const { data } = await api.post("/api/auth/telegram", { initData });
-  localStorage.setItem("bingo_token", data.token);
-  return data.user;
+  try {
+    // initData ከሌለ (ለምሳሌ ከብሮውዘር ሲሞከር) ስህተት መወርወር
+    if (!initData) {
+      throw new Error("Telegram initData is missing. Please open the app from Telegram.");
+    }
+
+    const { data } = await api.post("/api/auth/telegram", { initData });
+    localStorage.setItem("bingo_token", data.token);
+    return data.user;
+  } catch (error) {
+    // የሰርቨሩን ትክክለኛ የኢረር መልእክት በኮንሶል ማሳየት (ለዲባግ ይጠቅማል)
+    console.error("Login API Error:", error.response?.data || error.message);
+    throw error;
+  }
 }
 
 export function logout() {

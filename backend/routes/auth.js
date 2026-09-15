@@ -8,16 +8,20 @@ const router = express.Router();
 /**
  * POST /api/auth/telegram
  * Body: { initData: "<raw initData string from Telegram.WebApp.initData>" }
- *
- * Verifies the initData signature, upserts the user, and returns a JWT
- * the frontend uses for all further REST + Socket.io calls.
  */
 router.post("/telegram", async (req, res) => {
   try {
     const { initData } = req.body;
 
     if (!initData) {
+      console.warn("[POST /api/auth/telegram] initData is missing from request body.");
       return res.status(400).json({ error: "initData is required" });
+    }
+
+    // 🔍 የቦት ቶከን መኖሩን ማረጋገጥ
+    if (!process.env.TELEGRAM_BOT_TOKEN) {
+      console.error("[POST /api/auth/telegram] TELEGRAM_BOT_TOKEN is missing in environment variables!");
+      return res.status(500).json({ error: "Server configuration error: Bot token missing" });
     }
 
     const { valid, data } = verifyTelegramInitData(
@@ -26,7 +30,8 @@ router.post("/telegram", async (req, res) => {
     );
 
     if (!valid || !data?.user) {
-      return res.status(401).json({ error: "Invalid Telegram authentication" });
+      console.error("[POST /api/auth/telegram] Verification failed. initData may be expired (>24h) or token mismatch.");
+      return res.status(401).json({ error: "Invalid Telegram authentication (Token mismatch or expired)" });
     }
 
     const { id, username, first_name, last_name, photo_url } = data.user;
@@ -54,6 +59,11 @@ router.post("/telegram", async (req, res) => {
       return res.status(403).json({ error: "This account has been suspended" });
     }
 
+    if (!process.env.JWT_SECRET) {
+      console.error("[POST /api/auth/telegram] JWT_SECRET is missing in environment variables!");
+      return res.status(500).json({ error: "Server configuration error: JWT secret missing" });
+    }
+
     const token = jwt.sign(
       { userId: user._id.toString(), telegramId: user.telegramId },
       process.env.JWT_SECRET,
@@ -74,7 +84,7 @@ router.post("/telegram", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[POST /api/auth/telegram] error:", err);
+    console.error("[POST /api/auth/telegram] unexpected error:", err);
     res.status(500).json({ error: "Login failed. Please try again." });
   }
 });

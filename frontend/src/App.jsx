@@ -19,8 +19,8 @@ function App() {
   const [adminStats, setAdminStats] = useState({ activeUsers: 0, registeredUsers: 0 });
   const [copySuccess, setCopySuccess] = useState(false);
 
-  // ⚠️ እዚህ ጋር የእርስዎን ትክክለኛ የቴሌግራም ዩዘር ID ቁጥር (Telegram ID) ያስገቡ
-  const ADMIN_TELEGRAM_IDS = ["494653076"]; // ምሳሌ: "123456789"
+  // ⚠️ የእርስዎን ትክክለኛ የቴሌግራም ዩዘር ID ቁጥር (Telegram ID)
+  const ADMIN_TELEGRAM_IDS = ["494653076"]; 
 
   const isUserAdmin =
     (user && (user.isAdmin || user.role === "admin")) ||
@@ -44,8 +44,6 @@ function App() {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    // Refresh the admin stats whenever an admin lands on the Game or Admin
-    // tab, since the stake screen also shows the stats for admins.
     if (isUserAdmin && (activeTab === "Admin" || activeTab === "Game")) {
       const apiBase = process.env.REACT_APP_API_URL || "";
       fetch(`${apiBase}/api/admin/stats`, {
@@ -103,7 +101,7 @@ function App() {
   const userInitial = user.firstName ? user.firstName.charAt(0).toUpperCase() : (user.username ? user.username.charAt(0).toUpperCase() : "U");
 
   return (
-    <div className="app">
+    <div className="app" style={{ paddingBottom: "80px" }}> {/* 💡 ከታች ያለው ናቪጌሽን ይዘቱን እንዳይሸፍነው የተደረገ ማስተካከያ */}
       <header className="app-header">
         <h1>🎱 Fetan Lottery</h1>
         <span>Hi, {user.firstName || user.username}</span>
@@ -193,7 +191,7 @@ function App() {
           {/* Invite Box */}
           <div style={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: "14px", padding: "20px", textAlign: "center" }}>
             <div style={{ fontSize: "16px", fontWeight: "bold", color: "#f39c12", marginBottom: "8px" }}>
-              🎁 ጓደኞች ይጋብዙ (Invite Friends)
+              🎁 ጓደኞች ይጋбаты (Invite Friends)
             </div>
             <p style={{ color: "#bbb", fontSize: "12px", lineHeight: "1.5", marginBottom: "15px" }}>
               የእርስዎን የመጋበዣ ሊንክ ለአርደኞችዎ በመላክ በእያንዳንዱ ግንኙነት ተጨማሪ ቦነስ ይደርስል!

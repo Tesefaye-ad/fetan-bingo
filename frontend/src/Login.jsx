@@ -43,7 +43,12 @@ export default function Login({ onLoggedIn }) {
         
         onLoggedIn(user);
       } catch (err) {
-        setError("Login failed. Please reopen the app from Telegram.");
+        // 🔍 ትክክለኛው የሰርቨር ስህተት በኮንሶል እንዲታይ ማድረግ
+        console.error("Login API Error Details:", err.response?.data || err.message);
+        
+        // በስክሪኑ ላይ የተሻለ የኢረር መረጃ ማሳየት
+        const serverMessage = err.response?.data?.message || err.message;
+        setError(`Login failed: ${serverMessage}`);
       } finally {
         setLoading(false);
       }
