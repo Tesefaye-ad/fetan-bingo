@@ -1,39 +1,41 @@
 import { useState, useEffect } from "react";
 
 export function useTelegram() {
-  const tg = window.Telegram?.WebApp;
-  const rawInitData = tg?.initData || "";
-  
-  const [telegramUser, setTelegramUser] = useState(tg?.initDataUnsafe?.user || null);
-  const [isTelegram, setIsTelegram] = useState(Boolean(tg && tg.initData));
-  const [initData, setInitData] = useState(rawInitData);
+  const getTg = () => window.Telegram?.WebApp;
+
+  const [telegramUser, setTelegramUser] = useState(() => getTg()?.initDataUnsafe?.user || null);
+  const [initData, setInitData] = useState(() => getTg()?.initData || "");
+  const [isTelegram, setIsTelegram] = useState(true);
 
   useEffect(() => {
+    const tg = getTg();
     if (tg) {
-      tg.ready();
-      tg.expand();
+      try {
+        tg.ready();
+        tg.expand();
+      } catch (e) {
+        console.warn("Telegram expand error:", e);
+      }
       if (tg.initData) {
         setInitData(tg.initData);
-        setTelegramUser(tg.initDataUnsafe?.user || null);
-        setIsTelegram(true);
+      }
+      if (tg.initDataUnsafe?.user) {
+        setTelegramUser(tg.initDataUnsafe.user);
       }
     } else {
-      // 💻 ኮምፒውተር ላይ (Localhost) ሲሞክሩ እንደ አድሚን ሆኖ እንዲሰራ
-      if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-        setIsTelegram(true);
-        setTelegramUser({
-          id: 494653076,
-          first_name: "Test Admin",
-          username: "admin_test",
-        });
-      }
+      // 💻 ከቴሌግራም ውጭ (በብሮውዘር) ሲከፈት እንዳይዘጋ በነባሪነት (Fallback) አድሚን ዩዘር መስጠት
+      setTelegramUser({
+        id: 494653076,
+        first_name: "Tesfaye",
+        username: "admin_test",
+      });
     }
-  }, [tg]);
+  }, []);
 
   return {
     telegramUser,
-    isTelegram,
+    isTelegram: true, // አፑ በምንም መልኩ እንዳይዘጋ ሁልጊዜ true እንዲሆን ተደርጓል
     initData,
-    webApp: tg,
+    webApp: getTg(),
   };
 }
