@@ -1,38 +1,39 @@
 import { useState, useEffect } from "react";
 
 export function useTelegram() {
-  const [telegramUser, setTelegramUser] = useState(null);
-  const [isTelegram, setIsTelegram] = useState(false);
-  const [initData, setInitData] = useState(""); // 👈 Login.jsx ወደ ባክኤንድ የሚልከው ራው initData string
+  const tg = window.Telegram?.WebApp;
+  const rawInitData = tg?.initData || "";
+  
+  const [telegramUser, setTelegramUser] = useState(tg?.initDataUnsafe?.user || null);
+  const [isTelegram, setIsTelegram] = useState(Boolean(tg && tg.initData));
+  const [initData, setInitData] = useState(rawInitData);
 
   useEffect(() => {
-    const tg = window.Telegram?.WebApp;
-
-    if (tg && tg.initData) {
-      // ቴሌግራም ውስጥ ሲከፈት
-      setIsTelegram(true);
-      setInitData(tg.initData); // 👈 ይሄ ከዚህ በፊት ጨርሶ አልተመለሰም ነበር - ለ Login.jsx ስህተት ዋናው ምክንያት
-      setTelegramUser(tg.initDataUnsafe?.user || null);
+    if (tg) {
       tg.ready();
       tg.expand();
+      if (tg.initData) {
+        setInitData(tg.initData);
+        setTelegramUser(tg.initDataUnsafe?.user || null);
+        setIsTelegram(true);
+      }
     } else {
-      // 💻 ኮምፒውተርዎ ላይ (Browser / Localhost) ሲሞክሩት ስህተት እንዳያሳይ
-      // እና አድሚን ሆኖ እንዲፈትኑት ፦
+      // 💻 ኮምፒውተር ላይ (Localhost) ሲሞክሩ እንደ አድሚን ሆኖ እንዲሰራ
       if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
         setIsTelegram(true);
         setTelegramUser({
-          id: 494653076, // 👈 የእርስዎ የአድሚን ID ሆኖ በሎካል እንዲሞከር ያደርገዋል
+          id: 494653076,
           first_name: "Test Admin",
           username: "admin_test",
         });
       }
     }
-  }, []);
+  }, [tg]);
 
   return {
     telegramUser,
     isTelegram,
     initData,
-    webApp: window.Telegram?.WebApp,
+    webApp: tg,
   };
 }
