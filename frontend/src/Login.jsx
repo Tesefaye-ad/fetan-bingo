@@ -9,25 +9,20 @@ export default function Login({ onLoggedIn }) {
 
   useEffect(() => {
     async function doLogin() {
-      // 💻 ኮምፒውተር ላይ (Localhost) ሲከፈት ቴሌግራም ባይኖርም እንኳን እንዲሰራ ማረጋገጫ
       const isLocalhost = 
         window.location.hostname === "localhost" || 
         window.location.hostname === "127.0.0.1";
 
       if (!initData && !isLocalhost) {
-        setError(
-          "This app must be opened from inside Telegram (via your bot's menu button)."
-        );
-        setLoading(false);
+        // ትንሽ ሰከንድ በመጠበቅ ቴሌግራም initData እስኪጭን እድል መስጠት
         return;
       }
 
       try {
         let user;
         if (isLocalhost && !initData) {
-          // 🧪 በብሮውዘር (Local) ሲሞክሩ እንደ አድሚን ሆኖ እንዲገባ የሚረዳ ሞክ ዩዘር (Mock User)
           user = {
-            telegramId: "494653076", // 👈 የእርስዎ የአድሚን ID
+            telegramId: "494653076",
             firstName: "Tesfaye",
             username: "admin_test",
             balance: 1000,
@@ -37,39 +32,55 @@ export default function Login({ onLoggedIn }) {
             token: "mock-local-token"
           };
         } else {
-          // 📱 ቴሌግራም ውስጥ ሲከፈት በመደበኛ ሁኔታ ከባክኤንድ ጋር ይጣራል።
           user = await loginWithTelegram(initData);
         }
         
         onLoggedIn(user);
       } catch (err) {
-        // 🔍 ትክክለኛው የሰርቨር ስህተት በኮንሶል እንዲታይ ማድረግ
-        console.error("Login API Error Details:", err.response?.data || err.message);
-        
-        // በስክሪኑ ላይ የተሻለ የኢረር መረጃ ማሳየት
-        const serverMessage = err.response?.data?.message || err.message;
-        setError(`Login failed: ${serverMessage}`);
+        // 🔍 ትክክለኛው የሰርቨር ስህተት ምን እንደሆነ በቀጥታ በስክሪኑ ላይ ማሳየት
+        const serverError = err.response?.data?.error || err.response?.data?.message || err.message;
+        setError(`Login failed: ${serverError}`);
       } finally {
         setLoading(false);
       }
     }
-    doLogin();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    const isLocalhost = 
+      window.location.hostname === "localhost" || 
+      window.location.hostname === "127.0.0.1";
+
+    if (initData || isLocalhost) {
+      doLogin();
+    } else {
+      // ከ 2 ሰከንድ በላይ initData ከጠፋ የስህተት መልእክት ማሳየት
+      const timer = setTimeout(() => {
+        if (!initData) {
+          setError("Telegram initData not found. Please reopen the app from Telegram.");
+          setLoading(false);
+        }
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
   }, [initData]);
 
   if (loading) {
-    return <div className="center-screen">Signing you in…</div>;
+    return (
+      <div className="center-screen" style={{ color: "#fff", textAlign: "center", padding: "20px" }}>
+        Signing you in…
+      </div>
+    );
   }
 
   if (error) {
     return (
       <div className="center-screen" style={{ textAlign: "center", color: "#fff", padding: "20px" }}>
-        <p style={{ color: "#e74c3c", fontSize: "16px", marginBottom: "10px" }}>{error}</p>
-        {!isTelegram && (
-          <p className="hint" style={{ color: "#aaa", fontSize: "12px" }}>
-            (Not detected as a Telegram WebApp environment)
-          </p>
-        )}
+        <p style={{ color: "#e74c3c", fontSize: "14px", marginBottom: "15px", wordBreak: "break-all" }}>
+          {error}
+        </p>
+        <p style={{ color: "#aaa", fontSize: "11px", background: "#1a1a2e", padding: "10px", borderRadius: "8px" }}>
+          Environment: {isTelegram ? "Telegram WebApp" : "Browser"} <br />
+          InitData Status: {initData ? "Loaded" : "Empty"}
+        </p>
       </div>
     );
   }
