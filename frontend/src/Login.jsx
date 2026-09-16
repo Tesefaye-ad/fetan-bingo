@@ -3,7 +3,7 @@ import { useTelegram } from "./useTelegram";
 import { loginWithTelegram } from "./api";
 
 export default function Login({ onLoggedIn }) {
-  const { initData, isTelegram, ready } = useTelegram();
+  const { initData, ready } = useTelegram(); // 👈 isTelegram አስወግደነዋል
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -13,21 +13,18 @@ export default function Login({ onLoggedIn }) {
     async function handleLogin() {
       setError("");
 
-      // የቴሌግራም ማረጋገጫ ገደቦችን (Checks) አስወግደናል
-      // በቀጥታ ከ Backend ጋር ለመገናኘት እንሞክራለን
       try {
         const user = await loginWithTelegram(initData || "");
         onLoggedIn(user);
       } catch (err) {
         console.warn("Backend login failed, using mock data for testing:", err.message);
         
-        // የ Backend ግንኙነት ካልተሳካ (ለምሳሌ ከቴሌግራም ውጭ ከሆነ) ለሙከራ የሚሆን ጊዜያዊ ተጠቃሚ እንፍጠር
         const mockUser = {
           id: "local_admin",
           telegramId: "494653076",
           firstName: "Tesfaye",
           username: "admin_test",
-          balance: 1000,        // ለሙከራ የተሰጠ ባላንስ
+          balance: 1000,
           bonusBalance: 200,
           gamesWon: 0,
           referralCount: 0,
@@ -53,7 +50,6 @@ export default function Login({ onLoggedIn }) {
     );
   }
 
-  // ስህተት ካለ የሚታየው ገጽ (አሁን ስህተቱ ስለማይፈጠር ይህ ገጽ ብዙም አይታይም)
   return (
     <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: "100vh", background: "#0f172a", color: "#e74c3c", fontFamily: "sans-serif", padding: "30px", textAlign: "center" }}>
       <div style={{ fontSize: "16px", lineHeight: "1.6", maxWidth: "400px" }}>{error || "Something went wrong."}</div>
