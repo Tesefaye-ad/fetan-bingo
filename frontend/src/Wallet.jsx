@@ -59,6 +59,19 @@ function Wallet({ balance, setBalance, showHistory, compact }) {
     } finally { setLoading(false); }
   };
 
+  // ⬇️ በጣም አስፈላጊ! ይህ በመጀመሪያ መሆን አለበት
+  if (compact) {
+    return (
+      <div style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "12px", marginBottom: "12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ color: "#aaa", fontSize: "11px" }}>💳 Balance</div>
+          <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>{balance} ETB</div>
+        </div>
+        <div style={{ color: "#2ecc71", fontSize: "12px" }}>✓ Verified</div>
+      </div>
+    );
+  }
+
   if (showHistory) {
     return (
       <div style={{ padding: "15px", maxWidth: "450px", margin: "0 auto" }}>
@@ -83,18 +96,6 @@ function Wallet({ balance, setBalance, showHistory, compact }) {
             ))}
           </ul>
         )}
-      </div>
-    );
-  }
-
-  if (compact) {
-    return (
-      <div style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "12px", marginBottom: "12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <div style={{ color: "#aaa", fontSize: "11px" }}>💳 Balance</div>
-          <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>{balance} ETB</div>
-        </div>
-        <div style={{ color: "#2ecc71", fontSize: "12px" }}>✓ Verified</div>
       </div>
     );
   }

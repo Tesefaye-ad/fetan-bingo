@@ -9,7 +9,8 @@ export function getSocket() {
   const token = localStorage.getItem("bingo_token");
   socket = io(API_BASE_URL, {
     auth: { token },
-    transports: ["websocket", "polling"],
+    transports: ["websocket"], // 👈 "polling" አጥፍተን በ WebSocket ብቻ እንዲሰራ አድርገናል
+    upgrade: false,            // 👈 ወደ WebSocket ለመቀየር ምንም እንዳይጠብቅ
   });
   return socket;
 }

@@ -1,15 +1,14 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense, lazy } from "react";
 import Login from "./Login.jsx";
 import Wallet from "./Wallet.jsx";
 import GameLobby from "./Gamelobby.jsx";
-import LiveGame from "./Livegame.jsx";
-import CartelaSelection from "./Cartelaselection.jsx";
 import { disconnectSocket } from "./socket";
-import { useTelegram } from "./useTelegram";
+
+// ከባድ ገጾች - አስፈላጊ ሲሆኑ ብቻ እንዲጫኑ
+const LiveGame = lazy(() => import("./Livegame.jsx"));
+const CartelaSelection = lazy(() => import("./Cartelaselection.jsx"));
 
 function App() {
-  useTelegram();
-
   const [user, setUser] = useState(null);
   const [balance, setBalance] = useState(0);
   const [roomCode, setRoomCode] = useState(null);
@@ -113,7 +112,7 @@ function App() {
       </header>
 
       {activeTab === "Game" && (
-        <>
+        <Suspense fallback={<div style={{ color: "#fff", textAlign: "center", padding: "50px" }}>Loading game...</div>}>
           <Wallet balance={balance} setBalance={setBalance} compact />
           {showCartela ? (
             <CartelaSelection
@@ -138,7 +137,7 @@ function App() {
               adminStats={adminStats}
             />
           )}
-        </>
+        </Suspense>
       )}
 
       {activeTab === "History" && <Wallet balance={balance} setBalance={setBalance} showHistory />}

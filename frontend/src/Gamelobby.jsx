@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { getRooms, createRoom, getGameStats } from "./api";
 
 const STAKES = [
@@ -22,16 +22,40 @@ export default function GameLobby({ onJoin, onPlayStake, isAdmin, adminStats }) 
   const [errorMessage, setErrorMessage] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  // ⬇️ ሁለቱንም ጥሪዎች በአንድ ጊዜ መላክ + የስህተት መያዝ
+  const loadData = useCallback(async () => {
+    try {
+      const [roomsData, statsData] = await Promise.all([
+        getRooms().catch(() => []),
+        getGameStats().catch(() => ({ totalUsers: 0, totalGames: 0 })),
+      ]);
+      setRooms(roomsData || []);
+      setStats(statsData || { totalUsers: 0, totalGames: 0 });
+    } catch (err) {
+      console.warn("Failed to load lobby data:", err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    function load() {
-      getRooms().then((r) => { if (!cancelled) setRooms(r); }).catch(() => {});
-      getGameStats().then((s) => { if (!cancelled) setStats(s); }).catch(() => {});
-    }
-    load();
-    const interval = setInterval(load, 10000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, []);
+
+    (async () => {
+      if (cancelled) return;
+      await loadData();
+    })();
+
+    // ⬇️ ከ 5 ሰከንድ ወደ 15 ሰከንድ ጨመርነው (ሰርቨሩን ለማያዘገይ)
+    const interval = setInterval(() => {
+      if (!cancelled) loadData();
+    }, 15000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [loadData]);
 
   function joinCode(code, parsedCardId) {
     if (!code) return;
@@ -48,9 +72,12 @@ export default function GameLobby({ onJoin, onPlayStake, isAdmin, adminStats }) 
     setQuickPlayFee(fee);
     try {
       const room = await createRoom(fee);
+      if (!room || !room.roomCode) {
+        throw new Error("Room creation failed");
+      }
       onPlayStake(fee, room.roomCode);
     } catch (err) {
-      setErrorMessage("Could not start the game. Please try again.");
+      setErrorMessage(err?.response?.data?.error || "Could not start the game. Please try again.");
     } finally {
       setQuickPlayFee(null);
     }
@@ -58,9 +85,15 @@ export default function GameLobby({ onJoin, onPlayStake, isAdmin, adminStats }) 
 
   async function handleCreateRoom() {
     setCreating(true);
+    setErrorMessage("");
     try {
       const room = await createRoom(10);
+      if (!room || !room.roomCode) {
+        throw new Error("Room creation failed");
+      }
       joinCode(room.roomCode, parseInt(cardId, 10));
+    } catch (err) {
+      setErrorMessage(err?.response?.data?.error || "Could not create room.");
     } finally {
       setCreating(false);
     }
@@ -68,9 +101,16 @@ export default function GameLobby({ onJoin, onPlayStake, isAdmin, adminStats }) 
 
   function stakeButtonStyle(color) {
     return {
-      width: "100%", background: color, color: "#fff", border: "none",
-      borderRadius: "10px", padding: "14px", fontWeight: "bold",
-      fontSize: "15px", cursor: "pointer", marginBottom: "6px",
+      width: "100%",
+      background: color,
+      color: "#fff",
+      border: "none",
+      borderRadius: "10px",
+      padding: "14px",
+      fontWeight: "bold",
+      fontSize: "15px",
+      cursor: "pointer",
+      marginBottom: "6px",
     };
   }
 
@@ -144,11 +184,23 @@ export default function GameLobby({ onJoin, onPlayStake, isAdmin, adminStats }) 
           <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "15px", background: "#1a1a2e", padding: "15px", borderRadius: "12px", border: "1px solid #2a2a40" }}>
             <div>
               <label style={{ display: "block", color: "#f39c12", fontSize: "12px", marginBottom: "5px" }}>Room Code:</label>
-              <input placeholder="Room code" value={roomCodeInput} onChange={(e) => setRoomCodeInput(e.target.value)} style={{ width: "100%", background: "#12121e", border: "1px solid #333", borderRadius: "8px", padding: "10px", color: "#fff", fontSize: "14px", boxSizing: "border-box" }} />
+              <input
+                placeholder="Room code"
+                value={roomCodeInput}
+                onChange={(e) => setRoomCodeInput(e.target.value)}
+                style={{ width: "100%", background: "#12121e", border: "1px solid #333", borderRadius: "8px", padding: "10px", color: "#fff", fontSize: "14px", boxSizing: "border-box" }}
+              />
             </div>
             <div>
               <label style={{ display: "block", color: "#f39c12", fontSize: "12px", marginBottom: "5px" }}>Card ID (1 - 1000):</label>
-              <input type="number" min="1" max="1000" value={cardId} onChange={(e) => setCardId(e.target.value)} style={{ width: "100%", background: "#12121e", border: "1px solid #333", borderRadius: "8px", padding: "10px", color: "#fff", fontSize: "14px", boxSizing: "border-box" }} />
+              <input
+                type="number"
+                min="1"
+                max="1000"
+                value={cardId}
+                onChange={(e) => setCardId(e.target.value)}
+                style={{ width: "100%", background: "#12121e", border: "1px solid #333", borderRadius: "8px", padding: "10px", color: "#fff", fontSize: "14px", boxSizing: "border-box" }}
+              />
             </div>
             <button onClick={() => joinCode(roomCodeInput, parseInt(cardId, 10))} style={{ width: "100%", background: "#2ecc71", color: "#fff", border: "none", borderRadius: "8px", padding: "12px", fontWeight: "bold", cursor: "pointer", fontSize: "14px" }}>
               Join Room
@@ -164,7 +216,11 @@ export default function GameLobby({ onJoin, onPlayStake, isAdmin, adminStats }) 
           {!loading && rooms.length === 0 && <p style={{ color: "#aaa" }}>No open rooms right now.</p>}
           <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: "10px" }}>
             {rooms.map((r) => (
-              <li key={r.roomCode} onClick={() => joinCode(r.roomCode, parseInt(cardId, 10))} style={{ background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: "10px", padding: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", color: "#fff", flexWrap: "wrap", gap: "5px" }}>
+              <li
+                key={r.roomCode}
+                onClick={() => joinCode(r.roomCode, parseInt(cardId, 10))}
+                style={{ background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: "10px", padding: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", color: "#fff", flexWrap: "wrap", gap: "5px" }}
+              >
                 <span style={{ fontWeight: "bold", color: "#f39c12" }}>{r.roomCode}</span>
                 <span style={{ fontSize: "12px", color: "#aaa" }}>{r.playerCount} players</span>
                 <span style={{ fontSize: "12px", color: "#2ecc71" }}>Entry: {r.entryFee}</span>
