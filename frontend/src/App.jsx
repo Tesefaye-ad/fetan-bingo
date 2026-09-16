@@ -3,6 +3,7 @@ import Login from "./Login.jsx";
 import Wallet from "./Wallet.jsx";
 import GameLobby from "./Gamelobby.jsx";
 import { disconnectSocket } from "./socket";
+import AdminPanel from "./Adminpanel.jsx";
 
 // ከባድ ገጾች - አስፈላጊ ሲሆኑ ብቻ እንዲጫኑ
 const LiveGame = lazy(() => import("./Livegame.jsx"));

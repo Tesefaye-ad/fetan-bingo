@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { getRooms, createRoom, getGameStats } from "./api";
+import { createRoom, getGameStats } from "./api";
 
 const STAKES = [
   { fee: 10, color: "#2ecc71" },
@@ -11,30 +11,18 @@ const WEEKLY_GAMES = [
   { fee: 100, color: "#2ecc71", schedule: "weekly (ቅዳሜ ማታ 12:05)" },
 ];
 
-export default function GameLobby({ onJoin, onPlayStake, isAdmin, adminStats }) {
-  const [rooms, setRooms] = useState([]);
+export default function GameLobby({ onPlayStake, isAdmin, adminStats }) {
   const [stats, setStats] = useState({ totalUsers: 0, totalGames: 0 });
-  const [roomCodeInput, setRoomCodeInput] = useState("");
-  const [cardId, setCardId] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
   const [quickPlayFee, setQuickPlayFee] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // ⬇️ ሁለቱንም ጥሪዎች በአንድ ጊዜ መላክ + የስህተት መያዝ
+  // ስታቲስቲክስን በየ15 ሰከንዱ ማደስ
   const loadData = useCallback(async () => {
     try {
-      const [roomsData, statsData] = await Promise.all([
-        getRooms().catch(() => []),
-        getGameStats().catch(() => ({ totalUsers: 0, totalGames: 0 })),
-      ]);
-      setRooms(roomsData || []);
+      const statsData = await getGameStats().catch(() => ({ totalUsers: 0, totalGames: 0 }));
       setStats(statsData || { totalUsers: 0, totalGames: 0 });
     } catch (err) {
       console.warn("Failed to load lobby data:", err.message);
-    } finally {
-      setLoading(false);
     }
   }, []);
 
@@ -46,7 +34,6 @@ export default function GameLobby({ onJoin, onPlayStake, isAdmin, adminStats }) 
       await loadData();
     })();
 
-    // ⬇️ ከ 5 ሰከንድ ወደ 15 ሰከንድ ጨመርነው (ሰርቨሩን ለማያዘገይ)
     const interval = setInterval(() => {
       if (!cancelled) loadData();
     }, 15000);
@@ -56,16 +43,6 @@ export default function GameLobby({ onJoin, onPlayStake, isAdmin, adminStats }) 
       clearInterval(interval);
     };
   }, [loadData]);
-
-  function joinCode(code, parsedCardId) {
-    if (!code) return;
-    if (!parsedCardId || parsedCardId < 1 || parsedCardId > 1000) {
-      setErrorMessage("እባክዎ ትክክለኛ የካርድ ቁጥር ከ 1 እስከ 1000 መካከል ያስገቡ!");
-      return;
-    }
-    setErrorMessage("");
-    onJoin(code.trim().toUpperCase(), parsedCardId);
-  }
 
   async function handleQuickPlay(fee) {
     setErrorMessage("");
@@ -77,25 +54,11 @@ export default function GameLobby({ onJoin, onPlayStake, isAdmin, adminStats }) 
       }
       onPlayStake(fee, room.roomCode);
     } catch (err) {
-      setErrorMessage(err?.response?.data?.error || "Could not start the game. Please try again.");
+      setErrorMessage(
+        err?.response?.data?.error || "Could not start the game. Please try again."
+      );
     } finally {
       setQuickPlayFee(null);
-    }
-  }
-
-  async function handleCreateRoom() {
-    setCreating(true);
-    setErrorMessage("");
-    try {
-      const room = await createRoom(10);
-      if (!room || !room.roomCode) {
-        throw new Error("Room creation failed");
-      }
-      joinCode(room.roomCode, parseInt(cardId, 10));
-    } catch (err) {
-      setErrorMessage(err?.response?.data?.error || "Could not create room.");
-    } finally {
-      setCreating(false);
     }
   }
 
@@ -114,10 +77,28 @@ export default function GameLobby({ onJoin, onPlayStake, isAdmin, adminStats }) 
     };
   }
 
+  // የ Admin ስታቲስቲክስ ካለ እሱን፣ ካለበለዚያ የጨዋታ ስታቲስቲክስን ተጠቀም
+  const displayActiveUsers = adminStats?.activeUsers ?? 0;
+  const displayRegisteredUsers =
+    adminStats?.registeredUsers ?? stats.totalUsers ?? 0;
+
   return (
-    <div className="lobby" style={{ padding: "15px", maxWidth: "450px", margin: "0 auto" }}>
+    <div
+      className="lobby"
+      style={{ padding: "15px", maxWidth: "450px", margin: "0 auto" }}
+    >
       {errorMessage && (
-        <div style={{ background: "#e74c3c", color: "#fff", padding: "10px", borderRadius: "8px", marginBottom: "15px", fontSize: "13px", textAlign: "center" }}>
+        <div
+          style={{
+            background: "#e74c3c",
+            color: "#fff",
+            padding: "10px",
+            borderRadius: "8px",
+            marginBottom: "15px",
+            fontSize: "13px",
+            textAlign: "center",
+          }}
+        >
           {errorMessage}
         </div>
       )}
@@ -126,109 +107,116 @@ export default function GameLobby({ onJoin, onPlayStake, isAdmin, adminStats }) 
         Welcome to <span style={{ color: "#f39c12" }}>Fetan Lottery</span>
       </h2>
 
-      <div style={{ border: "1px solid #f39c12", borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
-        <div style={{ color: "#f39c12", fontWeight: "bold", textAlign: "center", marginBottom: "12px" }}>Choose Stake</div>
+      {/* ---- Choose Stake ---- */}
+      <div
+        style={{
+          border: "1px solid #f39c12",
+          borderRadius: "14px",
+          padding: "16px",
+          marginBottom: "16px",
+        }}
+      >
+        <div
+          style={{
+            color: "#f39c12",
+            fontWeight: "bold",
+            textAlign: "center",
+            marginBottom: "12px",
+          }}
+        >
+          Choose Stake
+        </div>
         {STAKES.map((s) => (
-          <button key={s.fee} disabled={quickPlayFee !== null} onClick={() => handleQuickPlay(s.fee)} style={stakeButtonStyle(s.color)}>
+          <button
+            key={s.fee}
+            disabled={quickPlayFee !== null}
+            onClick={() => handleQuickPlay(s.fee)}
+            style={stakeButtonStyle(s.color)}
+          >
             {quickPlayFee === s.fee ? "Starting…" : `▶ Play ${s.fee} ETB`}
           </button>
         ))}
       </div>
 
-      <div style={{ border: "1px solid #f39c12", borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
-        <div style={{ color: "#f39c12", fontWeight: "bold", textAlign: "center", marginBottom: "12px" }}>Weekly Game</div>
+      {/* ---- Weekly Game ---- */}
+      <div
+        style={{
+          border: "1px solid #f39c12",
+          borderRadius: "14px",
+          padding: "16px",
+          marginBottom: "16px",
+        }}
+      >
+        <div
+          style={{
+            color: "#f39c12",
+            fontWeight: "bold",
+            textAlign: "center",
+            marginBottom: "12px",
+          }}
+        >
+          Weekly Game
+        </div>
         {WEEKLY_GAMES.map((g) => (
           <div key={g.fee} style={{ marginBottom: "10px" }}>
-            <button disabled={quickPlayFee !== null} onClick={() => handleQuickPlay(g.fee)} style={{ ...stakeButtonStyle(g.color), marginBottom: "4px" }}>
+            <button
+              disabled={quickPlayFee !== null}
+              onClick={() => handleQuickPlay(g.fee)}
+              style={{ ...stakeButtonStyle(g.color), marginBottom: "4px" }}
+            >
               {quickPlayFee === g.fee ? "Starting…" : `▶ Play ${g.fee} ETB`}
             </button>
-            <div style={{ color: "#f39c12", fontSize: "12px", textAlign: "center" }}>{g.schedule}</div>
+            <div
+              style={{
+                color: "#f39c12",
+                fontSize: "12px",
+                textAlign: "center",
+              }}
+            >
+              {g.schedule}
+            </div>
           </div>
         ))}
       </div>
 
-      <div style={{ background: "#12121e", border: "1px solid #2a2a40", borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
-        <div style={{ display: "flex", justifyContent: "space-around", textAlign: "center" }}>
-          <div>
-            <div style={{ color: "#fff", fontSize: "22px", fontWeight: "bold" }}>{stats.totalUsers}</div>
-            <div style={{ color: "#aaa", fontSize: "11px" }}>Registered</div>
-          </div>
-          <div>
-            <div style={{ color: "#fff", fontSize: "22px", fontWeight: "bold" }}>{stats.totalGames}</div>
-            <div style={{ color: "#aaa", fontSize: "11px" }}>Games Played</div>
-          </div>
-        </div>
-      </div>
-
-      {isAdmin && adminStats && (
-        <div style={{ background: "#12121e", border: "1px solid #2a2a40", borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
-          <div style={{ display: "flex", justifyContent: "space-around", textAlign: "center" }}>
+      {/* ---- ስታቲስቲክስ (ለአድሚን ብቻ የሚታይ) ---- */}
+      {isAdmin && (
+        <div
+          style={{
+            background: "#12121e",
+            border: "1px solid #2a2a40",
+            borderRadius: "14px",
+            padding: "16px",
+            marginBottom: "16px",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-around",
+              textAlign: "center",
+            }}
+          >
             <div>
-              <div style={{ color: "#fff", fontSize: "22px", fontWeight: "bold" }}>{adminStats.activeUsers}</div>
+              <div
+                style={{ color: "#fff", fontSize: "22px", fontWeight: "bold" }}
+              >
+                {displayActiveUsers}
+              </div>
               <div style={{ color: "#aaa", fontSize: "11px" }}>Active Users</div>
             </div>
             <div>
-              <div style={{ color: "#fff", fontSize: "22px", fontWeight: "bold" }}>{adminStats.registeredUsers}</div>
-              <div style={{ color: "#aaa", fontSize: "11px" }}>Registered</div>
+              <div
+                style={{ color: "#fff", fontSize: "22px", fontWeight: "bold" }}
+              >
+                {displayRegisteredUsers}
+              </div>
+              <div style={{ color: "#aaa", fontSize: "11px" }}>
+                Registered Users
+              </div>
             </div>
           </div>
         </div>
-      )}
-
-      <button onClick={() => setShowAdvanced((v) => !v)} style={{ width: "100%", background: "transparent", color: "#aaa", border: "1px solid #2a2a40", borderRadius: "10px", padding: "10px", fontSize: "13px", cursor: "pointer", marginBottom: showAdvanced ? "15px" : "0" }}>
-        {showAdvanced ? "▲ Hide room code / browse rooms" : "▼ Join by room code / browse rooms"}
-      </button>
-
-      {showAdvanced && (
-        <>
-          <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "15px", background: "#1a1a2e", padding: "15px", borderRadius: "12px", border: "1px solid #2a2a40" }}>
-            <div>
-              <label style={{ display: "block", color: "#f39c12", fontSize: "12px", marginBottom: "5px" }}>Room Code:</label>
-              <input
-                placeholder="Room code"
-                value={roomCodeInput}
-                onChange={(e) => setRoomCodeInput(e.target.value)}
-                style={{ width: "100%", background: "#12121e", border: "1px solid #333", borderRadius: "8px", padding: "10px", color: "#fff", fontSize: "14px", boxSizing: "border-box" }}
-              />
-            </div>
-            <div>
-              <label style={{ display: "block", color: "#f39c12", fontSize: "12px", marginBottom: "5px" }}>Card ID (1 - 1000):</label>
-              <input
-                type="number"
-                min="1"
-                max="1000"
-                value={cardId}
-                onChange={(e) => setCardId(e.target.value)}
-                style={{ width: "100%", background: "#12121e", border: "1px solid #333", borderRadius: "8px", padding: "10px", color: "#fff", fontSize: "14px", boxSizing: "border-box" }}
-              />
-            </div>
-            <button onClick={() => joinCode(roomCodeInput, parseInt(cardId, 10))} style={{ width: "100%", background: "#2ecc71", color: "#fff", border: "none", borderRadius: "8px", padding: "12px", fontWeight: "bold", cursor: "pointer", fontSize: "14px" }}>
-              Join Room
-            </button>
-          </div>
-
-          <button disabled={creating} onClick={handleCreateRoom} style={{ width: "100%", background: "#f39c12", color: "#111", border: "none", borderRadius: "10px", padding: "12px", fontWeight: "bold", cursor: "pointer", fontSize: "14px", marginBottom: "20px" }}>
-            {creating ? "Creating…" : "+ New Room (10 ETB entry)"}
-          </button>
-
-          <h3 style={{ color: "#fff", fontSize: "16px", marginBottom: "10px" }}>Open Rooms</h3>
-          {loading && <p style={{ color: "#aaa" }}>Loading rooms…</p>}
-          {!loading && rooms.length === 0 && <p style={{ color: "#aaa" }}>No open rooms right now.</p>}
-          <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: "10px" }}>
-            {rooms.map((r) => (
-              <li
-                key={r.roomCode}
-                onClick={() => joinCode(r.roomCode, parseInt(cardId, 10))}
-                style={{ background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: "10px", padding: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", color: "#fff", flexWrap: "wrap", gap: "5px" }}
-              >
-                <span style={{ fontWeight: "bold", color: "#f39c12" }}>{r.roomCode}</span>
-                <span style={{ fontSize: "12px", color: "#aaa" }}>{r.playerCount} players</span>
-                <span style={{ fontSize: "12px", color: "#2ecc71" }}>Entry: {r.entryFee}</span>
-                <span style={{ fontSize: "12px", color: "#3498db" }}>Pool: {r.prizePool}</span>
-              </li>
-            ))}
-          </ul>
-        </>
       )}
     </div>
   );
