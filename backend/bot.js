@@ -25,10 +25,8 @@ const BONUS_CONVERSION_RATE = Number(process.env.BONUS_CONVERSION_RATE || 1);
 const BANNER_IMAGE_URL = process.env.BANNER_IMAGE_URL || 'https://i.ibb.co/RpmMcWYt/F-20260814-095812-0000.png';
 
 if (!BOT_TOKEN) {
-  console.error("[bot] TELEGRAM_BOT_TOKEN is missing. Aborting.");
-  process.exit(1);
+  throw new Error("TELEGRAM_BOT_TOKEN is missing. Bot will not start.");
 }
-
 const bot = new Telegraf(BOT_TOKEN);
 const pendingAction = new Map();
 
