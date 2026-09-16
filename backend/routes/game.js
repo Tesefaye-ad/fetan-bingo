@@ -1,14 +1,11 @@
 const express = require("express");
 const Game = require("../models/Game");
+const User = require("../models/User");
 const { requireAuth } = require("../middleware/auth");
 
 const router = express.Router();
 router.use(requireAuth);
 
-/**
- * GET /api/game/rooms
- * Lists rooms that are still open to join (waiting for players).
- */
 router.get("/rooms", async (req, res) => {
   try {
     const rooms = await Game.find({ status: "waiting" })
@@ -27,22 +24,23 @@ router.get("/rooms", async (req, res) => {
       })),
     });
   } catch (err) {
-    console.error("[GET /api/game/rooms] error:", err);
     res.status(500).json({ error: "Could not load rooms" });
   }
 });
 
-/**
- * POST /api/game/rooms
- * Body: { roomCode?: string, entryFee?: number }
- * Creates a new waiting room. If roomCode is omitted, a random one is generated.
- * Actually joining (deducting the entry fee, dealing a card) happens over
- * Socket.io via the "join_room" event - see socket/gameSocket.js.
- */
+router.get("/stats", async (req, res) => {
+  try {
+    const totalUsers = await User.countDocuments();
+    const totalGames = await Game.countDocuments({ status: "finished" });
+    res.json({ totalUsers, totalGames });
+  } catch (err) {
+    res.status(500).json({ error: "Could not load stats" });
+  }
+});
+
 router.post("/rooms", async (req, res) => {
   try {
     let { roomCode, entryFee } = req.body;
-
     roomCode = (roomCode || generateRoomCode()).trim().toUpperCase();
     entryFee = Number(entryFee ?? process.env.ENTRY_FEE ?? 10);
 
@@ -63,20 +61,15 @@ router.post("/rooms", async (req, res) => {
       playerCount: game.players.length,
     });
   } catch (err) {
-    console.error("[POST /api/game/rooms] error:", err);
     res.status(500).json({ error: "Could not create room" });
   }
 });
 
-/**
- * GET /api/game/rooms/:roomCode
- * Fetch the current public state of a single room.
- */
 router.get("/rooms/:roomCode", async (req, res) => {
   try {
     const roomCode = req.params.roomCode.trim().toUpperCase();
     const game = await Game.findOne({ roomCode }).select(
-      "roomCode status entryFee prizePool players calledNumbers maxNumber"
+      "roomCode status entryFee prizePool players calledNumbers maxNumber winners"
     );
     if (!game) return res.status(404).json({ error: "Room not found" });
 
@@ -88,19 +81,18 @@ router.get("/rooms/:roomCode", async (req, res) => {
       playerCount: game.players.length,
       calledNumbers: game.calledNumbers,
       maxNumber: game.maxNumber,
+      takenCards: game.players.map((p) => p.cardId),
+      winnersCount: game.winners?.length || 0,
     });
   } catch (err) {
-    console.error("[GET /api/game/rooms/:roomCode] error:", err);
     res.status(500).json({ error: "Could not load room" });
   }
 });
 
 function generateRoomCode() {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous chars
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
-  for (let i = 0; i < 5; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
-  }
+  for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
   return code;
 }
 

@@ -3,6 +3,7 @@ import Login from "./Login.jsx";
 import Wallet from "./Wallet.jsx";
 import GameLobby from "./Gamelobby.jsx";
 import LiveGame from "./Livegame.jsx";
+import CartelaSelection from "./Cartelaselection.jsx";
 import { disconnectSocket } from "./socket";
 import { useTelegram } from "./useTelegram";
 
@@ -13,12 +14,12 @@ function App() {
   const [balance, setBalance] = useState(0);
   const [roomCode, setRoomCode] = useState(null);
   const [cardId, setCardId] = useState(null);
+  const [showCartela, setShowCartela] = useState(false);
   const [activeTab, setActiveTab] = useState("Game");
-  
-  const [adminStats, setAdminStats] = useState({ activeUsers: 0, registeredUsers: 0 });
+  const [adminStats, setAdminStats] = useState({ activeUsers: 0, registeredUsers: 0, totalGames: 0 });
   const [copySuccess, setCopySuccess] = useState(false);
 
-  const ADMIN_TELEGRAM_IDS = ["494653076"]; 
+  const ADMIN_TELEGRAM_IDS = ["494653076"];
 
   const isUserAdmin =
     (user && (user.isAdmin || user.role === "admin")) ||
@@ -31,24 +32,16 @@ function App() {
       { id: "Wallet", label: "Wallet", icon: "💳" },
       { id: "Profile", label: "Profile", icon: "👤" },
     ];
-
-    if (isUserAdmin) {
-      tabs.push({ id: "Admin", label: "Admin", icon: "⚙️" });
-    }
-
+    if (isUserAdmin) tabs.push({ id: "Admin", label: "Admin", icon: "⚙️" });
     return tabs;
   };
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-    useEffect(() => {
+  useEffect(() => {
     if (isUserAdmin && (activeTab === "Admin" || activeTab === "Game")) {
       const apiBase = process.env.REACT_APP_API_URL || "";
       const token = localStorage.getItem("bingo_token") || "";
-
       fetch(`${apiBase}/api/admin/stats`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       })
         .then((res) => res.json())
         .then((data) => {
@@ -56,14 +49,14 @@ function App() {
             setAdminStats({
               activeUsers: data.activeUsers || 0,
               registeredUsers: data.registeredUsers || 0,
+              totalGames: data.totalGames || 0,
             });
           }
         })
-        .catch(() => {
-          setAdminStats({ activeUsers: 0, registeredUsers: 0 });
-        });
+        .catch(() => {});
     }
   }, [user, activeTab, isUserAdmin]);
+
   if (!user) {
     return (
       <Login
@@ -86,8 +79,18 @@ function App() {
     setCardId(selectedCardId);
   }
 
+  function handlePlayStake(fee, code) {
+    setRoomCode(code);
+    setShowCartela(true);
+  }
+
+  function handleCartelaConfirm(selectedCardId) {
+    setCardId(selectedCardId);
+    setShowCartela(false);
+  }
+
   const handleCopyInviteLink = () => {
-    const botUsername = "fetanbingobot";
+    const botUsername = "fetanbingo1_bot";
     const inviteLink = `https://t.me/${botUsername}?start=ref_${user.telegramId}`;
     navigator.clipboard.writeText(inviteLink).then(() => {
       setCopySuccess(true);
@@ -96,7 +99,11 @@ function App() {
   };
 
   const tabs = getTabs();
-  const userInitial = user.firstName ? user.firstName.charAt(0).toUpperCase() : (user.username ? user.username.charAt(0).toUpperCase() : "U");
+  const userInitial = user.firstName
+    ? user.firstName.charAt(0).toUpperCase()
+    : user.username
+    ? user.username.charAt(0).toUpperCase()
+    : "U";
 
   return (
     <div className="app" style={{ paddingBottom: "80px" }}>
@@ -107,8 +114,15 @@ function App() {
 
       {activeTab === "Game" && (
         <>
-          <Wallet balance={balance} setBalance={setBalance} />
-          {roomCode ? (
+          <Wallet balance={balance} setBalance={setBalance} compact />
+          {showCartela ? (
+            <CartelaSelection
+              roomCode={roomCode}
+              balance={balance}
+              onConfirm={handleCartelaConfirm}
+              onCancel={() => setShowCartela(false)}
+            />
+          ) : roomCode ? (
             <LiveGame
               roomCode={roomCode}
               cardId={cardId}
@@ -119,6 +133,7 @@ function App() {
           ) : (
             <GameLobby
               onJoin={handleJoinRoom}
+              onPlayStake={handlePlayStake}
               isAdmin={isUserAdmin}
               adminStats={adminStats}
             />
@@ -126,34 +141,15 @@ function App() {
         </>
       )}
 
-      {activeTab === "History" && (
-        <Wallet balance={balance} setBalance={setBalance} showHistory />
-      )}
+      {activeTab === "History" && <Wallet balance={balance} setBalance={setBalance} showHistory />}
 
-      {activeTab === "Wallet" && (
-        <Wallet balance={balance} setBalance={setBalance} />
-      )}
+      {activeTab === "Wallet" && <Wallet balance={balance} setBalance={setBalance} />}
 
       {activeTab === "Profile" && (
         <div className="page-view profile-view" style={{ padding: "15px", textAlign: "center" }}>
-          <div style={{
-            width: "80px",
-            height: "80px",
-            borderRadius: "50%",
-            background: "linear-gradient(135deg, #3498db, #2980b9)",
-            color: "#fff",
-            fontSize: "36px",
-            fontWeight: "bold",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            margin: "0 auto 10px auto",
-            boxShadow: "0 4px 10px rgba(52, 152, 219, 0.3)",
-            border: "2px solid #f39c12"
-          }}>
+          <div style={{ width: "80px", height: "80px", borderRadius: "50%", background: "linear-gradient(135deg, #3498db, #2980b9)", color: "#fff", fontSize: "36px", fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px auto", boxShadow: "0 4px 10px rgba(52, 152, 219, 0.3)", border: "2px solid #f39c12" }}>
             {userInitial}
           </div>
-
           <h2 style={{ color: "#fff", margin: "5px 0 2px 0", fontSize: "22px" }}>
             {user.firstName || "User"} {user.lastName || ""}
           </h2>
@@ -167,7 +163,7 @@ function App() {
               <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>{balance} ETB</div>
             </div>
             <div style={{ flex: 1, background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "15px" }}>
-              <div style={{ color: "#f39c12", fontSize: "12px", marginBottom: "5px" }}>💳 Play Wallet</div>
+              <div style={{ color: "#f39c12", fontSize: "12px", marginBottom: "5px" }}>🎁 Bonus</div>
               <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>{user.bonusBalance || 0} ETB</div>
             </div>
           </div>
@@ -188,24 +184,10 @@ function App() {
               🎁 ጓደኞች ይጋብዙ (Invite Friends)
             </div>
             <p style={{ color: "#bbb", fontSize: "12px", lineHeight: "1.5", marginBottom: "15px" }}>
-              የእርስዎን የመጋበዣ ሊንክ ለጓደኞችዎ በመላክ በእያንዳንዱ ግንኙነት ተጨማሪ ቦነስ ይደርስል!
+              የእርስዎን የመጋበዣ ሊንክ ለጓደኞችዎ በመላክ በእያንዳንዱ ግንኙነት 5 ETB ቦነስ ያግኙ!
             </p>
-            <button
-              onClick={handleCopyInviteLink}
-              style={{
-                width: "100%",
-                background: "linear-gradient(135deg, #0088cc, #006699)",
-                color: "#fff",
-                border: "none",
-                borderRadius: "10px",
-                padding: "12px",
-                fontSize: "14px",
-                fontWeight: "bold",
-                cursor: "pointer",
-                boxShadow: "0 4px 10px rgba(0, 136, 204, 0.3)"
-              }}
-            >
-              🔗 {copySuccess ? "ተቀድቷል! (Copied!)" : "የመጋበዣ ሊንክ ቅዳ (Copy Invite Link)"}
+            <button onClick={handleCopyInviteLink} style={{ width: "100%", background: "linear-gradient(135deg, #0088cc, #006699)", color: "#fff", border: "none", borderRadius: "10px", padding: "12px", fontSize: "14px", fontWeight: "bold", cursor: "pointer", boxShadow: "0 4px 10px rgba(0, 136, 204, 0.3)" }}>
+              🔗 {copySuccess ? "ተቀድቷል! (Copied!)" : "የመጋበዣ ሊንክ ቅዳ"}
             </button>
           </div>
         </div>
@@ -214,15 +196,20 @@ function App() {
       {activeTab === "Admin" && (
         <div className="page-view admin-panel" style={{ padding: "20px", textAlign: "center" }}>
           <h2 style={{ color: "#f39c12", marginBottom: "20px" }}>Admin Dashboard</h2>
-          
+
           <div style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "20px", marginBottom: "15px" }}>
             <h3 style={{ fontSize: "28px", color: "#fff", margin: "0 0 5px 0" }}>{adminStats.activeUsers}</h3>
             <p style={{ color: "#aaa", margin: 0, textTransform: "uppercase", fontSize: "12px", letterSpacing: "1px" }}>Active Users</p>
           </div>
 
-          <div style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "20px" }}>
+          <div style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "20px", marginBottom: "15px" }}>
             <h3 style={{ fontSize: "28px", color: "#fff", margin: "0 0 5px 0" }}>{adminStats.registeredUsers}</h3>
             <p style={{ color: "#aaa", margin: 0, textTransform: "uppercase", fontSize: "12px", letterSpacing: "1px" }}>Registered Users</p>
+          </div>
+
+          <div style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "20px" }}>
+            <h3 style={{ fontSize: "28px", color: "#fff", margin: "0 0 5px 0" }}>{adminStats.totalGames}</h3>
+            <p style={{ color: "#aaa", margin: 0, textTransform: "uppercase", fontSize: "12px", letterSpacing: "1px" }}>Games Played</p>
           </div>
         </div>
       )}
@@ -233,7 +220,7 @@ function App() {
             key={tab.id}
             type="button"
             className={activeTab === tab.id ? "nav-item active" : "nav-item"}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => { setActiveTab(tab.id); if (tab.id !== "Game") setShowCartela(false); }}
           >
             <span>{tab.icon}</span>
             <span>{tab.label}</span>

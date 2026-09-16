@@ -1,14 +1,11 @@
 {
   "name": "fetan-bingo-backend",
   "version": "1.0.0",
-  "description": "Fetan Bingo - Telegram WebApp real-time bingo backend (Express + Socket.io + MongoDB)",
-  "main": "Server.js",
-  "engines": {
-    "node": ">=18.0.0"
-  },
+  "main": "server.js",
+  "engines": { "node": ">=18.0.0" },
   "scripts": {
-    "start": "node Server.js",
-    "dev": "nodemon Server.js",
+    "start": "node server.js",
+    "dev": "nodemon server.js",
     "bot": "node bot.js",
     "bot:dev": "nodemon bot.js"
   },
@@ -21,7 +18,5 @@
     "socket.io": "^4.7.5",
     "telegraf": "^4.16.3"
   },
-  "devDependencies": {
-    "nodemon": "^3.1.4"
-  }
+  "devDependencies": { "nodemon": "^3.1.4" }
 }

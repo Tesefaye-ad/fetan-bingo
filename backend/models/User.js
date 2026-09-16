@@ -7,13 +7,14 @@ const UserSchema = new mongoose.Schema(
     firstName: { type: String },
     lastName: { type: String },
     photoUrl: { type: String },
-    balance: { type: Number, default: 0 }, // stored in ETB (Birr)
-    bonusBalance: { type: Number, default: 0 }, // promotional/referral bonus, must be converted before use
+    balance: { type: Number, default: 0 },
+    bonusBalance: { type: Number, default: 0 },
     isBanned: { type: Boolean, default: false },
     isAdmin: { type: Boolean, default: false },
     gamesPlayed: { type: Number, default: 0 },
     gamesWon: { type: Number, default: 0 },
-    referredBy: { type: String }, // telegramId of the inviter, if any
+    totalWinnings: { type: Number, default: 0 },
+    referredBy: { type: String },
     referralCount: { type: Number, default: 0 },
   },
   { timestamps: true }

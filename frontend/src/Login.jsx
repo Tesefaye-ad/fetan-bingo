@@ -11,31 +11,21 @@ export default function Login({ onLoggedIn }) {
     if (!ready) return;
 
     async function handleLogin() {
-      setError("");
-
-      // 1. ከቴሌግራም ውጭ ከሆነ - ስህተት አሳይ
       if (!isTelegram) {
         setError("This app must be opened from inside Telegram (via your bot's menu button).");
         setLoading(false);
         return;
       }
-
-      // 2. initData ባዶ ከሆነ - ስህተት አሳይ
       if (!initData) {
-        setError("Telegram initData is missing. Please close and reopen the app from your bot.");
+        setError("Telegram initData is missing. Close and reopen the app from your bot.");
         setLoading(false);
         return;
       }
-
-      // 3. ከ backend ጋር ለማረጋገጥ ሞክር
       try {
         const user = await loginWithTelegram(initData);
         onLoggedIn(user);
       } catch (err) {
-        const msg =
-          err?.response?.data?.error ||
-          err?.message ||
-          "Login failed. Please reopen the app from Telegram.";
+        const msg = err?.response?.data?.error || err?.message || "Login failed. Please reopen the app from Telegram.";
         setError(msg);
       } finally {
         setLoading(false);
@@ -47,58 +37,17 @@ export default function Login({ onLoggedIn }) {
 
   if (loading) {
     return (
-      <div style={{
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        alignItems: "center",
-        height: "100vh",
-        background: "#0f172a",
-        color: "#fff",
-        fontFamily: "sans-serif",
-        padding: "20px",
-        textAlign: "center"
-      }}>
-        <div style={{ fontSize: "18px", color: "#38bdf8", fontWeight: "bold", marginBottom: "8px" }}>
-          Fetan Lottery is loading...
-        </div>
-        <div style={{ fontSize: "12px", color: "#94a3b8" }}>
-          Connecting to Telegram...
-        </div>
+      <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: "100vh", background: "#0f172a", color: "#fff", fontFamily: "sans-serif", padding: "20px", textAlign: "center" }}>
+        <div style={{ fontSize: "18px", color: "#38bdf8", fontWeight: "bold", marginBottom: "8px" }}>Fetan Lottery is loading...</div>
+        <div style={{ fontSize: "12px", color: "#94a3b8" }}>Connecting to Telegram...</div>
       </div>
     );
   }
 
   return (
-    <div style={{
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      alignItems: "center",
-      height: "100vh",
-      background: "#0f172a",
-      color: "#e74c3c",
-      fontFamily: "sans-serif",
-      padding: "30px",
-      textAlign: "center"
-    }}>
-      <div style={{ fontSize: "16px", lineHeight: "1.6", maxWidth: "400px" }}>
-        {error || "Login failed. Please reopen the app from Telegram."}
-      </div>
-      <button
-        onClick={() => window.location.reload()}
-        style={{
-          marginTop: "25px",
-          background: "#38bdf8",
-          color: "#0f172a",
-          border: "none",
-          borderRadius: "10px",
-          padding: "12px 28px",
-          fontSize: "14px",
-          fontWeight: "bold",
-          cursor: "pointer"
-        }}
-      >
+    <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: "100vh", background: "#0f172a", color: "#e74c3c", fontFamily: "sans-serif", padding: "30px", textAlign: "center" }}>
+      <div style={{ fontSize: "16px", lineHeight: "1.6", maxWidth: "400px" }}>{error}</div>
+      <button onClick={() => window.location.reload()} style={{ marginTop: "25px", background: "#38bdf8", color: "#0f172a", border: "none", borderRadius: "10px", padding: "12px 28px", fontSize: "14px", fontWeight: "bold", cursor: "pointer" }}>
         🔄 Retry
       </button>
     </div>

@@ -4,7 +4,6 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.
 
 const api = axios.create({ baseURL: API_BASE_URL });
 
-// Attach the stored JWT (set after Telegram login) to every request
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("bingo_token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -12,20 +11,10 @@ api.interceptors.request.use((config) => {
 });
 
 export async function loginWithTelegram(initData) {
-  try {
-    // initData ከሌለ (ለምሳሌ ከብሮውዘር ሲሞከር) ስህተት መወርወር
-    if (!initData) {
-      throw new Error("Telegram initData is missing. Please open the app from Telegram.");
-    }
-
-    const { data } = await api.post("/api/auth/telegram", { initData });
-    localStorage.setItem("bingo_token", data.token);
-    return data.user;
-  } catch (error) {
-    // የሰርቨሩን ትክክለኛ የኢረር መልእክት በኮንሶል ማሳየት (ለዲባግ ይጠቅማል)
-    console.error("Login API Error:", error.response?.data || error.message);
-    throw error;
-  }
+  if (!initData) throw new Error("Telegram initData is missing.");
+  const { data } = await api.post("/api/auth/telegram", { initData });
+  localStorage.setItem("bingo_token", data.token);
+  return data.user;
 }
 
 export function logout() {
@@ -34,7 +23,7 @@ export function logout() {
 
 export async function getBalance() {
   const { data } = await api.get("/api/wallet/balance");
-  return data.balance;
+  return data;
 }
 
 export async function getWalletHistory() {
@@ -47,8 +36,18 @@ export async function getRooms() {
   return data.rooms;
 }
 
+export async function getGameStats() {
+  const { data } = await api.get("/api/game/stats");
+  return data;
+}
+
 export async function createRoom(entryFee) {
   const { data } = await api.post("/api/game/rooms", { entryFee });
+  return data;
+}
+
+export async function getRoom(roomCode) {
+  const { data } = await api.get(`/api/game/rooms/${roomCode}`);
   return data;
 }
 
@@ -58,15 +57,17 @@ export async function initiateDeposit(amount) {
 }
 
 export async function confirmDeposit(reference, amount) {
-  const { data } = await api.post("/api/wallet/deposit/confirm", {
-    reference,
-    amount,
-  });
+  const { data } = await api.post("/api/wallet/deposit/confirm", { reference, amount });
   return data.balance;
 }
 
 export async function withdraw(amount) {
   const { data } = await api.post("/api/wallet/withdraw", { amount });
+  return data.balance;
+}
+
+export async function transfer(toTelegramId, amount) {
+  const { data } = await api.post("/api/wallet/transfer", { toTelegramId, amount });
   return data.balance;
 }
 

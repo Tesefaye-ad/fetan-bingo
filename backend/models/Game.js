@@ -7,15 +7,7 @@ const PlayerSchema = new mongoose.Schema(
     card: { type: [[Number]], required: true },
     marked: { type: [[Boolean]], required: true },
     hasWon: { type: Boolean, default: false },
-  },
-  { _id: false }
-);
-
-const CardSchema = new mongoose.Schema(
-  {
-    cardId: { type: Number, required: true },
-    card: { type: [[Number]], required: true },
-    marked: { type: [[Boolean]], required: true },
+    isWatching: { type: Boolean, default: false },
   },
   { _id: false }
 );
@@ -33,9 +25,10 @@ const GameSchema = new mongoose.Schema(
     maxNumber: { type: Number, default: 75 },
     calledNumbers: { type: [Number], default: [] },
     players: { type: [PlayerSchema], default: [] },
-    allCards: { type: [CardSchema], default: [] },
-    winner: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    allCards: { type: mongoose.Schema.Types.Mixed, default: [] },
+    winners: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     winPattern: { type: String },
+    nextGameAt: { type: Date },
     startedAt: { type: Date },
     finishedAt: { type: Date },
   },

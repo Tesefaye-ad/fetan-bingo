@@ -8,40 +8,17 @@ const router = express.Router();
 router.post("/telegram", async (req, res) => {
   try {
     const { initData } = req.body;
+    if (!initData) return res.status(400).json({ error: "initData is required" });
 
-    if (!initData) {
-      return res.status(400).json({ error: "initData is required" });
-    }
-
-    let telegramUser = null;
-
-    // 1. መጀመሪያ በ መደበኛው ቨርፊኬሽን እንሞክራለን
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    if (botToken) {
-      const { valid, data } = verifyTelegramInitData(initData, botToken);
-      if (valid && data?.user) {
-        telegramUser = data.user;
-      }
-    }
+    if (!botToken) return res.status(500).json({ error: "Bot token not configured" });
 
-    // 2. ቨርፊኬሽኑ ካልተሳካ (ለጊዜው ቴሌግራም ዌብአፕ ዳታውን በቀጥታ ከ URL በመንቀል እንዲሰራ ማድረግ)
-    if (!telegramUser) {
-      try {
-        const urlParams = new URLSearchParams(initData);
-        const userParam = urlParams.get("user");
-        if (userParam) {
-          telegramUser = JSON.parse(userParam);
-        }
-      } catch (e) {
-        console.error("Failed to parse initData fallback:", e);
-      }
-    }
-
-    if (!telegramUser || !telegramUser.id) {
+    const { valid, data } = verifyTelegramInitData(initData, botToken);
+    if (!valid || !data?.user) {
       return res.status(401).json({ error: "Invalid Telegram authentication data" });
     }
 
-    const { id, username, first_name, last_name, photo_url } = telegramUser;
+    const { id, username, first_name, last_name, photo_url } = data.user;
 
     let user = await User.findOne({ telegramId: String(id) });
     if (!user) {
@@ -65,10 +42,9 @@ router.post("/telegram", async (req, res) => {
       return res.status(403).json({ error: "This account has been suspended" });
     }
 
-    const jwtSecret = process.env.JWT_SECRET || "fallback_secret_key";
     const token = jwt.sign(
       { userId: user._id.toString(), telegramId: user.telegramId },
-      jwtSecret,
+      process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
@@ -82,6 +58,10 @@ router.post("/telegram", async (req, res) => {
         lastName: user.lastName,
         photoUrl: user.photoUrl,
         balance: user.balance,
+        bonusBalance: user.bonusBalance,
+        gamesPlayed: user.gamesPlayed,
+        gamesWon: user.gamesWon,
+        referralCount: user.referralCount,
         isAdmin: user.isAdmin,
       },
     });

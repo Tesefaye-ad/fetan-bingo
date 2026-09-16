@@ -10,32 +10,19 @@ export function useTelegram() {
 
   useEffect(() => {
     const tg = getTg();
-
     if (tg && tg.initData) {
       try {
         tg.ready();
         tg.expand();
-      } catch (e) {
-        console.warn("Telegram expand error:", e);
-      }
+      } catch (e) {}
       setInitData(tg.initData);
       setTelegramUser(tg.initDataUnsafe?.user || null);
       setIsTelegram(true);
     } else {
-      // ከቴሌግራም ውጭ ነው - fake user አንስጥም
       setIsTelegram(false);
-      setInitData("");
-      setTelegramUser(null);
     }
-
     setReady(true);
   }, []);
 
-  return {
-    telegramUser,
-    initData,
-    isTelegram,
-    ready,
-    webApp: getTg(),
-  };
+  return { telegramUser, initData, isTelegram, ready, webApp: getTg() };
 }

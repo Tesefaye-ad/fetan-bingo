@@ -11,18 +11,8 @@ body {
   max-width: 480px;
   margin: 0 auto;
   padding: 12px;
-  padding-bottom: 76px; /* room for bottom nav */
+  padding-bottom: 110px;
   min-height: 100vh;
-}
-
-.center-screen {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 20px;
 }
 
 .app-header {
@@ -34,163 +24,9 @@ body {
 
 .app-header h1 { font-size: 20px; margin: 0; }
 
-/* ---- Wallet ---- */
-.wallet-card {
-  background: #1b2233;
-  border-radius: 12px;
-  padding: 14px;
-  margin-bottom: 16px;
-}
-
-.wallet-balance {
-  display: flex;
-  justify-content: space-between;
-  font-size: 18px;
-  margin-bottom: 10px;
-}
-
-.wallet-deposit { display: flex; gap: 8px; }
-
-.wallet-deposit input {
-  flex: 1;
-  padding: 8px;
-  border-radius: 8px;
-  border: none;
-}
-
-button {
-  background: #4c6ef5;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 8px 14px;
-  cursor: pointer;
-  font-weight: 600;
-}
-
+button { cursor: pointer; font-family: inherit; }
 button:disabled { opacity: 0.6; cursor: default; }
 
-/* ---- Lobby ---- */
-.lobby h2, .lobby h3 { margin: 8px 0; }
-
-.join-by-code { display: flex; gap: 8px; margin-bottom: 16px; }
-
-.join-by-code input {
-  flex: 1;
-  padding: 8px;
-  border-radius: 8px;
-  border: none;
-}
-
-.room-list { list-style: none; padding: 0; }
-.room-list li {
-  background: #1b2233;
-  border-radius: 10px;
-  padding: 10px 14px;
-  margin-bottom: 8px;
-  display: flex;
-  justify-content: space-between;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-/* ---- Live game ---- */
-.game-header {
-  display: flex;
-  justify-content: space-between;
-  font-size: 13px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.back-btn { background: #333c52; }
-
-.banner {
-  background: #2c3550;
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-size: 13px;
-  margin-bottom: 8px;
-}
-
-.last-number {
-  text-align: center;
-  font-size: 28px;
-  font-weight: 700;
-  margin: 10px 0;
-  color: #ffd43b;
-}
-
-.called-numbers {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: 12px;
-  max-height: 70px;
-  overflow-y: auto;
-}
-
-.chip {
-  background: #333c52;
-  border-radius: 20px;
-  padding: 2px 8px;
-  font-size: 12px;
-}
-
-.bingo-card { margin: 0 auto; max-width: 340px; }
-
-.bingo-headers {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 4px;
-  margin-bottom: 4px;
-}
-
-.bingo-header-cell { text-align: center; font-weight: 700; color: #4c6ef5; }
-
-.bingo-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 4px;
-}
-
-.bingo-cell {
-  aspect-ratio: 1;
-  background: #1b2233;
-  color: white;
-  font-size: 16px;
-  border-radius: 8px;
-}
-
-.bingo-cell.marked { background: #4c6ef5; }
-.bingo-cell.free { background: #ffd43b; color: #1b2233; }
-
-.bingo-btn {
-  display: block;
-  margin: 16px auto 0;
-  background: #f03e3e;
-  padding: 12px 32px;
-  font-size: 18px;
-}
-
-.game-over-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.85);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 20px;
-  gap: 16px;
-  z-index: 10;
-}
-
-.hint { color: #9aa3b5; font-size: 13px; }
-
-/* ---- Bottom nav ---- */
 .bottom-nav {
   position: fixed;
   left: 0;
@@ -202,12 +38,14 @@ button:disabled { opacity: 0.6; cursor: default; }
   background: #151b2b;
   border-top: 1px solid #232b40;
   padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+  z-index: 100;
 }
 
 .nav-item {
   flex: 1;
   background: transparent;
   color: #9aa3b5;
+  border: none;
   border-radius: 8px;
   padding: 8px 2px;
   font-size: 11px;
@@ -219,20 +57,4 @@ button:disabled { opacity: 0.6; cursor: default; }
 
 .nav-item.active { color: #4c6ef5; }
 
-.page-view {
-  text-align: center;
-  padding: 40px 12px;
-  color: #9aa3b5;
-}
-
-/* ---- Simple table used for wallet history ---- */
-.history-list { list-style: none; padding: 0; margin: 0; }
-.history-list li {
-  display: flex;
-  justify-content: space-between;
-  background: #1b2233;
-  border-radius: 8px;
-  padding: 8px 12px;
-  margin-bottom: 6px;
-  font-size: 13px;
-}
+.page-view { text-align: center; padding: 40px 12px; color: #9aa3b5; }

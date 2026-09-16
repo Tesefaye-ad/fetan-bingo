@@ -4,6 +4,7 @@ import BingoCard from "./Bingocard.jsx";
 
 export default function LiveGame({ roomCode, onExit, setBalance, telegramId, cardId }) {
   const socketRef = useRef(null);
+  const joinedRef = useRef(false);
   const [card, setCard] = useState(null);
   const [marked, setMarked] = useState(null);
   const [status, setStatus] = useState("waiting");
@@ -11,31 +12,35 @@ export default function LiveGame({ roomCode, onExit, setBalance, telegramId, car
   const [lastNumber, setLastNumber] = useState(null);
   const [playerCount, setPlayerCount] = useState(0);
   const [prizePool, setPrizePool] = useState(0);
+  const [entryFee, setEntryFee] = useState(0);
   const [banner, setBanner] = useState("");
   const [gameOver, setGameOver] = useState(null);
+  const [watching, setWatching] = useState(false);
+  const [nextGameCountdown, setNextGameCountdown] = useState(0);
 
   useEffect(() => {
     const socket = getSocket();
     socketRef.current = socket;
 
-    // የተመረጠውን cardId ጨምሮ ወደ ጨዋታ ክፍሉ ይገባል
-    socket.emit("join_room", { roomCode, cardId });
+    if (!joinedRef.current) {
+      socket.emit("join_room", { roomCode, cardId });
+      joinedRef.current = true;
+    }
 
-    socket.on("your_card", ({ card, marked }) => {
-      setCard(card);
-      setMarked(marked);
-    });
+    socket.on("your_card", ({ card, marked }) => { setCard(card); setMarked(marked); });
+    socket.on("watching_mode", () => setWatching(true));
 
     socket.on("room_state", (state) => {
       setStatus(state.status);
       setPlayerCount(state.playerCount);
       setPrizePool(state.prizePool);
+      setEntryFee(state.entryFee || 0);
       setCalledNumbers(state.calledNumbers || []);
     });
 
     socket.on("game_started", () => {
       setStatus("active");
-      setBanner("Game started! Numbers will be called automatically.");
+      setBanner("🎯 Game started! Numbers will be called automatically.");
     });
 
     socket.on("number_called", ({ number, calledNumbers }) => {
@@ -45,40 +50,46 @@ export default function LiveGame({ roomCode, onExit, setBalance, telegramId, car
 
     socket.on("bingo_rejected", ({ message }) => setBanner(message));
 
+    socket.on("bingo_claimed", (data) => {
+      setBanner(`🎉 BINGO! ${data.winners.map((w) => w.name).join(", ")} won!`);
+    });
+
     socket.on("game_over", (result) => {
       setStatus("finished");
       setGameOver(result);
-    });
-
-    socket.on("balance_update", ({ balance }) => setBalance(balance));
-
-    socket.on("balance_update_for", ({ telegramId: winnerTgId, balance }) => {
-      if (telegramId && String(winnerTgId) === String(telegramId)) {
-        setBalance(balance);
+      if (result.nextGameAt) {
+        const remaining = Math.max(0, Math.floor((new Date(result.nextGameAt) - Date.now()) / 1000));
+        setNextGameCountdown(remaining);
       }
     });
 
+    socket.on("next_game_ready", () => {
+      setGameOver(null);
+      setBanner("🎯 New game starting...");
+      setLastNumber(null);
+      setCalledNumbers([]);
+      setNextGameCountdown(0);
+    });
+
+    socket.on("balance_update", ({ balance }) => setBalance(balance));
     socket.on("error_message", ({ message }) => setBanner(message));
 
     return () => {
       socket.emit("leave_room");
-      socket.off("your_card");
-      socket.off("room_state");
-      socket.off("game_started");
-      socket.off("number_called");
-      socket.off("bingo_rejected");
-      socket.off("game_over");
-      socket.off("balance_update");
-      socket.off("balance_update_for");
-      socket.off("error_message");
+      joinedRef.current = false;
+      ["your_card", "room_state", "game_started", "number_called", "bingo_rejected", "bingo_claimed", "game_over", "next_game_ready", "balance_update", "watching_mode", "error_message"].forEach((e) => socket.off(e));
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode, cardId]);
+  }, [roomCode, cardId, setBalance]);
+
+  useEffect(() => {
+    if (nextGameCountdown <= 0) return;
+    const t = setTimeout(() => setNextGameCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [nextGameCountdown]);
 
   function handleCellClick(r, c) {
-    if (status !== "active") return;
+    if (status !== "active" || watching) return;
     socketRef.current.emit("mark_cell", { roomCode, row: r, col: c });
-    // optimistic local update
     setMarked((prev) => {
       if (!prev) return prev;
       const copy = prev.map((row) => [...row]);
@@ -88,58 +99,84 @@ export default function LiveGame({ roomCode, onExit, setBalance, telegramId, car
   }
 
   function claimBingo() {
+    if (watching) return;
     socketRef.current.emit("claim_bingo", { roomCode });
   }
 
   return (
-    <div className="live-game">
-      <div className="game-header">
-        <button className="back-btn" onClick={onExit}>
-          ← Leave
-        </button>
-        <span>Room: {roomCode}</span>
-        <span>{playerCount} players</span>
-        <span>Pool: {prizePool} ETB</span>
+    <div className="live-game" style={{ padding: "15px", maxWidth: "450px", margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "10px", flexWrap: "wrap", gap: "6px", background: "#1a1a2e", padding: "10px", borderRadius: "10px" }}>
+        <div><div style={{ color: "#aaa", fontSize: "10px" }}>GAME ID</div><div style={{ color: "#f39c12", fontWeight: "bold" }}>{roomCode}</div></div>
+        <div><div style={{ color: "#aaa", fontSize: "10px" }}>PLAYERS</div><div style={{ color: "#fff", fontWeight: "bold" }}>{playerCount}</div></div>
+        <div><div style={{ color: "#aaa", fontSize: "10px" }}>BET</div><div style={{ color: "#fff", fontWeight: "bold" }}>{entryFee} ETB</div></div>
+        <div><div style={{ color: "#aaa", fontSize: "10px" }}>DERASH</div><div style={{ color: "#2ecc71", fontWeight: "bold" }}>{prizePool} ETB</div></div>
+        <div><div style={{ color: "#aaa", fontSize: "10px" }}>CALLED</div><div style={{ color: "#fff", fontWeight: "bold" }}>{calledNumbers.length}</div></div>
       </div>
 
-      {status === "waiting" && (
-        <p className="hint">Waiting for at least one more player to join…</p>
+      {watching && (
+        <div style={{ background: "#3498db", color: "#fff", padding: "8px", borderRadius: "8px", textAlign: "center", fontSize: "12px", marginBottom: "10px" }}>
+          👁 Watching Only Mode
+        </div>
       )}
 
-      {banner && <p className="banner">{banner}</p>}
+      {status === "waiting" && !watching && (
+        <p style={{ color: "#aaa", fontSize: "13px", textAlign: "center" }}>Waiting for players to join…</p>
+      )}
+
+      {banner && <p style={{ background: "#2c3550", padding: "8px 12px", borderRadius: "8px", fontSize: "13px", marginBottom: "8px", color: "#fff" }}>{banner}</p>}
 
       {lastNumber && status === "active" && (
-        <div className="last-number">Last called: {lastNumber}</div>
+        <div style={{ textAlign: "center", margin: "10px 0" }}>
+          <div style={{ color: "#aaa", fontSize: "11px" }}>LAST CALLED</div>
+          <div style={{ fontSize: "42px", fontWeight: "bold", color: "#ffd43b" }}>{lastNumber}</div>
+        </div>
       )}
 
-      <div className="called-numbers">
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "12px", maxHeight: "70px", overflowY: "auto" }}>
         {calledNumbers.map((n) => (
-          <span key={n} className="chip">
-            {n}
-          </span>
+          <span key={n} style={{ background: "#333c52", borderRadius: "20px", padding: "2px 8px", fontSize: "12px", color: "#fff" }}>{n}</span>
         ))}
       </div>
 
-      {/* የተመረጠውን cardId ወደ BingoCard component ያስተላልፋል */}
-      <BingoCard card={card} marked={marked} onCellClick={handleCellClick} cardId={cardId} />
+      {card && <BingoCard card={card} marked={marked} onCellClick={handleCellClick} cardId={cardId} />}
 
-      {status === "active" && (
-        <button className="bingo-btn" onClick={claimBingo}>
+      {status === "active" && !watching && (
+        <button onClick={claimBingo} style={{ display: "block", margin: "16px auto 0", background: "#f03e3e", color: "#fff", border: "none", borderRadius: "10px", padding: "14px 40px", fontSize: "18px", fontWeight: "bold", cursor: "pointer" }}>
           BINGO!
         </button>
       )}
 
       {gameOver && (
-        <div className="game-over-overlay">
-          {gameOver.draw ? (
-            <p>Round ended - no winner this time.</p>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "20px", gap: "16px", zIndex: 10 }}>
+          <div style={{ fontSize: "32px" }}>🎉</div>
+          <h2 style={{ color: "#f39c12", margin: 0 }}>BINGO!</h2>
+          {gameOver.winners && gameOver.winners.length > 0 ? (
+            <>
+              <p style={{ color: "#fff", fontSize: "18px", margin: 0 }}>
+                {gameOver.winners.length} player{gameOver.winners.length > 1 ? "s" : ""} won!
+              </p>
+              <div style={{ background: "#1a1a2e", borderRadius: "10px", padding: "15px", minWidth: "220px" }}>
+                {gameOver.winners.map((w, i) => (
+                  <div key={i} style={{ color: "#fff", fontSize: "14px", padding: "4px 0", borderBottom: i < gameOver.winners.length - 1 ? "1px solid #2a2a40" : "none" }}>
+                    🏆 {w.name}
+                  </div>
+                ))}
+              </div>
+              <p style={{ color: "#2ecc71", fontSize: "16px", fontWeight: "bold", margin: 0 }}>
+                Prize Pool: {gameOver.prizePool} ETB
+              </p>
+            </>
           ) : (
-            <p>
-              🎉 {gameOver.winnerName} won with {gameOver.pattern}! Prize:{" "}
-              {gameOver.prizePool} ETB
+            <p style={{ color: "#fff" }}>No winner this round.</p>
+          )}
+          {nextGameCountdown > 0 && (
+            <p style={{ color: "#aaa", fontSize: "14px" }}>
+              Next game in <span style={{ color: "#f39c12", fontWeight: "bold" }}>{nextGameCountdown}s</span>
             </p>
           )}
-          <button onClick={onExit}>Back to Lobby</button>
+          <button onClick={onExit} style={{ background: "#4c6ef5", color: "#fff", border: "none", borderRadius: "10px", padding: "12px 30px", fontWeight: "bold", cursor: "pointer" }}>
+            Back to Lobby
+          </button>
         </div>
       )}
     </div>
