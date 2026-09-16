@@ -3,92 +3,104 @@ import { useTelegram } from "./useTelegram";
 import { loginWithTelegram } from "./api";
 
 export default function Login({ onLoggedIn }) {
-  const { initData, telegramUser } = useTelegram();
+  const { initData, isTelegram, ready } = useTelegram();
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!ready) return;
+
     async function handleLogin() {
+      setError("");
+
+      // 1. ከቴሌግራም ውጭ ከሆነ - ስህተት አሳይ
+      if (!isTelegram) {
+        setError("This app must be opened from inside Telegram (via your bot's menu button).");
+        setLoading(false);
+        return;
+      }
+
+      // 2. initData ባዶ ከሆነ - ስህተት አሳይ
+      if (!initData) {
+        setError("Telegram initData is missing. Please close and reopen the app from your bot.");
+        setLoading(false);
+        return;
+      }
+
+      // 3. ከ backend ጋር ለማረጋገጥ ሞክር
       try {
-        let user = null;
-
-        // 1. ቴሌግራም initData ካለ ከሰርቨር ጋር ለማረጋገጥ መሞከር
-        if (initData) {
-          try {
-            user = await loginWithTelegram(initData);
-          } catch (e) {
-            console.warn("Backend verification failed, using telegramUser fallback:", e);
-          }
-        }
-
-        // 2. ሰርቨር ካልተገናኘ ወይም initData ከሌለ ግን ቴሌግራም ዩዘር ካለ
-        if (!user && telegramUser) {
-          user = {
-            id: telegramUser.id,
-            telegramId: String(telegramUser.id),
-            firstName: telegramUser.first_name || "User",
-            username: telegramUser.username || `user_${telegramUser.id}`,
-            balance: 1000,
-            bonusBalance: 200,
-            isAdmin: telegramUser.id === 494653076,
-            token: "mock-telegram-token"
-          };
-        }
-
-        // 3. ፍጹም ፎልባክ (ለደህንነት ሲባል አፑ ከቶውንም ስህተት አሳይቶ እንዳይዘጋ)
-        if (!user) {
-          user = {
-            id: "local_admin",
-            telegramId: "494653076",
-            firstName: "Tesfaye",
-            username: "admin_test",
-            balance: 1000,
-            bonusBalance: 200,
-            isAdmin: true,
-            token: "mock-local-token"
-          };
-        }
-
+        const user = await loginWithTelegram(initData);
         onLoggedIn(user);
       } catch (err) {
-        console.error("Login process error:", err);
-        onLoggedIn({
-          id: "fallback_id",
-          telegramId: "494653076",
-          firstName: "Tesfaye",
-          username: "admin_test",
-          balance: 1000,
-          isAdmin: true,
-          token: "fallback-token"
-        });
+        const msg =
+          err?.response?.data?.error ||
+          err?.message ||
+          "Login failed. Please reopen the app from Telegram.";
+        setError(msg);
       } finally {
         setLoading(false);
       }
     }
 
-    const timer = setTimeout(() => {
-      handleLogin();
-    }, 300);
+    handleLogin();
+  }, [ready, isTelegram, initData, onLoggedIn]);
 
-    return () => clearTimeout(timer);
-  }, [initData, telegramUser, onLoggedIn]);
+  if (loading) {
+    return (
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        height: "100vh",
+        background: "#0f172a",
+        color: "#fff",
+        fontFamily: "sans-serif",
+        padding: "20px",
+        textAlign: "center"
+      }}>
+        <div style={{ fontSize: "18px", color: "#38bdf8", fontWeight: "bold", marginBottom: "8px" }}>
+          Fetan Lottery is loading...
+        </div>
+        <div style={{ fontSize: "12px", color: "#94a3b8" }}>
+          Connecting to Telegram...
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ 
-      display: "flex", 
-      flexDirection: "column", 
-      justifyContent: "center", 
-      alignItems: "center", 
-      height: "100vh", 
-      background: "#0f172a", 
-      color: "#fff",
-      fontFamily: "sans-serif"
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      alignItems: "center",
+      height: "100vh",
+      background: "#0f172a",
+      color: "#e74c3c",
+      fontFamily: "sans-serif",
+      padding: "30px",
+      textAlign: "center"
     }}>
-      <div style={{ fontSize: "18px", color: "#38bdf8", fontWeight: "bold", marginBottom: "8px" }}>
-        Fetan Lottery is loading...
+      <div style={{ fontSize: "16px", lineHeight: "1.6", maxWidth: "400px" }}>
+        {error || "Login failed. Please reopen the app from Telegram."}
       </div>
-      <div style={{ fontSize: "12px", color: "#94a3b8" }}>
-        Preparing your dashboard...
-      </div>
+      <button
+        onClick={() => window.location.reload()}
+        style={{
+          marginTop: "25px",
+          background: "#38bdf8",
+          color: "#0f172a",
+          border: "none",
+          borderRadius: "10px",
+          padding: "12px 28px",
+          fontSize: "14px",
+          fontWeight: "bold",
+          cursor: "pointer"
+        }}
+      >
+        🔄 Retry
+      </button>
     </div>
   );
 }

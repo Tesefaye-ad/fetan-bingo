@@ -40,29 +40,30 @@ function App() {
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
+    useEffect(() => {
     if (isUserAdmin && (activeTab === "Admin" || activeTab === "Game")) {
       const apiBase = process.env.REACT_APP_API_URL || "";
+      const token = localStorage.getItem("bingo_token") || "";
+
       fetch(`${apiBase}/api/admin/stats`, {
         headers: {
-          Authorization: `Bearer ${user?.token || ""}`,
+          Authorization: `Bearer ${token}`,
         },
       })
         .then((res) => res.json())
         .then((data) => {
-          if (data) {
+          if (data && !data.error) {
             setAdminStats({
-              activeUsers: data.activeUsers || 1,
-              registeredUsers: data.registeredUsers || 6,
+              activeUsers: data.activeUsers || 0,
+              registeredUsers: data.registeredUsers || 0,
             });
           }
         })
         .catch(() => {
-          setAdminStats({ activeUsers: 1, registeredUsers: 6 });
+          setAdminStats({ activeUsers: 0, registeredUsers: 0 });
         });
     }
   }, [user, activeTab, isUserAdmin]);
-
   if (!user) {
     return (
       <Login

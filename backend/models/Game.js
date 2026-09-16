@@ -3,9 +3,19 @@ const mongoose = require("mongoose");
 const PlayerSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    card: { type: [[Number]], required: true }, // 5x5 grid, 0 = FREE space
-    marked: { type: [[Boolean]], required: true }, // 5x5 grid of marked cells
+    cardId: { type: Number, required: true },
+    card: { type: [[Number]], required: true },
+    marked: { type: [[Boolean]], required: true },
     hasWon: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const CardSchema = new mongoose.Schema(
+  {
+    cardId: { type: Number, required: true },
+    card: { type: [[Number]], required: true },
+    marked: { type: [[Boolean]], required: true },
   },
   { _id: false }
 );
@@ -20,11 +30,12 @@ const GameSchema = new mongoose.Schema(
     },
     entryFee: { type: Number, default: 0 },
     prizePool: { type: Number, default: 0 },
-    maxNumber: { type: Number, default: 75 }, // 75-ball bingo
+    maxNumber: { type: Number, default: 75 },
     calledNumbers: { type: [Number], default: [] },
     players: { type: [PlayerSchema], default: [] },
+    allCards: { type: [CardSchema], default: [] },
     winner: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    winPattern: { type: String }, // e.g. "row-2", "column-4", "diagonal-1", "full-card"
+    winPattern: { type: String },
     startedAt: { type: Date },
     finishedAt: { type: Date },
   },

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { initiateDeposit, withdraw as withdrawApi } from "./api";
 
 function Wallet({ balance, setBalance, showHistory }) {
   const [amount, setAmount] = useState("");
@@ -7,7 +8,7 @@ function Wallet({ balance, setBalance, showHistory }) {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleDeposit = async (e) => {
+   const handleDeposit = async (e) => {
     e.preventDefault();
     if (!amount || Number(amount) <= 0) {
       setMessage("እባክዎ ትክክለኛ የብር መጠን ያስገቡ።");
@@ -18,21 +19,13 @@ function Wallet({ balance, setBalance, showHistory }) {
     setMessage("");
 
     try {
-      const res = await fetch("/api/wallet/deposit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: Number(amount), smsText }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setMessage("✅ የዲፖዚት ጥያቄዎ በተሳካ ሁኔታ ተልኳል!");
-        setAmount("");
-        setSmsText("");
-      } else {
-        setMessage(`❌ ስህተት: ${data.error || "ሊሳካ አልቻለም"}`);
-      }
+      const data = await initiateDeposit(Number(amount));
+      setMessage(`✅ ${data.message || "የዲፖዚት ጥያቄዎ ተልኳል!"}\nReference: ${data.reference}`);
+      setAmount("");
+      setSmsText("");
     } catch (err) {
-      setMessage("❌ ከሰርቨር ጋር መገናኘት አልተቻለም።");
+      const msg = err?.response?.data?.error || err.message || "ሊሳካ አልቻለም";
+      setMessage(`❌ ስህተት: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -49,23 +42,13 @@ function Wallet({ balance, setBalance, showHistory }) {
     setMessage("");
 
     try {
-      const res = await fetch("/api/wallet/withdraw", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: Number(withdrawAmount) }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setMessage("✅ የብር ማውጣት ጥያቄዎ ተልኳል!");
-        if (data.balance !== undefined) {
-          setBalance(data.balance);
-        }
-        setWithdrawAmount("");
-      } else {
-        setMessage(`❌ ስህተት: ${data.error || "ሊሳካ አልቻለም"}`);
-      }
+      const newBalance = await withdrawApi(Number(withdrawAmount));
+      setMessage("✅ የብር ማውጣት ጥያቄዎ ተልኳል!");
+      if (newBalance !== undefined) setBalance(newBalance);
+      setWithdrawAmount("");
     } catch (err) {
-      setMessage("❌ ከሰርቨር ጋር መገናኘት አልተቻለም።");
+      const msg = err?.response?.data?.error || err.message || "ሊሳካ አልቻለም";
+      setMessage(`❌ ስህተት: ${msg}`);
     } finally {
       setLoading(false);
     }
