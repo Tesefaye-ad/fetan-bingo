@@ -108,7 +108,7 @@ function App() {
   return (
     <div className="app" style={{ paddingBottom: "80px" }}>
       <header className="app-header">
-        <h1>🎱 Fetan Lottery</h1>
+        <h1>🎱 Fetan Bingo</h1>
         <span>Hi, {user.firstName || user.username}</span>
       </header>
 

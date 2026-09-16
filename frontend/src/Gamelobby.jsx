@@ -104,7 +104,7 @@ export default function GameLobby({ onPlayStake, isAdmin, adminStats }) {
       )}
 
       <h2 style={{ color: "#fff", textAlign: "center", marginBottom: "20px" }}>
-        Welcome to <span style={{ color: "#f39c12" }}>Fetan Lottery</span>
+        Welcome to <span style={{ color: "#f39c12" }}>Fetan Bingo</span>
       </h2>
 
       {/* ---- Choose Stake ---- */}

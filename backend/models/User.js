@@ -7,6 +7,7 @@ const UserSchema = new mongoose.Schema(
     firstName: { type: String },
     lastName: { type: String },
     photoUrl: { type: String },
+    phone: { type: String, default: null }, // 👈 አዲስ የተጨመረ
     balance: { type: Number, default: 0 },
     bonusBalance: { type: Number, default: 0 },
     isBanned: { type: Boolean, default: false },
