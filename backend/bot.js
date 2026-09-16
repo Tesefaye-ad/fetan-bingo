@@ -6,7 +6,6 @@
  * shown here and in the Web App are always the same numbers.
  */
 require("dotenv").config();
-const express = require("express");
 const { Telegraf, Markup } = require("telegraf");
 const mongoose = require("mongoose");
 
@@ -390,15 +389,8 @@ bot.catch((err, ctx) => {
   console.error(`[bot] unhandled error for update ${ctx?.updateType || 'unknown'}:`, err?.message || err);
 });
 
-function startKeepAliveServer() {
-  const app = express();
-  app.get("/", (req, res) => res.send("Fetan Bingo bot is running."));
-  const PORT = process.env.PORT || 10000;
-  app.listen(PORT, () => console.log(`[bot] keep-alive server listening on port ${PORT}`));
-}
 
 async function main() {
-  startKeepAliveServer();
   await connectDB();
   if (mongoose.connection.readyState !== 1) {
     await new Promise((resolve) => mongoose.connection.once("connected", resolve));
@@ -447,10 +439,13 @@ async function main() {
   console.log("[bot] Fetan bingo bot is running");
 }
 
-main().catch((err) => {
-  console.error("[bot] failed to start:", err);
-  process.exit(1);
-});
+function startBot() {
+  return main().catch((err) => {
+    console.error("[bot] failed to start:", err);
+  });
+}
+
+module.exports = { startBot };
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));

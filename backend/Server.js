@@ -61,6 +61,13 @@ server.listen(PORT, "0.0.0.0", () => {
 
 connectDB();
 
+try {
+  const { startBot } = require("./bot");
+  startBot();
+} catch (err) {
+  console.error("[server] Failed to start Telegram bot:", err.message);
+}
+
 process.on("unhandledRejection", (reason) => {
   console.error("[unhandledRejection]", reason);
 });
