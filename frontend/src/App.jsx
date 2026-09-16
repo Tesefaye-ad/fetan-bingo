@@ -2,8 +2,8 @@ import React, { useState, useEffect, Suspense, lazy } from "react";
 import Login from "./Login.jsx";
 import Wallet from "./Wallet.jsx";
 import GameLobby from "./Gamelobby.jsx";
-import { disconnectSocket } from "./socket";
 import AdminPanel from "./Adminpanel.jsx";
+import { disconnectSocket } from "./socket";
 
 // ከባድ ገጾች - አስፈላጊ ሲሆኑ ብቻ እንዲጫኑ
 const LiveGame = lazy(() => import("./Livegame.jsx"));
@@ -115,10 +115,11 @@ function App() {
       {/* ============ GAME TAB ============ */}
       {activeTab === "Game" && (
         <div>
-          {/* ✅ የባላንስ ማሳያ ብቻ - ከ Suspense ውጭ */}
-          <Wallet balance={balance} setBalance={setBalance} compact={true} />
+          {/* ✅ የባላንስ ማሳያ ለአድሚን ብቻ */}
+          {isUserAdmin && (
+            <Wallet balance={balance} setBalance={setBalance} compact={true} />
+          )}
 
-          {/* ✅ ከባድ ገጾች ብቻ በ Suspense ውስጥ */}
           <Suspense
             fallback={
               <div style={{ color: "#fff", textAlign: "center", padding: "50px" }}>
@@ -241,25 +242,8 @@ function App() {
       )}
 
       {/* ============ ADMIN TAB ============ */}
-      {activeTab === "Admin" && (
-        <div className="page-view admin-panel" style={{ padding: "20px", textAlign: "center" }}>
-          <h2 style={{ color: "#f39c12", marginBottom: "20px" }}>Admin Dashboard</h2>
-
-          <div style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "20px", marginBottom: "15px" }}>
-            <h3 style={{ fontSize: "28px", color: "#fff", margin: "0 0 5px 0" }}>{adminStats.activeUsers}</h3>
-            <p style={{ color: "#aaa", margin: 0, textTransform: "uppercase", fontSize: "12px", letterSpacing: "1px" }}>Active Users</p>
-          </div>
-
-          <div style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "20px", marginBottom: "15px" }}>
-            <h3 style={{ fontSize: "28px", color: "#fff", margin: "0 0 5px 0" }}>{adminStats.registeredUsers}</h3>
-            <p style={{ color: "#aaa", margin: 0, textTransform: "uppercase", fontSize: "12px", letterSpacing: "1px" }}>Registered Users</p>
-          </div>
-
-          <div style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "20px" }}>
-            <h3 style={{ fontSize: "28px", color: "#fff", margin: "0 0 5px 0" }}>{adminStats.totalGames}</h3>
-            <p style={{ color: "#aaa", margin: 0, textTransform: "uppercase", fontSize: "12px", letterSpacing: "1px" }}>Games Played</p>
-          </div>
-        </div>
+      {activeTab === "Admin" && isUserAdmin && (
+        <AdminPanel adminStats={adminStats} />
       )}
 
       {/* ============ BOTTOM NAV ============ */}
