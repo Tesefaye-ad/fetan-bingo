@@ -6,7 +6,6 @@ export default function CartelaSelection({ roomCode, balance, onConfirm, onCance
   const [takenCards, setTakenCards] = useState([]);
   const [countdown, setCountdown] = useState(60);
   const [error, setError] = useState("");
-  const [loadingCard, setLoadingCard] = useState(null);
 
   useEffect(() => {
     const socket = getSocket();
@@ -44,7 +43,7 @@ export default function CartelaSelection({ roomCode, balance, onConfirm, onCance
     };
   }, [roomCode, selectedCard]);
 
-  // የሰዓት ቆጣሪ
+  // የሰዓት ቆጣሪ እና ራስ-ሰር ምርጫ
   useEffect(() => {
     if (countdown <= 0) {
       if (!selectedCard) {
@@ -53,14 +52,18 @@ export default function CartelaSelection({ roomCode, balance, onConfirm, onCance
         );
         if (available.length > 0) {
           const randomId = available[Math.floor(Math.random() * available.length)];
-          handleSelectCard(randomId);
+          // በቀጥታ እዚህ ጋር እንመርጠው (ለ handleSelectCard ጥገኝነት እንዳይፈጠር)
+          const socket = getSocket();
+          socket.emit("select_card", { roomCode, cardId: randomId });
+          setSelectedCard(randomId);
+          setError("");
         }
       }
       return;
     }
     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
-  }, [countdown, selectedCard, takenCards]);
+  }, [countdown, selectedCard, takenCards, roomCode]);
 
   const handleSelectCard = (cardId) => {
     if (takenCards.includes(cardId)) {
