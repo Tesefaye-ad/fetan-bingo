@@ -113,12 +113,10 @@ function App() {
       </header>
 
       {/* ============ GAME TAB ============ */}
+            {/* ============ GAME TAB ============ */}
       {activeTab === "Game" && (
         <div>
-          {/* ✅ የባላንስ ማሳያ ለአድሚን ብቻ */}
-          {isUserAdmin && (
-            <Wallet balance={balance} setBalance={setBalance} compact={true} />
-          )}
+          {/* ❌ የባላንስ ማሳያው ተወግዷል */}
 
           <Suspense
             fallback={

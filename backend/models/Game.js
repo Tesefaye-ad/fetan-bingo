@@ -25,6 +25,13 @@ const GameSchema = new mongoose.Schema(
     maxNumber: { type: Number, default: 75 },
     calledNumbers: { type: [Number], default: [] },
     players: { type: [PlayerSchema], default: [] },
+    // 👇 አዲስ የተጨመረ፦ ለጊዜው የተያዙ ካርዶችን ለመከታተል
+    reservedCards: [
+      {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        cardId: { type: Number },
+      },
+    ],
     allCards: { type: mongoose.Schema.Types.Mixed, default: [] },
     winners: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     winPattern: { type: String },

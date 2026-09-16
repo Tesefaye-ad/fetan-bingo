@@ -25,8 +25,8 @@ const bot = new Telegraf(BOT_TOKEN);
 const pendingAction = new Map();
 
 const MAIN_MENU_TEXT =
-  "👋 Welcome to Fetan Lottery! Choose an option below.\n\n" +
-  "እንኳን ወደ Fetan Lottery በደህና መጡ! ከታች ያሉትን ቁልፎች በመጠቀም ጨዋታውን መጫወት ይችላሉ።";
+  "👋 Welcome to Fetan Bingo! Choose an option below.\n\n" +
+  "እንኳን ወደ Fetan Bingo በደህና መጡ! ከታች ያሉትን ቁልፎች በመጠቀም ጨዋታውን መጫወት ይችላሉ።";
 
 function mainKeyboard() {
   const playButton = WEBAPP_URL
@@ -64,6 +64,7 @@ async function getOrCreateUser(ctx, referredBy) {
           referralCount: 0,
           isBanned: false,
           isAdmin: false,
+          phone: null, // 👈 አዲስ የተጨመረ
           referredBy: referredBy && referredBy !== telegramId ? referredBy : undefined,
         },
       },
@@ -183,7 +184,7 @@ bot.on("contact", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// 2. CHECK BALANCE — Photo 1 style
+// 2. CHECK BALANCE
 // ---------------------------------------------------------------------
 const handleBalance = async (ctx) => {
   const user = await getOrCreateUser(ctx);
@@ -217,7 +218,7 @@ bot.action("copy_code", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// 3. DEPOSIT — Photo 2 style
+// 3. DEPOSIT
 // ---------------------------------------------------------------------
 const handleDeposit = async (ctx) => {
   await getOrCreateUser(ctx);
@@ -260,7 +261,7 @@ bot.action("cancel_action", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// 4. WITHDRAW — Photo 3 style
+// 4. WITHDRAW
 // ---------------------------------------------------------------------
 const handleWithdraw = async (ctx) => {
   const user = await getOrCreateUser(ctx);
@@ -282,7 +283,7 @@ bot.action("action_withdraw", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// 5. INSTRUCTION — Amharic
+// 5. INSTRUCTION
 // ---------------------------------------------------------------------
 const handleInstruction = async (ctx) => {
   const text =
@@ -303,7 +304,7 @@ bot.action("action_instruction", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// 6. INVITE — Photo 4 style
+// 6. INVITE
 // ---------------------------------------------------------------------
 const handleInvite = async (ctx) => {
   const user = await getOrCreateUser(ctx);
@@ -314,8 +315,8 @@ const handleInvite = async (ctx) => {
 
   const text =
     "🔥 ባንድዎ ያለውን ስልክ በመጠቀም ብቻ ዕድልዎን ይሞክሩ!\n\n" +
-    "🎉 ወደ Fetan Lottery ይቀላቀሉ እና አሁኑኑ መሸነፍ ይጀምሩ!\n\n" +
-    "🎁 ልዩ ቦነስ: ከታች ባለው ሊንክ ሲመዘገብ ብቻ የ 10 ETB ናፍ ቦነስ በ Play Wallet ላይ ይጨመርልዎታል!\n\n" +
+    "🎉 ወደ Fetan Bingo ይቀላቀሉ እና አሁኑኑ መሸነፍ ይጀምሩ!\n\n" +
+    "🎁 ልዩ ቦነስ: ከታች ባለው ሊንክ ሲመዘገብ ብቻ የ 10 ETB ቦነስ በ Play Wallet ላይ ይጨመርልዎታል!\n\n" +
     "✅ ቀላል አሰፈዋት\n" +
     "✅ ፈጣን ዲፖዚት እና ዊዝድሮዋል\n" +
     "✅ አስተማማኝ እና ፈጣን ክፍያ ማውጣት\n\n" +
@@ -379,6 +380,14 @@ bot.action("action_convert", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
+// Helper: notify admin
+// ---------------------------------------------------------------------
+function notifyAdmin(text) {
+  if (!ADMIN_CHAT_ID) return;
+  bot.telegram.sendMessage(ADMIN_CHAT_ID, text).catch(() => {});
+}
+
+// ---------------------------------------------------------------------
 // Text handler (deposit / withdraw amounts)
 // ---------------------------------------------------------------------
 bot.on("text", async (ctx) => {
@@ -420,11 +429,6 @@ bot.on("text", async (ctx) => {
     console.error("[text handler] error:", err.message);
   }
 });
-
-function notifyAdmin(text) {
-  if (!ADMIN_CHAT_ID) return;
-  bot.telegram.sendMessage(ADMIN_CHAT_ID, text).catch(() => {});
-}
 
 bot.catch((err, ctx) => {
   console.error(`[bot] error for ${ctx?.updateType}:`, err?.message || err);

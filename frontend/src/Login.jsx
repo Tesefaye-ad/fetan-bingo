@@ -1,20 +1,20 @@
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 import { useTelegram } from "./useTelegram";
 import { loginWithTelegram } from "./api";
 
 export default function Login({ onLoggedIn }) {
-  const { initData, ready } = useTelegram();
+  const { initData, ready, telegramUser } = useTelegram();
 
   useEffect(() => {
     if (!ready) return;
 
-    // 1. ከቴሌግራም ውጭ ከሆነ (initData ከሌለ) ወዲያውኑ ወደ ጨዋታው ግባ
+    // ከቴሌግራም ውጭ ከሆነ (initData ከሌለ) ወዲያውኑ ወደ ጨዋታው ግባ
     if (!initData) {
       const mockUser = {
         id: "local_admin",
-        telegramId: "494653076",
-        firstName: "Tesfaye",
-        username: "admin_test",
+        telegramId: telegramUser?.id ? String(telegramUser.id) : "494653076",
+        firstName: telegramUser?.first_name || "Player", // 👈 የቴሌግራሙን ስም ይወስዳል
+        username: telegramUser?.username || "player",
         balance: 1000,
         bonusBalance: 200,
         gamesWon: 0,
@@ -26,7 +26,7 @@ export default function Login({ onLoggedIn }) {
       return;
     }
 
-    // 2. በቴሌግራም ውስጥ ከሆነ ከ Backend ጋር ተገናኝ
+    // በቴሌግራም ውስጥ ከሆነ ከ Backend ጋር ተገናኝ
     async function handleLogin() {
       try {
         const user = await loginWithTelegram(initData);
@@ -36,9 +36,9 @@ export default function Login({ onLoggedIn }) {
         // የ Backend ግንኙነት ካልተሳካ ወዲያውኑ የሙከራ ተጠቃሚ ተጠቀም
         const mockUser = {
           id: "local_admin",
-          telegramId: "494653076",
-          firstName: "Tesfaye",
-          username: "admin_test",
+          telegramId: telegramUser?.id ? String(telegramUser.id) : "494653076",
+          firstName: telegramUser?.first_name || "Player",
+          username: telegramUser?.username || "player",
           balance: 1000,
           bonusBalance: 200,
           gamesWon: 0,
@@ -51,8 +51,7 @@ export default function Login({ onLoggedIn }) {
     }
 
     handleLogin();
-  }, [ready, initData, onLoggedIn]);
+  }, [ready, initData, telegramUser, onLoggedIn]);
 
-  // ምንም Loading ሳያሳይ ባዶ ገጽ ብቻ ይመልስ (ወዲያውኑ ይገባል)
   return null;
 }

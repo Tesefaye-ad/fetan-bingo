@@ -1,110 +1,166 @@
 import React, { useEffect, useState } from "react";
+import { getSocket } from "./socket";
 
 export default function CartelaSelection({ roomCode, balance, onConfirm, onCancel }) {
   const [selectedCard, setSelectedCard] = useState(null);
   const [takenCards, setTakenCards] = useState([]);
-  const [countdown, setCountdown] = useState(48);
+  const [countdown, setCountdown] = useState(60);
   const [error, setError] = useState("");
+  const [loadingCard, setLoadingCard] = useState(null);
 
   useEffect(() => {
-    const apiBase = process.env.REACT_APP_API_URL || "";
-    const token = localStorage.getItem("bingo_token") || "";
-    fetch(`${apiBase}/api/game/rooms/${roomCode}`, {
-      headers: { Authorization: `Bearer ${token}` },
+    const socket = getSocket();
+    
+    // የመጀመሪያ ሁኔታን መጫን
+    fetch(`${process.env.REACT_APP_API_URL}/api/game/rooms/${roomCode}`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem("bingo_token")}` },
     })
       .then((res) => res.json())
-      .then((data) => { if (data.takenCards) setTakenCards(data.takenCards); })
+      .then((data) => {
+        if (data.takenCards) setTakenCards(data.takenCards);
+        if (data.reservedCards) {
+          const reservedIds = data.reservedCards.map((r) => r.cardId);
+          setTakenCards((prev) => [...new Set([...prev, ...reservedIds])]);
+        }
+      })
       .catch(() => {});
-  }, [roomCode]);
 
+    // የ Real-time ማሳወቂያዎች
+    socket.on("card_selected", ({ cardId, telegramId }) => {
+      setTakenCards((prev) => [...prev, cardId]);
+      if (String(telegramId) === String(localStorage.getItem("telegramId"))) {
+        setSelectedCard(cardId);
+      }
+    });
+
+    socket.on("card_deselected", ({ cardId }) => {
+      setTakenCards((prev) => prev.filter((id) => id !== cardId));
+      if (selectedCard === cardId) setSelectedCard(null);
+    });
+
+    return () => {
+      socket.off("card_selected");
+      socket.off("card_deselected");
+    };
+  }, [roomCode, selectedCard]);
+
+  // የሰዓት ቆጣሪ
   useEffect(() => {
     if (countdown <= 0) {
-      // Auto-pick a random free card if none chosen
       if (!selectedCard) {
-        const takenSet = new Set(takenCards);
-        for (let i = 1; i <= 1000; i++) {
-          if (!takenSet.has(i)) { onConfirm(i); return; }
+        const available = Array.from({ length: 1000 }, (_, i) => i + 1).filter(
+          (id) => !takenCards.includes(id)
+        );
+        if (available.length > 0) {
+          const randomId = available[Math.floor(Math.random() * available.length)];
+          handleSelectCard(randomId);
         }
       }
       return;
     }
-    const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [countdown, selectedCard, takenCards, onConfirm]);
+    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown, selectedCard, takenCards]);
 
-  function handleConfirm() {
+  const handleSelectCard = (cardId) => {
+    if (takenCards.includes(cardId)) {
+      setError(`ካርድ #${cardId} አስቀድሞ ተይዟል!`);
+      return;
+    }
+    if (selectedCard === cardId) return;
+
+    const socket = getSocket();
+    socket.emit("select_card", { roomCode, cardId });
+    setSelectedCard(cardId);
+    setError("");
+  };
+
+  const handleDeselect = () => {
+    if (!selectedCard) return;
+    const socket = getSocket();
+    socket.emit("deselect_card", { roomCode, cardId: selectedCard });
+    setSelectedCard(null);
+  };
+
+  const handleConfirm = () => {
     if (!selectedCard) {
       setError("እባክዎ ካርቴላ ይምረጡ!");
       return;
     }
-    if (takenCards.includes(selectedCard)) {
-      setError("ይህ ካርቴላ አስቀድሞ ተይዟል!");
-      return;
-    }
     onConfirm(selectedCard);
-  }
+  };
 
-  const takenSet = new Set(takenCards);
+  // ከ1 እስከ 1000 ያሉትን ቁጥሮች ማሳየት
+  const numbers = Array.from({ length: 1000 }, (_, i) => i + 1);
 
   return (
-    <div style={{ padding: "15px", maxWidth: "450px", margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
-        <h2 style={{ color: "#fff", fontSize: "18px", margin: 0 }}>🎴 Pick Your Cartela</h2>
-        <div style={{ background: countdown <= 10 ? "#e74c3c" : "#f39c12", color: "#fff", borderRadius: "20px", padding: "6px 14px", fontSize: "16px", fontWeight: "bold" }}>
+    <div style={{ padding: "15px", maxWidth: "480px", margin: "0 auto", color: "#fff", height: "100vh", display: "flex", flexDirection: "column" }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+        <h2 style={{ fontSize: "18px", margin: 0 }}>🎴 Pick Your Cartela</h2>
+        <div style={{ background: countdown <= 10 ? "#e74c3c" : "#f39c12", borderRadius: "20px", padding: "6px 14px", fontSize: "16px", fontWeight: "bold" }}>
           ⏱ {countdown}s
         </div>
       </div>
 
-      <div style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "10px", padding: "10px", marginBottom: "15px", textAlign: "center" }}>
-        <div style={{ color: "#aaa", fontSize: "11px" }}>Room</div>
-        <div style={{ color: "#f39c12", fontSize: "16px", fontWeight: "bold" }}>{roomCode}</div>
+      {/* Room & Balance */}
+      <div style={{ display: "flex", justifyContent: "space-between", background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: "10px", padding: "10px", marginBottom: "10px", fontSize: "13px" }}>
+        <span>Room: <b style={{color: "#f39c12"}}>{roomCode}</b></span>
+        <span>Balance: <b style={{color: "#2ecc71"}}>{balance} ETB</b></span>
       </div>
 
-      <div style={{ background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: "10px", padding: "10px", marginBottom: "15px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", color: "#fff", fontSize: "13px" }}>
-          <span>💳 Balance:</span>
-          <span style={{ fontWeight: "bold" }}>{balance} ETB</span>
-        </div>
+      {error && <div style={{ background: "#e74c3c", color: "#fff", padding: "8px", borderRadius: "8px", marginBottom: "10px", fontSize: "12px", textAlign: "center" }}>{error}</div>}
+
+      {/* Grid of 1000 numbers */}
+      <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "5px", marginBottom: "15px", paddingRight: "5px" }}>
+        {numbers.map((num) => {
+          const isTaken = takenCards.includes(num);
+          const isSelected = selectedCard === num;
+          return (
+            <button
+              key={num}
+              onClick={() => isTaken ? null : (isSelected ? handleDeselect() : handleSelectCard(num))}
+              disabled={isTaken}
+              style={{
+                padding: "12px 0",
+                borderRadius: "8px",
+                border: "1px solid #333",
+                background: isTaken ? "#e74c3c" : isSelected ? "#2ecc71" : "#1b2233",
+                color: isTaken ? "#fff" : isSelected ? "#fff" : "#aaa",
+                fontWeight: "bold",
+                fontSize: "12px",
+                cursor: isTaken ? "not-allowed" : "pointer",
+              }}
+            >
+              {num}
+            </button>
+          );
+        })}
       </div>
 
-      {error && (
-        <div style={{ background: "#e74c3c", color: "#fff", padding: "8px", borderRadius: "8px", marginBottom: "15px", fontSize: "12px", textAlign: "center" }}>
-          {error}
-        </div>
-      )}
-
-      <div style={{ marginBottom: "15px" }}>
-        <label style={{ display: "block", color: "#f39c12", fontSize: "12px", marginBottom: "5px" }}>Enter Card ID (1 - 1000):</label>
-        <input
-          type="number"
-          min="1"
-          max="1000"
-          placeholder="e.g. 42"
-          value={selectedCard || ""}
-          onChange={(e) => { setSelectedCard(parseInt(e.target.value, 10)); setError(""); }}
-          style={{ width: "100%", background: "#12121e", border: "1px solid #333", borderRadius: "8px", padding: "12px", color: "#fff", fontSize: "16px", boxSizing: "border-box", textAlign: "center" }}
-        />
-        {selectedCard && (
-          <div style={{ marginTop: "5px", fontSize: "12px", textAlign: "center" }}>
-            {takenSet.has(selectedCard) ? (
-              <span style={{ color: "#e74c3c", fontWeight: "bold" }}>🔴 ተይዟል (Taken)</span>
-            ) : (
-              <span style={{ color: "#2ecc71", fontWeight: "bold" }}>🟢 ክፍት ነው (Available)</span>
-            )}
-          </div>
-        )}
-      </div>
-
+      {/* Footer */}
       <div style={{ display: "flex", gap: "10px" }}>
-        <button onClick={onCancel} style={{ flex: 1, background: "#333c52", color: "#fff", border: "none", borderRadius: "10px", padding: "14px", fontWeight: "bold", cursor: "pointer" }}>
+        <button onClick={onCancel} style={{ flex: 1, background: "#333c52", color: "#fff", border: "none", borderRadius: "10px", padding: "14px", fontWeight: "bold" }}>
           Cancel
         </button>
-        <button onClick={handleConfirm} disabled={!selectedCard} style={{ flex: 2, background: selectedCard && !takenSet.has(selectedCard) ? "#2ecc71" : "#666", color: "#fff", border: "none", borderRadius: "10px", padding: "14px", fontWeight: "bold", cursor: selectedCard ? "pointer" : "not-allowed" }}>
+        <button
+          onClick={handleConfirm}
+          disabled={!selectedCard}
+          style={{
+            flex: 2,
+            background: selectedCard ? "#2ecc71" : "#666",
+            color: "#fff",
+            border: "none",
+            borderRadius: "10px",
+            padding: "14px",
+            fontWeight: "bold",
+            cursor: selectedCard ? "pointer" : "not-allowed",
+          }}
+        >
           Confirm & Play
         </button>
       </div>
-
-      <div style={{ marginTop: "15px", fontSize: "11px", color: "#888", textAlign: "center" }}>
+      <div style={{ fontSize: "11px", color: "#888", textAlign: "center", marginTop: "8px" }}>
         Auto-selects a random card when timer hits 0
       </div>
     </div>
