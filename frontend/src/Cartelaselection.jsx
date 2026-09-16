@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { getSocket } from "./socket";
 
 export default function CartelaSelection({ roomCode, balance, onConfirm, onCancel }) {
@@ -52,7 +52,6 @@ export default function CartelaSelection({ roomCode, balance, onConfirm, onCance
         );
         if (available.length > 0) {
           const randomId = available[Math.floor(Math.random() * available.length)];
-          // በቀጥታ እዚህ ጋር እንመርጠው (ለ handleSelectCard ጥገኝነት እንዳይፈጠር)
           const socket = getSocket();
           socket.emit("select_card", { roomCode, cardId: randomId });
           setSelectedCard(randomId);
@@ -93,7 +92,6 @@ export default function CartelaSelection({ roomCode, balance, onConfirm, onCance
     onConfirm(selectedCard);
   };
 
-  // ከ1 እስከ 1000 ያሉትን ቁጥሮች ማሳየት
   const numbers = Array.from({ length: 1000 }, (_, i) => i + 1);
 
   return (
