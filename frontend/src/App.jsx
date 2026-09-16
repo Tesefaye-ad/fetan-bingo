@@ -111,42 +111,75 @@ function App() {
         <span>Hi, {user.firstName || user.username}</span>
       </header>
 
+      {/* ============ GAME TAB ============ */}
       {activeTab === "Game" && (
-        <Suspense fallback={<div style={{ color: "#fff", textAlign: "center", padding: "50px" }}>Loading game...</div>}>
-          <Wallet balance={balance} setBalance={setBalance} compact />
-          {showCartela ? (
-            <CartelaSelection
-              roomCode={roomCode}
-              balance={balance}
-              onConfirm={handleCartelaConfirm}
-              onCancel={() => setShowCartela(false)}
-            />
-          ) : roomCode ? (
-            <LiveGame
-              roomCode={roomCode}
-              cardId={cardId}
-              setBalance={setBalance}
-              telegramId={user.telegramId}
-              onExit={handleExitGame}
-            />
-          ) : (
-            <GameLobby
-              onJoin={handleJoinRoom}
-              onPlayStake={handlePlayStake}
-              isAdmin={isUserAdmin}
-              adminStats={adminStats}
-            />
-          )}
-        </Suspense>
+        <div>
+          {/* ✅ የባላንስ ማሳያ ብቻ - ከ Suspense ውጭ */}
+          <Wallet balance={balance} setBalance={setBalance} compact={true} />
+
+          {/* ✅ ከባድ ገጾች ብቻ በ Suspense ውስጥ */}
+          <Suspense
+            fallback={
+              <div style={{ color: "#fff", textAlign: "center", padding: "50px" }}>
+                Loading game...
+              </div>
+            }
+          >
+            {showCartela ? (
+              <CartelaSelection
+                roomCode={roomCode}
+                balance={balance}
+                onConfirm={handleCartelaConfirm}
+                onCancel={() => setShowCartela(false)}
+              />
+            ) : roomCode ? (
+              <LiveGame
+                roomCode={roomCode}
+                cardId={cardId}
+                setBalance={setBalance}
+                telegramId={user.telegramId}
+                onExit={handleExitGame}
+              />
+            ) : (
+              <GameLobby
+                onJoin={handleJoinRoom}
+                onPlayStake={handlePlayStake}
+                isAdmin={isUserAdmin}
+                adminStats={adminStats}
+              />
+            )}
+          </Suspense>
+        </div>
       )}
 
-      {activeTab === "History" && <Wallet balance={balance} setBalance={setBalance} showHistory />}
+      {/* ============ HISTORY TAB ============ */}
+      {activeTab === "History" && (
+        <Wallet balance={balance} setBalance={setBalance} showHistory={true} />
+      )}
 
+      {/* ============ WALLET TAB ============ */}
       {activeTab === "Wallet" && <Wallet balance={balance} setBalance={setBalance} />}
 
+      {/* ============ PROFILE TAB ============ */}
       {activeTab === "Profile" && (
         <div className="page-view profile-view" style={{ padding: "15px", textAlign: "center" }}>
-          <div style={{ width: "80px", height: "80px", borderRadius: "50%", background: "linear-gradient(135deg, #3498db, #2980b9)", color: "#fff", fontSize: "36px", fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px auto", boxShadow: "0 4px 10px rgba(52, 152, 219, 0.3)", border: "2px solid #f39c12" }}>
+          <div
+            style={{
+              width: "80px",
+              height: "80px",
+              borderRadius: "50%",
+              background: "linear-gradient(135deg, #3498db, #2980b9)",
+              color: "#fff",
+              fontSize: "36px",
+              fontWeight: "bold",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 10px auto",
+              boxShadow: "0 4px 10px rgba(52, 152, 219, 0.3)",
+              border: "2px solid #f39c12",
+            }}
+          >
             {userInitial}
           </div>
           <h2 style={{ color: "#fff", margin: "5px 0 2px 0", fontSize: "22px" }}>
@@ -185,13 +218,28 @@ function App() {
             <p style={{ color: "#bbb", fontSize: "12px", lineHeight: "1.5", marginBottom: "15px" }}>
               የእርስዎን የመጋበዣ ሊንክ ለጓደኞችዎ በመላክ በእያንዳንዱ ግንኙነት 5 ETB ቦነስ ያግኙ!
             </p>
-            <button onClick={handleCopyInviteLink} style={{ width: "100%", background: "linear-gradient(135deg, #0088cc, #006699)", color: "#fff", border: "none", borderRadius: "10px", padding: "12px", fontSize: "14px", fontWeight: "bold", cursor: "pointer", boxShadow: "0 4px 10px rgba(0, 136, 204, 0.3)" }}>
+            <button
+              onClick={handleCopyInviteLink}
+              style={{
+                width: "100%",
+                background: "linear-gradient(135deg, #0088cc, #006699)",
+                color: "#fff",
+                border: "none",
+                borderRadius: "10px",
+                padding: "12px",
+                fontSize: "14px",
+                fontWeight: "bold",
+                cursor: "pointer",
+                boxShadow: "0 4px 10px rgba(0, 136, 204, 0.3)",
+              }}
+            >
               🔗 {copySuccess ? "ተቀድቷል! (Copied!)" : "የመጋበዣ ሊንክ ቅዳ"}
             </button>
           </div>
         </div>
       )}
 
+      {/* ============ ADMIN TAB ============ */}
       {activeTab === "Admin" && (
         <div className="page-view admin-panel" style={{ padding: "20px", textAlign: "center" }}>
           <h2 style={{ color: "#f39c12", marginBottom: "20px" }}>Admin Dashboard</h2>
@@ -213,13 +261,17 @@ function App() {
         </div>
       )}
 
+      {/* ============ BOTTOM NAV ============ */}
       <nav className="bottom-nav">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
             className={activeTab === tab.id ? "nav-item active" : "nav-item"}
-            onClick={() => { setActiveTab(tab.id); if (tab.id !== "Game") setShowCartela(false); }}
+            onClick={() => {
+              setActiveTab(tab.id);
+              if (tab.id !== "Game") setShowCartela(false);
+            }}
           >
             <span>{tab.icon}</span>
             <span>{tab.label}</span>

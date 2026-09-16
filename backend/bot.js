@@ -1,3 +1,12 @@
+/**
+ * Fetan Bingo - Telegram bot (FAST VERSION)
+ * 
+ * Optimizations:
+ * - /start replies INSTANTLY (before DB call)
+ * - User creation happens in background
+ * - Banner photo is optional and non-blocking
+ * - Single DB query for user lookup/create (findOneAndUpdate)
+ */
 require("dotenv").config();
 const { Telegraf, Markup } = require("telegraf");
 const mongoose = require("mongoose");
@@ -15,6 +24,7 @@ const DEPOSIT_PHONE = process.env.DEPOSIT_TELEBIRR_PHONE || "0920790583";
 const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 20);
 const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 50);
 const BONUS_CONVERSION_RATE = Number(process.env.BONUS_CONVERSION_RATE || 1);
+const USE_BANNER = process.env.BOT_BANNER_URL ? true : false;
 
 if (!BOT_TOKEN) {
   console.error("[bot] TELEGRAM_BOT_TOKEN is missing. Aborting.");
@@ -43,36 +53,63 @@ function mainKeyboard() {
   ]);
 }
 
+/**
+ * FAST: Single DB query using findOneAndUpdate with upsert.
+ * Returns the user object immediately.
+ */
 async function getOrCreateUser(ctx, referredBy) {
   try {
     const tgUser = ctx.from;
     if (!tgUser) return null;
     const telegramId = String(tgUser.id);
 
-    let user = await User.findOne({ telegramId });
-    if (!user) {
-      user = await User.create({
-        telegramId,
-        username: tgUser.username,
-        firstName: tgUser.first_name,
-        lastName: tgUser.last_name,
-        referredBy: referredBy && referredBy !== telegramId ? referredBy : undefined,
-      });
+    const user = await User.findOneAndUpdate(
+      { telegramId },
+      {
+        $set: {
+          username: tgUser.username,
+          firstName: tgUser.first_name,
+          lastName: tgUser.last_name,
+        },
+        $setOnInsert: {
+          balance: 0,
+          bonusBalance: 0,
+          gamesPlayed: 0,
+          gamesWon: 0,
+          referralCount: 0,
+          isBanned: false,
+          isAdmin: false,
+          referredBy:
+            referredBy && referredBy !== telegramId ? referredBy : undefined,
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
 
-      if (user.referredBy) {
-        const inviter = await User.findOneAndUpdate(
-          { telegramId: user.referredBy },
-          { $inc: { referralCount: 1, bonusBalance: 5 } },
-          { new: true }
-        );
-        if (inviter) {
-          bot.telegram.sendMessage(
-            inviter.telegramId,
-            `🎉 Someone joined using your invite link! You earned 5 ETB bonus.`
-          ).catch(() => {});
-        }
-      }
+    // Referral bonus: only on very first creation
+    const isNewUser =
+      user.createdAt && user.updatedAt &&
+      Math.abs(user.createdAt.getTime() - user.updatedAt.getTime()) < 2000;
+
+    if (isNewUser && user.referredBy) {
+      User.findOneAndUpdate(
+        { telegramId: user.referredBy },
+        { $inc: { referralCount: 1, bonusBalance: 5 } },
+        { new: true }
+      )
+        .then((inviter) => {
+          if (inviter) {
+            bot.telegram
+              .sendMessage(
+                inviter.telegramId,
+                `🎉 Someone joined using your invite link! You earned 5 ETB bonus.`
+              )
+              .catch(() => {});
+          }
+        })
+        .catch(() => {});
     }
+
     return user;
   } catch (err) {
     console.error("[getOrCreateUser] error:", err.message);
@@ -80,28 +117,41 @@ async function getOrCreateUser(ctx, referredBy) {
   }
 }
 
+// ---------------------------------------------------------------------
+// /start — FAST: reply instantly, DB runs in background
+// ---------------------------------------------------------------------
 bot.start(async (ctx) => {
   try {
     const payload = ctx.startPayload || "";
     const referredBy = payload.startsWith("ref_") ? payload.slice(4) : null;
-    const user = await getOrCreateUser(ctx, referredBy);
-    if (!user) return ctx.reply("Something went wrong. Please try /start again.");
 
-    const banner = getBannerSource();
-    let sentPhoto = false;
-
-    if (banner) {
-      try {
-        await ctx.replyWithPhoto(banner, { caption: MAIN_MENU_TEXT, ...mainKeyboard() });
-        sentPhoto = true;
-      } catch (err) {
-        console.error("[/start] photo error:", err.message);
+    // 1. Send banner if configured (non-blocking, 2s timeout)
+    if (USE_BANNER) {
+      const banner = getBannerSource();
+      if (banner) {
+        ctx
+          .replyWithPhoto(banner, { caption: MAIN_MENU_TEXT, ...mainKeyboard() })
+          .catch(() => {
+            // If photo fails, fall back to text
+            ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {});
+          });
+      } else {
+        await ctx.reply(MAIN_MENU_TEXT, mainKeyboard());
       }
+    } else {
+      // No banner configured - instant text reply
+      await ctx.reply(MAIN_MENU_TEXT, mainKeyboard());
     }
 
-    if (!sentPhoto) await ctx.reply(MAIN_MENU_TEXT, mainKeyboard());
+    // 2. Create/update user in BACKGROUND (don't await)
+    getOrCreateUser(ctx, referredBy).catch((err) =>
+      console.error("[/start] background user creation error:", err.message)
+    );
   } catch (err) {
     console.error("[/start] error:", err.message);
+    try {
+      await ctx.reply(MAIN_MENU_TEXT, mainKeyboard());
+    } catch (_) {}
   }
 });
 
@@ -110,47 +160,72 @@ bot.action("play_not_configured", async (ctx) => {
   await ctx.reply("The game link isn't configured yet.");
 });
 
+// ---------------------------------------------------------------------
+// Button Handlers
+// ---------------------------------------------------------------------
+
 const handleRegister = async (ctx) => {
   const user = await getOrCreateUser(ctx);
-  if (!user) return;
+  if (!user) return ctx.reply("Please try again.");
   await ctx.reply(
     `✅ You're registered, ${user.firstName || "player"}!\nTelegram ID: ${user.telegramId}\n\nTap "Play 🎲" any time to jump into a game.`,
     mainKeyboard()
   );
 };
 bot.hears("Register 📝", handleRegister);
-bot.action("action_register", async (ctx) => { await ctx.answerCbQuery(); await handleRegister(ctx); });
+bot.action("action_register", async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleRegister(ctx);
+});
 
 const handleBalance = async (ctx) => {
   const user = await getOrCreateUser(ctx);
-  if (!user) return;
+  if (!user) return ctx.reply("Please try again.");
   await ctx.reply(
     `💰 Main balance: ${user.balance} ETB\n🎁 Bonus balance: ${user.bonusBalance} ETB\n🏆 Games won: ${user.gamesWon}\n👥 Invites: ${user.referralCount}`,
     mainKeyboard()
   );
 };
 bot.hears("Check Balance 💳", handleBalance);
-bot.action("action_balance", async (ctx) => { await ctx.answerCbQuery(); await handleBalance(ctx); });
+bot.action("action_balance", async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleBalance(ctx);
+});
 
 const handleDeposit = async (ctx) => {
   await getOrCreateUser(ctx);
   pendingAction.set(String(ctx.from.id), { type: "deposit" });
-  await ctx.reply(`How much would you like to deposit? (min ${MIN_DEPOSIT} ETB)\nType a number, e.g. 100`, mainKeyboard());
+  await ctx.reply(
+    `How much would you like to deposit? (min ${MIN_DEPOSIT} ETB)\nType a number, e.g. 100`,
+    mainKeyboard()
+  );
 };
 bot.hears("Deposit 💳", handleDeposit);
-bot.action("action_deposit", async (ctx) => { await ctx.answerCbQuery(); await handleDeposit(ctx); });
+bot.action("action_deposit", async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleDeposit(ctx);
+});
 
 const handleWithdraw = async (ctx) => {
   const user = await getOrCreateUser(ctx);
   if (!user) return;
   if (user.balance < MIN_WITHDRAW) {
-    return ctx.reply(`Balance (${user.balance} ETB) below minimum ${MIN_WITHDRAW} ETB.`, mainKeyboard());
+    return ctx.reply(
+      `Balance (${user.balance} ETB) below minimum ${MIN_WITHDRAW} ETB.`,
+      mainKeyboard()
+    );
   }
   pendingAction.set(String(ctx.from.id), { type: "withdraw" });
-  await ctx.reply(`How much to withdraw? (min ${MIN_WITHDRAW} ETB, balance: ${user.balance} ETB)`, mainKeyboard());
+  await ctx.reply(
+    `How much to withdraw? (min ${MIN_WITHDRAW} ETB, balance: ${user.balance} ETB)`,
+    mainKeyboard()
+  );
 };
 bot.hears("Withdraw 💵", handleWithdraw);
-bot.action("action_withdraw", async (ctx) => { await ctx.answerCbQuery(); await handleWithdraw(ctx); });
+bot.action("action_withdraw", async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleWithdraw(ctx);
+});
 
 const handleTransfer = async (ctx) => {
   await getOrCreateUser(ctx);
@@ -161,7 +236,10 @@ const handleTransfer = async (ctx) => {
   );
 };
 bot.hears("Transfer 💸", handleTransfer);
-bot.action("action_transfer", async (ctx) => { await ctx.answerCbQuery(); await handleTransfer(ctx); });
+bot.action("action_transfer", async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleTransfer(ctx);
+});
 
 const handleInvite = async (ctx) => {
   const user = await getOrCreateUser(ctx);
@@ -174,7 +252,10 @@ const handleInvite = async (ctx) => {
   );
 };
 bot.hears("Invite 🔗", handleInvite);
-bot.action("action_invite", async (ctx) => { await ctx.answerCbQuery(); await handleInvite(ctx); });
+bot.action("action_invite", async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleInvite(ctx);
+});
 
 const handleInstruction = async (ctx) => {
   await ctx.reply(
@@ -195,13 +276,19 @@ const handleInstruction = async (ctx) => {
   );
 };
 bot.hears("Instruction 📖", handleInstruction);
-bot.action("action_instruction", async (ctx) => { await ctx.answerCbQuery(); await handleInstruction(ctx); });
+bot.action("action_instruction", async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleInstruction(ctx);
+});
 
 const handleSupport = async (ctx) => {
   await ctx.reply(`☎️ Need help? Message ${SUPPORT_CONTACT}.`, mainKeyboard());
 };
 bot.hears("Contact Support ☎️", handleSupport);
-bot.action("action_support", async (ctx) => { await ctx.answerCbQuery(); await handleSupport(ctx); });
+bot.action("action_support", async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleSupport(ctx);
+});
 
 const handleConvert = async (ctx) => {
   const user = await getOrCreateUser(ctx);
@@ -222,11 +309,20 @@ const handleConvert = async (ctx) => {
     meta: { source: "bonus_conversion" },
   });
 
-  await ctx.reply(`✅ Converted ${converted} ETB. New balance: ${user.balance} ETB.`, mainKeyboard());
+  await ctx.reply(
+    `✅ Converted ${converted} ETB. New balance: ${user.balance} ETB.`,
+    mainKeyboard()
+  );
 };
 bot.hears("Convert Bonus 💱", handleConvert);
-bot.action("action_convert", async (ctx) => { await ctx.answerCbQuery(); await handleConvert(ctx); });
+bot.action("action_convert", async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleConvert(ctx);
+});
 
+// ---------------------------------------------------------------------
+// Text handler (deposit / withdraw / transfer amounts)
+// ---------------------------------------------------------------------
 bot.on("text", async (ctx) => {
   try {
     const key = String(ctx.from.id);
@@ -243,12 +339,12 @@ bot.on("text", async (ctx) => {
       }
       const [toTgId, amountStr] = parts;
       const amount = Number(amountStr);
-      if (!amount || amount <= 0) {
-        return ctx.reply("Invalid amount.", mainKeyboard());
-      }
+      if (!amount || amount <= 0) return ctx.reply("Invalid amount.", mainKeyboard());
+
       const recipient = await User.findOne({ telegramId: String(toTgId) });
       if (!recipient) return ctx.reply("Recipient not found.", mainKeyboard());
-      if (recipient.telegramId === user.telegramId) return ctx.reply("Cannot transfer to yourself.", mainKeyboard());
+      if (recipient.telegramId === user.telegramId)
+        return ctx.reply("Cannot transfer to yourself.", mainKeyboard());
       if (user.balance < amount) return ctx.reply("Insufficient balance.", mainKeyboard());
 
       user.balance -= amount;
@@ -256,12 +352,32 @@ bot.on("text", async (ctx) => {
       await user.save();
       await recipient.save();
 
-      await Transaction.create({ user: user._id, type: "transfer_out", amount, balanceAfter: user.balance, counterparty: recipient._id });
-      await Transaction.create({ user: recipient._id, type: "transfer_in", amount, balanceAfter: recipient.balance, counterparty: user._id });
+      await Transaction.create({
+        user: user._id,
+        type: "transfer_out",
+        amount,
+        balanceAfter: user.balance,
+        counterparty: recipient._id,
+      });
+      await Transaction.create({
+        user: recipient._id,
+        type: "transfer_in",
+        amount,
+        balanceAfter: recipient.balance,
+        counterparty: user._id,
+      });
 
       pendingAction.delete(key);
-      await ctx.reply(`✅ Transferred ${amount} ETB to ${recipient.firstName || recipient.username}.\nNew balance: ${user.balance} ETB`, mainKeyboard());
-      bot.telegram.sendMessage(recipient.telegramId, `💸 You received ${amount} ETB from ${user.firstName || user.username}.`).catch(() => {});
+      await ctx.reply(
+        `✅ Transferred ${amount} ETB to ${recipient.firstName || recipient.username}.\nNew balance: ${user.balance} ETB`,
+        mainKeyboard()
+      );
+      bot.telegram
+        .sendMessage(
+          recipient.telegramId,
+          `💸 You received ${amount} ETB from ${user.firstName || user.username}.`
+        )
+        .catch(() => {});
       return;
     }
 
@@ -271,31 +387,51 @@ bot.on("text", async (ctx) => {
     }
 
     if (step.type === "deposit") {
-      if (amount < MIN_DEPOSIT) return ctx.reply(`Minimum deposit is ${MIN_DEPOSIT} ETB.`, mainKeyboard());
+      if (amount < MIN_DEPOSIT)
+        return ctx.reply(`Minimum deposit is ${MIN_DEPOSIT} ETB.`, mainKeyboard());
       const reference = `DEP-${Date.now()}`;
       await Transaction.create({
-        user: user._id, type: "deposit", amount, balanceAfter: user.balance, reference, status: "pending",
+        user: user._id,
+        type: "deposit",
+        amount,
+        balanceAfter: user.balance,
+        reference,
+        status: "pending",
       });
       pendingAction.delete(key);
       await ctx.reply(
         `📥 To deposit ${amount} ETB:\nSend via Telebirr to ${DEPOSIT_PHONE}, then send a screenshot here.\nReference: ${reference}\n\nBalance updates after admin confirms.`,
         mainKeyboard()
       );
-      notifyAdmin(`🆕 Deposit\nUser: ${user.firstName} (${user.telegramId})\nAmount: ${amount} ETB\nRef: ${reference}`);
+      notifyAdmin(
+        `🆕 Deposit\nUser: ${user.firstName} (${user.telegramId})\nAmount: ${amount} ETB\nRef: ${reference}`
+      );
     }
 
     if (step.type === "withdraw") {
-      if (amount < MIN_WITHDRAW) return ctx.reply(`Minimum withdrawal is ${MIN_WITHDRAW} ETB.`, mainKeyboard());
+      if (amount < MIN_WITHDRAW)
+        return ctx.reply(`Minimum withdrawal is ${MIN_WITHDRAW} ETB.`, mainKeyboard());
       if (amount > user.balance) {
         pendingAction.delete(key);
         return ctx.reply(`Insufficient balance (${user.balance} ETB).`, mainKeyboard());
       }
       user.balance -= amount;
       await user.save();
-      await Transaction.create({ user: user._id, type: "withdrawal", amount, balanceAfter: user.balance, status: "pending" });
+      await Transaction.create({
+        user: user._id,
+        type: "withdrawal",
+        amount,
+        balanceAfter: user.balance,
+        status: "pending",
+      });
       pendingAction.delete(key);
-      await ctx.reply(`📤 Withdrawal of ${amount} ETB requested.\nNew balance: ${user.balance} ETB.`, mainKeyboard());
-      notifyAdmin(`🆕 Withdrawal\nUser: ${user.firstName} (${user.telegramId})\nAmount: ${amount} ETB`);
+      await ctx.reply(
+        `📤 Withdrawal of ${amount} ETB requested.\nNew balance: ${user.balance} ETB.`,
+        mainKeyboard()
+      );
+      notifyAdmin(
+        `🆕 Withdrawal\nUser: ${user.firstName} (${user.telegramId})\nAmount: ${amount} ETB`
+      );
     }
   } catch (err) {
     console.error("[text handler] error:", err.message);
@@ -311,6 +447,9 @@ bot.catch((err, ctx) => {
   console.error(`[bot] error for ${ctx?.updateType}:`, err?.message || err);
 });
 
+// ---------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------
 async function main() {
   await connectDB();
   if (mongoose.connection.readyState !== 1) {
@@ -339,21 +478,21 @@ async function main() {
     console.error("Menu setup error:", err);
   }
 
+  // Non-blocking launch
   bot.launch().catch((err) => {
     console.error("[bot.launch] error:", err.message);
   });
 
+  // Set chat menu button in background (don't await)
   if (WEBAPP_URL) {
-    try {
-      await bot.telegram.setChatMenuButton({
+    bot.telegram
+      .setChatMenuButton({
         type: "web_app",
         text: "Menu",
         web_app: { url: WEBAPP_URL },
-      });
-      console.log("[bot] Chat menu button set successfully.");
-    } catch (err) {
-      console.error("[bot] Failed to set chat menu button:", err.message);
-    }
+      })
+      .then(() => console.log("[bot] Chat menu button set successfully."))
+      .catch((err) => console.error("[bot] Failed to set chat menu button:", err.message));
   }
 
   console.log("[bot] Fetan bingo bot is running");
