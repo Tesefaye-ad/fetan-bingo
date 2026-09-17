@@ -4,21 +4,23 @@ import { getSocket } from "./socket";
 export default function CartelaSelection({ roomCode, balance, stake = 10, onConfirm, onCancel }) {
   const [selectedCards, setSelectedCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
-  const [countdown, setCountdown] = useState(60);
+  const [countdown, setCountdown] = useState(null);
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [bonusBalance, setBonusBalance] = useState(0);
   const [autoTriggered, setAutoTriggered] = useState(false);
+  const [serverTimeLoaded, setServerTimeLoaded] = useState(false);
 
-  // 👈 ሰዓቱን እና የተያዙ ካርዶችን ከ Server አምጣ
+  // 👈 የመጀመሪያ ሁኔታን ከ Server አምጣ — ሁልጊዜ ተመሳሳይ ሰዓት
   useEffect(() => {
     const socket = getSocket();
 
-    fetch(`${process.env.REACT_APP_API_URL}/api/game/rooms/${roomCode}`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem("bingo_token")}` },
-    })
-      .then((res) => res.json())
-      .then((data) => {
+    const fetchInitial = async () => {
+      try {
+        const res = await fetch(`${process.env.REACT_APP_API_URL}/api/game/rooms/${roomCode}`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem("bingo_token")}` },
+        });
+        const data = await res.json();
         if (data.takenCards) setTakenCards(data.takenCards);
         if (data.reservedCards) {
           setTakenCards((prev) => [...new Set([...prev, ...data.reservedCards])]);
@@ -26,9 +28,16 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
         if (data.selectionEndsAt) {
           const remaining = Math.max(0, Math.floor((new Date(data.selectionEndsAt) - Date.now()) / 1000));
           setCountdown(remaining);
+        } else {
+          setCountdown(0);
         }
-      })
-      .catch(() => {});
+      } catch (e) {
+        setCountdown(0);
+      } finally {
+        setServerTimeLoaded(true);
+      }
+    };
+    fetchInitial();
 
     // 👈 የ Wallet መረጃን አምጣ
     fetch(`${process.env.REACT_APP_API_URL}/api/wallet/balance`, {
@@ -71,6 +80,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
 
   // 👈 የሰዓት ቆጣሪ — በየ 3 ሰከንዱ ከ Server አድስ
   useEffect(() => {
+    if (!serverTimeLoaded) return;
     const timer = setInterval(async () => {
       try {
         const res = await fetch(`${process.env.REACT_APP_API_URL}/api/game/rooms/${roomCode}`, {
@@ -84,31 +94,30 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       } catch (e) {}
     }, 3000);
     return () => clearInterval(timer);
-  }, [roomCode]);
+  }, [roomCode, serverTimeLoaded]);
 
   // 👈 የአካባቢ ቆጣሪ (ለማሳያ ብቻ)
   useEffect(() => {
-    if (countdown <= 0) return;
+    if (countdown === null || countdown <= 0) return;
     const timer = setTimeout(() => setCountdown((c) => Math.max(0, c - 1)), 1000);
     return () => clearTimeout(timer);
   }, [countdown]);
 
   // 👈 ሰዓቱ ሲያልቅ ወዲያውኑ ወደ ጨዋታው ሂድ
   useEffect(() => {
-    if (countdown <= 0 && !autoTriggered) {
-      setAutoTriggered(true);
-      if (selectedCards.length === 0) {
-        const available = Array.from({ length: 1000 }, (_, i) => i + 1).filter(
-          (id) => !takenCards.includes(id)
-        );
-        if (available.length > 0) {
-          const randomId = available[Math.floor(Math.random() * available.length)];
-          onConfirm([randomId]);
-          return;
-        }
+    if (countdown === null || countdown > 0 || autoTriggered) return;
+    setAutoTriggered(true);
+    if (selectedCards.length === 0) {
+      const available = Array.from({ length: 1000 }, (_, i) => i + 1).filter(
+        (id) => !takenCards.includes(id)
+      );
+      if (available.length > 0) {
+        const randomId = available[Math.floor(Math.random() * available.length)];
+        onConfirm([randomId]);
+        return;
       }
-      onConfirm(selectedCards);
     }
+    onConfirm(selectedCards);
   }, [countdown, selectedCards, takenCards, onConfirm, autoTriggered]);
 
   const handleSelectCard = (cardId) => {
@@ -152,7 +161,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
 
   return (
     <div style={{ padding: "10px", maxWidth: "480px", margin: "0 auto", color: "#fff", height: "100vh", display: "flex", flexDirection: "column", background: "#0f1420" }}>
-      {/* ═══ Top Row: Back + Refresh ═══ */}
+      {/* Top Row: Back + Refresh */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
         <button
           onClick={onCancel}
@@ -192,7 +201,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
         </button>
       </div>
 
-      {/* ═══ Info Row: Main Wallet | Play Wallet | Stake | Timer ═══ */}
+      {/* Info Row */}
       <div
         style={{
           display: "grid",
@@ -219,13 +228,13 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
         </div>
         <div style={{ textAlign: "center", borderLeft: "1px solid #2a2a40" }}>
           <div style={{ color: "#aaa", fontSize: "10px", marginBottom: "3px" }}>Time</div>
-          <div style={{ color: countdown <= 10 ? "#e74c3c" : "#ffd43b", fontSize: "16px", fontWeight: "bold" }}>
-            {countdown} S
+          <div style={{ color: countdown !== null && countdown <= 10 ? "#e74c3c" : "#ffd43b", fontSize: "16px", fontWeight: "bold" }}>
+            {countdown !== null ? `${countdown} S` : "…"}
           </div>
         </div>
       </div>
 
-      {/* ═══ Selection Summary ═══ */}
+      {/* Selection Summary */}
       <div
         style={{
           display: "flex",
@@ -262,7 +271,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
         </div>
       )}
 
-      {/* ═══ Numbers Grid ═══ */}
+      {/* Numbers Grid */}
       <div
         style={{
           flex: 1,
@@ -306,7 +315,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       </div>
 
       <div style={{ fontSize: "11px", color: "#888", textAlign: "center", paddingBottom: "10px" }}>
-
+      
       </div>
     </div>
   );

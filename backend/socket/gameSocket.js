@@ -52,6 +52,7 @@ function initGameSocket(io) {
   const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 1000);
   const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 4000);
   const NEXT_GAME_DELAY_MS = Number(process.env.NEXT_GAME_DELAY_MS || 15000);
+  const SELECTION_DURATION_MS = Number(process.env.SELECTION_DURATION_MS || 60000);
 
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
@@ -171,7 +172,7 @@ function initGameSocket(io) {
     });
 
     // ═══════════════════════════════════════════════════════
-    // JOIN ROOM — ብዙ ካርዶች ድጋፍ
+    // JOIN ROOM — ብዙ ካርዶች ድጋፍ + ተመልካች
     // ═══════════════════════════════════════════════════════
     socket.on("join_room", async ({ roomCode, cardId, cardIds, watchOnly }) => {
       try {
@@ -195,8 +196,9 @@ function initGameSocket(io) {
             maxNumber: Number(process.env.BINGO_MAX_NUMBER || 75),
             allCards: generate1000Cards(),
             winners: [],
+            winningCartelas: [],
             reservedCards: [],
-            selectionEndsAt: new Date(Date.now() + 60000),
+            selectionEndsAt: new Date(Date.now() + SELECTION_DURATION_MS),
           });
         } else if (!game.allCards || game.allCards.length === 0) {
           game.allCards = generate1000Cards();
@@ -204,7 +206,7 @@ function initGameSocket(io) {
         }
 
         if (game.status === "waiting" && (!game.selectionEndsAt || game.selectionEndsAt < new Date())) {
-          game.selectionEndsAt = new Date(Date.now() + 60000);
+          game.selectionEndsAt = new Date(Date.now() + SELECTION_DURATION_MS);
           await game.save();
         }
 
@@ -213,11 +215,13 @@ function initGameSocket(io) {
 
         const existingPlayers = game.players.filter((p) => p.user.toString() === socket.userId);
 
+        // 👈 ጨዋታ ከጀመረ ወይም ካርድ ከሌለ - ተመልካች
         if ((game.status === "active" || game.status === "finished") && existingPlayers.length === 0) {
           socket.join(roomCode);
           socket.data.roomCode = roomCode;
           socket.data.watching = true;
           socket.emit("watching_mode", { roomCode });
+          socket.emit("your_cards", { cards: [], markedCards: [], cardIds: [] });
           io.to(roomCode).emit("room_state", buildRoomState(game));
           return;
         }
@@ -227,6 +231,7 @@ function initGameSocket(io) {
           socket.data.roomCode = roomCode;
           socket.data.watching = true;
           socket.emit("watching_mode", { roomCode });
+          socket.emit("your_cards", { cards: [], markedCards: [], cardIds: [] });
           io.to(roomCode).emit("room_state", buildRoomState(game));
           return;
         }
@@ -257,7 +262,14 @@ function initGameSocket(io) {
 
             if (!reservedByUser) {
               if (user.balance < game.entryFee) {
-                return socket.emit("error_message", { message: "Insufficient balance." });
+                // 👈 ባላንስ ካልበቃ - ተመልካች አድርገው
+                socket.join(roomCode);
+                socket.data.roomCode = roomCode;
+                socket.data.watching = true;
+                socket.emit("watching_mode", { roomCode });
+                socket.emit("your_cards", { cards: [], markedCards: [], cardIds: [] });
+                io.to(roomCode).emit("room_state", buildRoomState(game));
+                return;
               }
               user.balance -= game.entryFee;
               await Transaction.create({
@@ -295,6 +307,7 @@ function initGameSocket(io) {
             socket.data.roomCode = roomCode;
             socket.data.watching = true;
             socket.emit("watching_mode", { roomCode });
+            socket.emit("your_cards", { cards: [], markedCards: [], cardIds: [] });
             io.to(roomCode).emit("room_state", buildRoomState(game));
             return;
           }
@@ -326,7 +339,7 @@ function initGameSocket(io) {
         io.to(roomCode).emit("room_state", buildRoomState(game));
 
         if (game.status === "waiting" && game.players.length >= MIN_PLAYERS) {
-          startGame(io, roomCode, CALL_INTERVAL_MS, NEXT_GAME_DELAY_MS);
+          startGame(io, roomCode, CALL_INTERVAL_MS, NEXT_GAME_DELAY_MS, SELECTION_DURATION_MS);
         }
       } catch (err) {
         console.error("[join_room] error:", err);
@@ -380,7 +393,7 @@ function initGameSocket(io) {
     });
 
     // ---- CLAIM BINGO ----
-       socket.on("claim_bingo", async ({ roomCode }) => {
+    socket.on("claim_bingo", async ({ roomCode }) => {
       try {
         const game = await Game.findOne({ roomCode });
         if (!game || game.status !== "active") {
@@ -393,7 +406,6 @@ function initGameSocket(io) {
         const user = await User.findById(socket.userId);
         if (!user) return;
 
-        // 👈 ሁሉንም አሸናፊ ካርቴላዎች ፈልግ
         const winningPlayers = [];
         for (const player of userPlayers) {
           if (player.hasWon) continue;
@@ -413,7 +425,6 @@ function initGameSocket(io) {
         if (!game.winningCartelas) game.winningCartelas = [];
         if (!game.winners) game.winners = [];
 
-        // 👈 እያንዳንዱን ካርቴላ መዝግብ
         for (const { player, pattern } of winningPlayers) {
           game.winningCartelas.push({
             userId: player.user,
@@ -428,13 +439,12 @@ function initGameSocket(io) {
           game.winners.push(user._id);
         }
 
-        // 👈 ሽልማት ለእያንዳንዱ ካርቴላ ስጥ
         const totalWinningCartelas = game.winningCartelas.length;
         const prizePerCartela = Math.floor(game.prizePool / totalWinningCartelas);
         const totalPrizeForUser = prizePerCartela * winningPlayers.length;
 
         user.balance += totalPrizeForUser;
-        user.gamesWon += winningPlayers.length; // 👈 በካርቴላ ብዛት
+        user.gamesWon += winningPlayers.length;
         user.totalWinnings = (user.totalWinnings || 0) + totalPrizeForUser;
         await user.save();
 
@@ -450,7 +460,6 @@ function initGameSocket(io) {
         socket.emit("balance_update", { balance: user.balance });
         await game.save();
 
-        // 👈 ሁሉንም አሸናፊዎች ላክ
         io.to(roomCode).emit("bingo_claimed", {
           winners: game.winningCartelas.map((w) => ({
             telegramId: w.telegramId,
@@ -463,11 +472,10 @@ function initGameSocket(io) {
           prizePerCartela,
         });
 
-        // ጨዋታውን ጨርስ
         setTimeout(async () => {
           const current = await Game.findOne({ roomCode });
           if (!current || current.status !== "active") return;
-          await finishGame(io, roomCode, current, NEXT_GAME_DELAY_MS);
+          await finishGame(io, roomCode, current, NEXT_GAME_DELAY_MS, SELECTION_DURATION_MS);
         }, 2000);
       } catch (err) {
         console.error("[claim_bingo] error:", err);
@@ -486,14 +494,14 @@ function initGameSocket(io) {
   });
 
   // ═══════════════════════════════════════════════════════
-  // finishGame — በትክክል የተዘጋ
+  // finishGame — የተስተካከለ
   // ═══════════════════════════════════════════════════════
-       async function finishGame(io, roomCode, game, nextDelayMs) {
+  async function finishGame(io, roomCode, game, nextDelayMs, selectionDurationMs) {
     stopCaller(roomCode);
     game.status = "finished";
     game.finishedAt = new Date();
     game.nextGameAt = new Date(Date.now() + nextDelayMs);
-    game.selectionEndsAt = new Date(Date.now() + nextDelayMs + 60000);
+    game.selectionEndsAt = new Date(Date.now() + nextDelayMs + selectionDurationMs);
     await game.save();
 
     for (const p of game.players) {
@@ -503,24 +511,23 @@ function initGameSocket(io) {
     // 👈 የእያንዳንዱን ካርቴላ መረጃ ሰብስብ
     const winningPlayersData = await Promise.all(
       (game.winningCartelas || []).map(async (wc) => {
-        const user = await User.findById(wc.userId);
+        const u = await User.findById(wc.userId);
         return {
           telegramId: wc.telegramId,
-          name: user ? (user.username || user.firstName || "Player") : "Player",
+          name: u ? (u.username || u.firstName || "Player") : (wc.name || "Player"),
           cardId: wc.cardId,
           pattern: wc.pattern,
         };
       })
     );
 
-    // 👈 የተጠቃሚዎች ቁጥር አስላ
     const uniqueUsers = new Set(winningPlayersData.map((w) => w.telegramId));
     const totalCartelas = winningPlayersData.length;
 
     io.to(roomCode).emit("game_over", {
       winners: winningPlayersData,
-      totalWinners: totalCartelas, // 👈 የካርቴላ ብዛት
-      uniqueUsers: uniqueUsers.size, // 👈 የተጠቃሚዎች ቁጥር
+      totalWinners: totalCartelas,
+      uniqueUsers: uniqueUsers.size,
       prizePool: game.prizePool,
       nextGameAt: game.nextGameAt,
       pattern: game.winPattern,
@@ -540,7 +547,7 @@ function initGameSocket(io) {
       fresh.nextGameAt = undefined;
       fresh.players = [];
       fresh.reservedCards = [];
-      fresh.selectionEndsAt = new Date(Date.now() + 60000);
+      fresh.selectionEndsAt = new Date(Date.now() + selectionDurationMs);
       await fresh.save();
       io.to(roomCode).emit("next_game_ready", { roomCode });
       io.to(roomCode).emit("room_state", buildRoomState(fresh));
@@ -550,16 +557,17 @@ function initGameSocket(io) {
   // ═══════════════════════════════════════════════════════
   // startGame
   // ═══════════════════════════════════════════════════════
-  async function startGame(io, roomCode, intervalMs, nextDelayMs) {
+  async function startGame(io, roomCode, intervalMs, nextDelayMs, selectionDurationMs) {
     const game = await Game.findOne({ roomCode });
     if (!game || game.status !== "waiting") return;
 
-        game.status = "active";
+    game.status = "active";
     game.startedAt = new Date();
     game.calledNumbers = [];
     game.winners = [];
-    game.winningCartelas = []; // 👈 አዲስ ጨዋታ ሲጀመር አጽዳ
+    game.winningCartelas = [];
     game.winPattern = undefined;
+    game.selectionEndsAt = undefined; // 👈 ጨዋታ ሲጀመር ሰዓቱ አያስፈልግም
     await game.save();
 
     io.to(roomCode).emit("game_started", { roomCode });
@@ -574,7 +582,7 @@ function initGameSocket(io) {
         const number = randomUncalledNumber(current.calledNumbers, current.maxNumber);
         if (number === null) {
           stopCaller(roomCode);
-          await finishGame(io, roomCode, current, nextDelayMs);
+          await finishGame(io, roomCode, current, nextDelayMs, selectionDurationMs);
           return;
         }
         current.calledNumbers.push(number);

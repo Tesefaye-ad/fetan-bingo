@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from "react";
+import { useState, useEffect, Suspense, lazy } from "react";
 import Login from "./Login.jsx";
 import Wallet from "./Wallet.jsx";
 import GameLobby from "./Gamelobby.jsx";
@@ -11,12 +11,12 @@ const LiveGame = lazy(() => import("./Livegame.jsx"));
 const CartelaSelection = lazy(() => import("./Cartelaselection.jsx"));
 
 function App() {
-  useTelegram(); // 👈 የቴሌግራም ስክሪፕት እንዲሰራ
+  useTelegram();
 
   const [user, setUser] = useState(null);
   const [balance, setBalance] = useState(0);
   const [roomCode, setRoomCode] = useState(null);
-  const [selectedCards, setSelectedCards] = useState([]); // 👈 የተመረጡ ካርዶች (array)
+  const [selectedCards, setSelectedCards] = useState([]);
   const [showCartela, setShowCartela] = useState(false);
   const [activeTab, setActiveTab] = useState("Game");
   const [adminStats, setAdminStats] = useState({ activeUsers: 0, registeredUsers: 0, totalGames: 0 });
@@ -75,7 +75,7 @@ function App() {
   function handleExitGame() {
     disconnectSocket();
     setRoomCode(null);
-    setSelectedCards([]); // 👈 አጽዳ
+    setSelectedCards([]);
     setStake(10);
   }
 
@@ -96,6 +96,14 @@ function App() {
     setShowCartela(false);
   }
 
+  // 👈 የ Back ቁልፍ — ወደ GameLobby ይመልሳል
+  function handleCartelaCancel() {
+    setShowCartela(false);
+    setRoomCode(null);
+    setSelectedCards([]);
+    setStake(10);
+  }
+
   const handleCopyInviteLink = () => {
     const botUsername = "fetanbingo1_bot";
     const inviteLink = `https://t.me/${botUsername}?start=ref_${user.telegramId}`;
@@ -114,10 +122,10 @@ function App() {
 
   return (
     <div className="app" style={{ paddingBottom: "80px" }}>
-      {/* 👈 በ Cartela ገጽ ላይ Header አይታይም */}
-      {!showCartela && (
+      {/* 👈 Header የሚታየው GameLobby ገጽ ላይ ብቻ ነው */}
+      {!showCartela && !roomCode && (
         <header className="app-header">
-          <h1>Fetan Bingo</h1>
+          <h1>🎱 Fetan Bingo</h1>
           <span>Hi, {user.firstName || user.username}</span>
         </header>
       )}
@@ -138,7 +146,7 @@ function App() {
                 balance={balance}
                 stake={stake}
                 onConfirm={handleCartelaConfirm}
-                onCancel={() => setShowCartela(false)}
+                onCancel={handleCartelaCancel}
               />
             ) : roomCode ? (
               <LiveGame
@@ -249,9 +257,7 @@ function App() {
       )}
 
       {/* ============ ADMIN TAB ============ */}
-      {activeTab === "Admin" && isUserAdmin && (
-        <AdminPanel adminStats={adminStats} />
-      )}
+      {activeTab === "Admin" && isUserAdmin && <AdminPanel adminStats={adminStats} />}
 
       {/* ============ BOTTOM NAV ============ */}
       <nav className="bottom-nav">

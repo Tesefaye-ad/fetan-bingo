@@ -31,7 +31,7 @@ function WinningCard({ card, marked, pattern, cardId }) {
   if (!card) return null;
 
   return (
-    <div style={{ background: "#2a2a40", borderRadius: "14px", padding: "12px", border: "1px solid #444", width: "100%" }}>
+    <div style={{ background: "#2a2a40", borderRadius: "14px", padding: "12px", border: "1px solid #444", width: "100%", maxWidth: "320px" }}>
       <div style={{ textAlign: "center", color: "#fff", fontSize: "14px", fontWeight: "bold", marginBottom: "10px" }}>
         🏆 Winning Cartela : {cardId}
       </div>
@@ -99,7 +99,18 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
       joinedRef.current = true;
     }
 
-    socket.on("your_cards", ({ cards: c }) => setCards(c));
+    // 👈 አዲሱ የካርዶች ስብስብ (cards + markedCards)
+    socket.on("your_cards", (data) => {
+      if (data.cards && data.markedCards) {
+        const combined = data.cards.map((card, idx) => ({
+          cardId: data.cardIds ? data.cardIds[idx] : idx + 1,
+          card,
+          marked: data.markedCards[idx],
+        }));
+        setCards(combined);
+      }
+    });
+
     socket.on("watching_mode", () => setWatching(true));
 
     socket.on("room_state", (state) => {
@@ -156,7 +167,9 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
     });
 
     socket.on("balance_update", ({ balance }) => setBalance(balance));
-    socket.on("error_message", ({ message }) => setBanner(message));
+    socket.on("error_message", ({ message }) => {
+      if (!message.includes("Insufficient")) setBanner(message);
+    });
 
     return () => {
       socket.emit("leave_room");
@@ -186,7 +199,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
 
   return (
     <div style={{ padding: "8px", maxWidth: "480px", margin: "0 auto", color: "#fff", minHeight: "100vh", background: "#0f1420", display: "flex", flexDirection: "column" }}>
-      {/* Top Info Bar */}
+      {/* ═══ Top Info Bar ═══ */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "4px", marginBottom: "8px" }}>
         {[
           { label: "GAME ID", value: roomCode, color: "#f39c12" },
@@ -204,12 +217,22 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
 
       {banner && <div style={{ background: "#2c3550", padding: "6px 10px", borderRadius: "8px", fontSize: "12px", marginBottom: "8px", color: "#fff", textAlign: "center" }}>{banner}</div>}
 
-      {/* Main Content */}
+      {/* ═══ Main Content ═══ */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", flex: 1, marginBottom: "8px" }}>
         {/* Left: Bingo Card */}
         <div style={{ background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: "10px", padding: "6px", overflowY: "auto" }}>
           {cards.length === 0 ? (
-            <div style={{ padding: "20px", textAlign: "center", color: "#888", fontSize: "11px" }}>{watching ? "Watching only" : "Waiting for card…"}</div>
+            <div style={{ padding: "20px", textAlign: "center", color: "#888", fontSize: "11px" }}>
+              {watching ? (
+                <>
+                  <div style={{ fontSize: "32px", marginBottom: "10px" }}>👁</div>
+                  <div style={{ color: "#fff", fontSize: "14px", fontWeight: "bold", marginBottom: "6px" }}>Watching Only</div>
+                  <div style={{ lineHeight: "1.6" }}>የእርስዎ ካርቴላ የለም። አዲስ ቁጥር እስኪጠራ ድረስ ይጠብቁ::</div>
+                </>
+              ) : (
+                "Waiting for card…"
+              )}
+            </div>
           ) : (
             cards.map((cardItem, cardIdx) => (
               <div key={cardIdx} style={{ marginBottom: cards.length > 1 ? "10px" : 0 }}>
@@ -281,7 +304,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
             {watching ? (
               <>
                 <div style={{ color: "#fff", fontSize: "14px", fontWeight: "bold", textAlign: "center", marginBottom: "8px" }}>Watching Only</div>
-                <div style={{ color: "#aaa", fontSize: "11px", textAlign: "center", lineHeight: "1.5" }}>የእርስዎ ቁጥሮች ተጠርተው አይደሉም። አዲስ ቁጥር እስኪጠራ ድረስ ይጠብቁ::</div>
+                <div style={{ color: "#aaa", fontSize: "11px", textAlign: "center", lineHeight: "1.5" }}>የእርስዎ ካርቴላ የለም። አዲስ ቁጥር እስኪጠራ ድረስ ይጠብቁ::</div>
               </>
             ) : status === "waiting" ? (
               <div style={{ color: "#aaa", fontSize: "11px", textAlign: "center", padding: "20px 0" }}>ተጫዋቾች እስኪገቡ በመጠበቅ ላይ...</div>
@@ -292,7 +315,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
         </div>
       </div>
 
-      {/* Bottom Buttons */}
+      {/* ═══ Bottom Buttons ═══ */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", marginBottom: "8px" }}>
         <button onClick={onExit} style={{ background: "linear-gradient(135deg, #e74c3c, #c0392b)", color: "#fff", border: "none", borderRadius: "10px", padding: "14px 0", fontSize: "14px", fontWeight: "bold", cursor: "pointer" }}>Leave</button>
         <button onClick={() => socketRef.current.emit("join_room", { roomCode, cardIds })} style={{ background: "linear-gradient(135deg, #e67e22, #d35400)", color: "#fff", border: "none", borderRadius: "10px", padding: "14px 0", fontSize: "14px", fontWeight: "bold", cursor: "pointer", opacity: 0.8 }}>🔄 Refresh</button>
@@ -302,13 +325,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
       {/* ═══ Game Over Overlay ═══ */}
       {gameOver && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(15,20,32,0.97)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "20px", gap: "14px", zIndex: 10, overflowY: "auto" }}>
-          {/* Crown */}
-          <div style={{
-            width: "60px", height: "60px", borderRadius: "50%",
-            background: "linear-gradient(135deg, #f39c12, #e67e22)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "32px", boxShadow: "0 0 30px rgba(243,156,18,0.6)",
-          }}>
+          <div style={{ width: "60px", height: "60px", borderRadius: "50%", background: "linear-gradient(135deg, #f39c12, #e67e22)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "32px", boxShadow: "0 0 30px rgba(243,156,18,0.6)" }}>
             👑
           </div>
 
@@ -316,25 +333,13 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
 
           {gameOver.winners && gameOver.winners.length > 0 ? (
             <>
-              {/* 👈 የካርቴላ ብዛት — unique users አይደለም */}
               <p style={{ color: "#fff", fontSize: "18px", margin: 0 }}>
                 🎉 {gameOver.totalWinners || gameOver.winners.length} player{(gameOver.totalWinners || gameOver.winners.length) > 1 ? "s" : ""} won!
               </p>
 
-              {/* 👈 እያንዳንዱን አሸናፊ ካርቴላ አሳይ */}
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center", maxWidth: "90%" }}>
                 {gameOver.winners.map((w, i) => (
-                  <div key={i} style={{
-                    background: "#1a1a2e",
-                    border: "1px solid #f39c12",
-                    borderRadius: "20px",
-                    padding: "6px 14px",
-                    fontSize: "12px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    color: "#fff",
-                  }}>
+                  <div key={i} style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "20px", padding: "6px 14px", fontSize: "12px", display: "flex", alignItems: "center", gap: "6px", color: "#fff" }}>
                     <span style={{ color: "#f39c12", fontWeight: "bold" }}>🏆</span>
                     <span>{w.name}</span>
                     <span style={{ color: "#888" }}>#{w.cardId}</span>
@@ -342,7 +347,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
                 ))}
               </div>
 
-              {/* 👈 የዋናው አሸናፊ ካርቴላ ማሳያ */}
               {gameOver.winners[0] && (
                 <WinningCard
                   card={gameOver.winners[0].card}
@@ -361,15 +365,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
           )}
 
           {nextGameCountdown > 0 && (
-            <div style={{
-              background: "#1a1a2e",
-              border: "1px solid #2a2a40",
-              borderRadius: "20px",
-              padding: "8px 18px",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}>
+            <div style={{ background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: "20px", padding: "8px 18px", display: "flex", alignItems: "center", gap: "8px" }}>
               <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#f39c12" }} />
               <span style={{ color: "#fff", fontSize: "13px" }}>
                 Auto-starting next game in <b style={{ color: "#f39c12" }}>{nextGameCountdown}s</b>
@@ -377,20 +373,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
             </div>
           )}
 
-          <button
-            onClick={onExit}
-            style={{
-              background: "linear-gradient(135deg, #4c6ef5, #364fc7)",
-              color: "#fff",
-              border: "none",
-              borderRadius: "10px",
-              padding: "12px 30px",
-              fontWeight: "bold",
-              cursor: "pointer",
-              fontSize: "14px",
-              marginTop: "8px",
-            }}
-          >
+          <button onClick={onExit} style={{ background: "linear-gradient(135deg, #4c6ef5, #364fc7)", color: "#fff", border: "none", borderRadius: "10px", padding: "12px 30px", fontWeight: "bold", cursor: "pointer", fontSize: "14px", marginTop: "8px" }}>
             Back to Lobby
           </button>
         </div>

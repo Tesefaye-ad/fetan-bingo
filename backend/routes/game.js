@@ -47,16 +47,21 @@ router.post("/rooms", async (req, res) => {
   try {
     let { roomCode, entryFee } = req.body;
     roomCode = (roomCode || generateRoomCode()).trim().toUpperCase();
-    entryFee = Number(entryFee ?? process.env.ENTRY_FEE ?? 10);  // 👈 በትክክል ይወስዳል
-    // ... ቀሪው
+    entryFee = Number(entryFee ?? process.env.ENTRY_FEE ?? 10);
 
     let game = await Game.findOne({ roomCode });
     if (!game) {
+      // 👈 አዲስ ክፍል ሲፈጠር የምርጫ ሰዓቱን አስቀምጥ
       game = await Game.create({
         roomCode,
         entryFee,
         maxNumber: Number(process.env.BINGO_MAX_NUMBER || 75),
+        selectionEndsAt: new Date(Date.now() + 60000),
       });
+    } else if (game.status === "waiting" && (!game.selectionEndsAt || game.selectionEndsAt < new Date())) {
+      // 👈 ሰዓቱ ካለፈ ብቻ አድስ (ክፍሉ ገና waiting ከሆነ)
+      game.selectionEndsAt = new Date(Date.now() + 60000);
+      await game.save();
     }
 
     res.status(201).json({
@@ -65,8 +70,10 @@ router.post("/rooms", async (req, res) => {
       entryFee: game.entryFee,
       prizePool: game.prizePool,
       playerCount: game.players.length,
+      selectionEndsAt: game.selectionEndsAt,
     });
   } catch (err) {
+    console.error("[POST /api/game/rooms] error:", err);
     res.status(500).json({ error: "Could not create room" });
   }
 });
