@@ -29,7 +29,7 @@ app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
 app.get("/", (req, res) => res.json({ name: "Fetan Bingo API", status: "running" }));
-app.get("/health", (req, res) => res.json({ ok: true }));
+app.get("/health", (req, res) => res.json({ ok: true, ts: Date.now() }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/wallet", walletRoutes);
@@ -51,10 +51,10 @@ server.listen(PORT, "0.0.0.0", () => {
 
 connectDB();
 
-// ቦቱን በተመሳሳይ ፕሮሰስ ውስጥ አስጀምር
+// 👇 ቦቱን ከ server.js ያለው Express app ጋር አገናኝ
 try {
   const { startBot } = require("./bot");
-  startBot();
+  startBot(app); // 👈 app ን አስተላልፍ
 } catch (err) {
   console.error("[server] Failed to start Telegram bot:", err.message);
 }

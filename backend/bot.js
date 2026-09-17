@@ -1,5 +1,4 @@
 require("dotenv").config();
-const express = require("express");
 const { Telegraf, Markup } = require("telegraf");
 const mongoose = require("mongoose");
 
@@ -17,7 +16,6 @@ const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 10);
 const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 50);
 const BONUS_CONVERSION_RATE = Number(process.env.BONUS_CONVERSION_RATE || 1);
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || "https://fetan-bingo-he4x.onrender.com";
-const PORT = process.env.PORT || 10000;
 
 if (!BOT_TOKEN) {
   console.error("[bot] TELEGRAM_BOT_TOKEN is missing. Aborting.");
@@ -26,8 +24,6 @@ if (!BOT_TOKEN) {
 
 const bot = new Telegraf(BOT_TOKEN);
 const pendingAction = new Map();
-const app = express();
-app.use(express.json());
 
 const MAIN_MENU_TEXT =
   "👋 Welcome to Fetan Bingo! Choose an option below.\n\n" +
@@ -107,14 +103,13 @@ async function getOrCreateUser(ctx, referredBy) {
 }
 
 // ---------------------------------------------------------------------
-// /start — FAST (reply immediately, DB in background)
+// /start — FAST
 // ---------------------------------------------------------------------
 bot.start(async (ctx) => {
   try {
     const payload = ctx.startPayload || "";
     const referredBy = payload.startsWith("ref_") ? payload.slice(4) : null;
 
-    // 👇 ምናሌውን ወዲያውኑ ላክ (DB ሳይጠብቅ)
     const banner = getBannerSource();
     if (banner) {
       ctx
@@ -124,7 +119,6 @@ bot.start(async (ctx) => {
       ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {});
     }
 
-    // 👇 ከበስተጀርባ ዳታቤዙን አስኬድ
     getOrCreateUser(ctx, referredBy).catch((err) =>
       console.error("[/start] background error:", err.message)
     );
@@ -444,9 +438,9 @@ bot.catch((err, ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// Main — Webhook Mode (FAST)
+// Main — Webhook Mode (uses server.js's express app)
 // ---------------------------------------------------------------------
-async function main() {
+async function main(app) {
   await connectDB();
 
   try {
@@ -475,12 +469,12 @@ async function main() {
       .catch((err) => console.error("[bot] Failed to set chat menu button:", err.message));
   }
 
-  // 👇 Webhook Mode (FAST)
+  // 👈 የ webhook መንገድ ወደ server.js app ጨምር (አዲስ Express አይከፍትም)
   const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
   app.use(bot.webhookCallback(webhookPath));
 
-  app.listen(PORT, "0.0.0.0", async () => {
-    console.log(`[bot] Express listening on port ${PORT}`);
+  // server.js ሰርቨሩን ከፍቶ እስኪጨርስ ጥቂት ጠብቀን setWebhook እናድርግ
+  setTimeout(async () => {
     try {
       await bot.telegram.setWebhook(`${RENDER_URL}${webhookPath}`, {
         drop_pending_updates: true,
@@ -489,13 +483,13 @@ async function main() {
     } catch (err) {
       console.error("[bot] setWebhook failed:", err.message);
     }
-  });
+  }, 3000);
 
-  console.log("[bot] Fetan bingo bot is running (webhook mode)");
+  console.log("[bot] Fetan bingo bot registered (webhook mode)");
 }
 
-function startBot() {
-  return main().catch((err) => {
+function startBot(app) {
+  return main(app).catch((err) => {
     console.error("[bot] failed to start:", err);
   });
 }
