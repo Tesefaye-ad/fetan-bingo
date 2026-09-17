@@ -51,7 +51,7 @@ server.listen(PORT, "0.0.0.0", () => {
 
 connectDB();
 
-// 👇 ቦቱን ከ server.js ያለው Express app ጋር አገናኝ
+// 👈 ቦቱን ከ server.js ያለው Express app ጋር አገናኝ
 try {
   const { startBot } = require("./bot");
   startBot(app); // 👈 app ን አስተላልፍ

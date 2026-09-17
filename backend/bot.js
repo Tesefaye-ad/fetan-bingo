@@ -103,7 +103,7 @@ async function getOrCreateUser(ctx, referredBy) {
 }
 
 // ---------------------------------------------------------------------
-// /start — FAST
+// /start — ULTRA FAST (Non-blocking DB query)
 // ---------------------------------------------------------------------
 bot.start(async (ctx) => {
   try {
@@ -119,6 +119,7 @@ bot.start(async (ctx) => {
       ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {});
     }
 
+    // Run user creation in background without blocking response speed
     getOrCreateUser(ctx, referredBy).catch((err) =>
       console.error("[/start] background error:", err.message)
     );
@@ -189,8 +190,8 @@ const handleBalance = async (ctx) => {
 
   const text =
     `🧳 Account Info\n\n` +
-    `Name:      ${user.firstName || "User"} ${user.lastName || ""}\n` +
-    `Phone:     ${user.phone || "Not registered"}\n` +
+    `Name:     ${user.firstName || "User"} ${user.lastName || ""}\n` +
+    `Phone:    ${user.phone || "Not registered"}\n` +
     `Main wallet:  ${user.balance}\n` +
     `Play wallet:  ${user.bonusBalance || 0}\n` +
     `Coin:      0`;
@@ -227,7 +228,7 @@ bot.action("copy_code", async (ctx) => {
 // DEPOSIT
 // ---------------------------------------------------------------------
 const handleDeposit = async (ctx) => {
-  await getOrCreateUser(ctx);
+  getOrCreateUser(ctx).catch(() => {});
 
   const text =
     "💵 ማስገባት የሚፈልጉትን መጠን ከ10 ብር ጀምሮ ያስገቡ::\n\n" +
@@ -469,11 +470,9 @@ async function main(app) {
       .catch((err) => console.error("[bot] Failed to set chat menu button:", err.message));
   }
 
-  // 👈 የ webhook መንገድ ወደ server.js app ጨምር (አዲስ Express አይከፍትም)
   const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
   app.use(bot.webhookCallback(webhookPath));
 
-  // server.js ሰርቨሩን ከፍቶ እስኪጨርስ ጥቂት ጠብቀን setWebhook እናድርግ
   setTimeout(async () => {
     try {
       await bot.telegram.setWebhook(`${RENDER_URL}${webhookPath}`, {

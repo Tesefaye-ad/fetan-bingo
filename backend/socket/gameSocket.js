@@ -380,7 +380,7 @@ function initGameSocket(io) {
     });
 
     // ---- CLAIM BINGO ----
-    socket.on("claim_bingo", async ({ roomCode }) => {
+       socket.on("claim_bingo", async ({ roomCode }) => {
       try {
         const game = await Game.findOne({ roomCode });
         if (!game || game.status !== "active") {
@@ -390,59 +390,80 @@ function initGameSocket(io) {
         const userPlayers = game.players.filter((p) => p.user.toString() === socket.userId);
         if (userPlayers.length === 0) return;
 
-        let validPlayer = null;
-        let winPattern = null;
+        const user = await User.findById(socket.userId);
+        if (!user) return;
+
+        // 👈 ሁሉንም አሸናፊ ካርቴላዎች ፈልግ
+        const winningPlayers = [];
         for (const player of userPlayers) {
           if (player.hasWon) continue;
           const pattern = checkWin(player.marked);
           if (pattern) {
-            validPlayer = player;
-            winPattern = pattern;
-            break;
+            player.hasWon = true;
+            winningPlayers.push({ player, pattern });
           }
         }
 
-        if (!validPlayer) {
+        if (winningPlayers.length === 0) {
           return socket.emit("bingo_rejected", { message: "Not a valid bingo yet - keep playing!" });
         }
 
-        validPlayer.hasWon = true;
         game.markModified("players");
 
+        if (!game.winningCartelas) game.winningCartelas = [];
         if (!game.winners) game.winners = [];
-        if (!game.winners.some((w) => w.toString() === validPlayer.user.toString())) {
-          game.winners.push(validPlayer.user);
-        }
 
-        const winnerUser = await User.findById(validPlayer.user);
-        if (winnerUser) {
-          const share = Math.floor(game.prizePool / game.winners.length);
-          winnerUser.balance += share;
-          winnerUser.gamesWon += 1;
-          winnerUser.totalWinnings = (winnerUser.totalWinnings || 0) + share;
-          await winnerUser.save();
-          await Transaction.create({
-            user: winnerUser._id,
-            type: "prize",
-            amount: share,
-            balanceAfter: winnerUser.balance,
-            game: game._id,
+        // 👈 እያንዳንዱን ካርቴላ መዝግብ
+        for (const { player, pattern } of winningPlayers) {
+          game.winningCartelas.push({
+            userId: player.user,
+            telegramId: socket.telegramId,
+            cardId: player.cardId,
+            name: user.username || user.firstName || "Player",
+            pattern,
           });
-          socket.emit("balance_update", { balance: winnerUser.balance });
         }
 
-        await game.save();
+        if (!game.winners.some((w) => w.toString() === user._id.toString())) {
+          game.winners.push(user._id);
+        }
 
-        const winnerUsers = await User.find({ _id: { $in: game.winners } }).select("telegramId username firstName");
-        io.to(roomCode).emit("bingo_claimed", {
-          winners: winnerUsers.map((w) => ({
-            telegramId: w.telegramId,
-            name: w.username || w.firstName,
-          })),
-          pattern: winPattern,
-          prizePool: game.prizePool,
+        // 👈 ሽልማት ለእያንዳንዱ ካርቴላ ስጥ
+        const totalWinningCartelas = game.winningCartelas.length;
+        const prizePerCartela = Math.floor(game.prizePool / totalWinningCartelas);
+        const totalPrizeForUser = prizePerCartela * winningPlayers.length;
+
+        user.balance += totalPrizeForUser;
+        user.gamesWon += winningPlayers.length; // 👈 በካርቴላ ብዛት
+        user.totalWinnings = (user.totalWinnings || 0) + totalPrizeForUser;
+        await user.save();
+
+        await Transaction.create({
+          user: user._id,
+          type: "prize",
+          amount: totalPrizeForUser,
+          balanceAfter: user.balance,
+          game: game._id,
+          meta: { cartelaCount: winningPlayers.length },
         });
 
+        socket.emit("balance_update", { balance: user.balance });
+        await game.save();
+
+        // 👈 ሁሉንም አሸናፊዎች ላክ
+        io.to(roomCode).emit("bingo_claimed", {
+          winners: game.winningCartelas.map((w) => ({
+            telegramId: w.telegramId,
+            name: w.name,
+            cardId: w.cardId,
+            pattern: w.pattern,
+          })),
+          totalWinners: totalWinningCartelas,
+          prizePool: game.prizePool,
+          prizePerCartela,
+        });
+
+        // ጨዋታውን ጨርስ
         setTimeout(async () => {
           const current = await Game.findOne({ roomCode });
           if (!current || current.status !== "active") return;
@@ -467,7 +488,7 @@ function initGameSocket(io) {
   // ═══════════════════════════════════════════════════════
   // finishGame — በትክክል የተዘጋ
   // ═══════════════════════════════════════════════════════
-  async function finishGame(io, roomCode, game, nextDelayMs) {
+       async function finishGame(io, roomCode, game, nextDelayMs) {
     stopCaller(roomCode);
     game.status = "finished";
     game.finishedAt = new Date();
@@ -479,13 +500,27 @@ function initGameSocket(io) {
       await User.findByIdAndUpdate(p.user, { $inc: { gamesPlayed: 1 } });
     }
 
-    const winners = await User.find({ _id: { $in: game.winners } }).select("telegramId username firstName");
+    // 👈 የእያንዳንዱን ካርቴላ መረጃ ሰብስብ
+    const winningPlayersData = await Promise.all(
+      (game.winningCartelas || []).map(async (wc) => {
+        const user = await User.findById(wc.userId);
+        return {
+          telegramId: wc.telegramId,
+          name: user ? (user.username || user.firstName || "Player") : "Player",
+          cardId: wc.cardId,
+          pattern: wc.pattern,
+        };
+      })
+    );
+
+    // 👈 የተጠቃሚዎች ቁጥር አስላ
+    const uniqueUsers = new Set(winningPlayersData.map((w) => w.telegramId));
+    const totalCartelas = winningPlayersData.length;
 
     io.to(roomCode).emit("game_over", {
-      winners: winners.map((w) => ({
-        telegramId: w.telegramId,
-        name: w.username || w.firstName,
-      })),
+      winners: winningPlayersData,
+      totalWinners: totalCartelas, // 👈 የካርቴላ ብዛት
+      uniqueUsers: uniqueUsers.size, // 👈 የተጠቃሚዎች ቁጥር
       prizePool: game.prizePool,
       nextGameAt: game.nextGameAt,
       pattern: game.winPattern,
@@ -498,6 +533,7 @@ function initGameSocket(io) {
       fresh.calledNumbers = [];
       fresh.prizePool = 0;
       fresh.winners = [];
+      fresh.winningCartelas = [];
       fresh.winPattern = undefined;
       fresh.startedAt = undefined;
       fresh.finishedAt = undefined;
@@ -518,10 +554,11 @@ function initGameSocket(io) {
     const game = await Game.findOne({ roomCode });
     if (!game || game.status !== "waiting") return;
 
-    game.status = "active";
+        game.status = "active";
     game.startedAt = new Date();
     game.calledNumbers = [];
     game.winners = [];
+    game.winningCartelas = []; // 👈 አዲስ ጨዋታ ሲጀመር አጽዳ
     game.winPattern = undefined;
     await game.save();
 

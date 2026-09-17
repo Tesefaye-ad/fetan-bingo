@@ -34,8 +34,17 @@ const GameSchema = new mongoose.Schema(
     ],
     allCards: { type: mongoose.Schema.Types.Mixed, default: [] },
     winners: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    // 👈 አዲስ የተጨመረ — እያንዳንዱ አሸናፊ ካርቴላ
+    winningCartelas: [
+      {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        telegramId: { type: String },
+        cardId: { type: Number },
+        name: { type: String },
+        pattern: { type: String },
+      },
+    ],
     winPattern: { type: String },
-    // 👈 አዲስ የተጨመረ — ሁሉም ተጫዋች ተመሳሳይ ሰዓት እንዲያዩ
     selectionEndsAt: { type: Date },
     nextGameAt: { type: Date },
     startedAt: { type: Date },
