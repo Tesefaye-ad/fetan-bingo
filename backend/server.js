@@ -51,10 +51,51 @@ server.listen(PORT, "0.0.0.0", () => {
 
 connectDB();
 
-// 👈 ቦቱን ከ server.js ያለው Express app ጋር አገናኝ
+// ═══════════════════════════════════════════════════════
+// 👈 ራስ-ጥበቃ (Self Keep-Alive) — ሰርቨሩ እንዳይተኛ
+// ═══════════════════════════════════════════════════════
+const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+
+setInterval(async () => {
+  try {
+    const res = await fetch(`${SELF_URL}/health`);
+    if (res.ok) {
+      console.log(`[keep-alive] pinged at ${new Date().toISOString()}`);
+    }
+  } catch (err) {
+    console.error("[keep-alive] ping failed:", err.message);
+  }
+}, 4 * 60 * 1000); // 👈 በየ 4 ደቂቃው
+
+// ሲጀመር ወዲያውኑ አንድ ጊዜ ጥቃ
+setTimeout(async () => {
+  try {
+    await fetch(`${SELF_URL}/health`);
+    console.log("[keep-alive] initial ping sent");
+  } catch (err) {}
+}, 10000);
+
+// ═══════════════════════════════════════════════════════
+// 👈 ቦቱን ከ server.js ያለው Express app ጋር አገናኝ + Webhook አዘጋጅ
+// ═══════════════════════════════════════════════════════
 try {
-  const { startBot } = require("./bot");
-  startBot(app); // 👈 app ን አስተላልፍ
+  const { startBot, bot } = require("./bot");
+  startBot(app).then(() => {
+    // 👈 Webhook ን ከ server.listen በኋላ በእርግጠኝነት አዘጋጅ
+    const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
+    const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-he4x.onrender.com`;
+
+    setTimeout(async () => {
+      try {
+        await bot.telegram.setWebhook(`${RENDER_URL}${webhookPath}`, {
+          drop_pending_updates: true,
+        });
+        console.log(`[bot] Webhook set: ${RENDER_URL}${webhookPath}`);
+      } catch (err) {
+        console.error("[bot] setWebhook failed:", err.message);
+      }
+    }, 2000);
+  });
 } catch (err) {
   console.error("[server] Failed to start Telegram bot:", err.message);
 }

@@ -15,7 +15,6 @@ const DEPOSIT_PHONE = process.env.DEPOSIT_TELEBIRR_PHONE || "0920790583";
 const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 10);
 const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 50);
 const BONUS_CONVERSION_RATE = Number(process.env.BONUS_CONVERSION_RATE || 1);
-const RENDER_URL = process.env.RENDER_EXTERNAL_URL || "https://fetan-bingo-he4x.onrender.com";
 
 if (!BOT_TOKEN) {
   console.error("[bot] TELEGRAM_BOT_TOKEN is missing. Aborting.");
@@ -43,6 +42,9 @@ function mainKeyboard() {
   ]);
 }
 
+// ═══════════════════════════════════════════════════════
+// 👈 ፈጣን የተጠቃሚ ፍለጋ/ፍጠር (lean በመጠቀም)
+// ═══════════════════════════════════════════════════════
 async function getOrCreateUser(ctx, referredBy) {
   try {
     const tgUser = ctx.from;
@@ -70,35 +72,41 @@ async function getOrCreateUser(ctx, referredBy) {
         },
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-
-    const isNewUser =
-      user.createdAt && user.updatedAt &&
-      Math.abs(user.createdAt.getTime() - user.updatedAt.getTime()) < 2000;
-
-    if (isNewUser && user.referredBy) {
-      User.findOneAndUpdate(
-        { telegramId: user.referredBy },
-        { $inc: { referralCount: 1, bonusBalance: 5 } },
-        { new: true }
-      )
-        .then((inviter) => {
-          if (inviter) {
-            bot.telegram
-              .sendMessage(
-                inviter.telegramId,
-                `🎉 Someone joined using your invite link! You earned 5 ETB bonus.`
-              )
-              .catch(() => {});
-          }
-        })
-        .catch(() => {});
-    }
+    ).lean(); // 👈 ፈጣን ያደርገዋል
 
     return user;
   } catch (err) {
     console.error("[getOrCreateUser] error:", err.message);
     return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// 👈 የ referral ቦነስ ከበስተጀርባ
+// ═══════════════════════════════════════════════════════
+async function processReferralBonus(telegramId, referredBy) {
+  try {
+    const user = await User.findOne({ telegramId });
+    if (!user || !user.referredBy) return;
+    // አስቀድሞ bonus ከተሰጠ እንደገና አይስጥ
+    if (user.referralCount > 0) return;
+
+    const inviter = await User.findOneAndUpdate(
+      { telegramId: referredBy },
+      { $inc: { referralCount: 1, bonusBalance: 5 } },
+      { new: true }
+    );
+
+    if (inviter) {
+      bot.telegram
+        .sendMessage(
+          inviter.telegramId,
+          `🎉 Someone joined using your invite link! You earned 5 ETB bonus.`
+        )
+        .catch(() => {});
+    }
+  } catch (err) {
+    console.error("[processReferralBonus] error:", err.message);
   }
 }
 
@@ -109,7 +117,11 @@ bot.start(async (ctx) => {
   try {
     const payload = ctx.startPayload || "";
     const referredBy = payload.startsWith("ref_") ? payload.slice(4) : null;
+    const telegramId = String(ctx.from.id);
 
+    // ═══════════════════════════════════════════════
+    // 👈 ደረጃ 1: ምናሌውን ወዲያውኑ ላክ (DB ሳይጠብቅ)
+    // ═══════════════════════════════════════════════
     const banner = getBannerSource();
     if (banner) {
       ctx
@@ -119,10 +131,21 @@ bot.start(async (ctx) => {
       ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {});
     }
 
-    // Run user creation in background without blocking response speed
+    // ═══════════════════════════════════════════════
+    // 👈 ደረጃ 2: ተጠቃሚውን ከበስተጀርባ ፍጠር/አዘምን
+    // ═══════════════════════════════════════════════
     getOrCreateUser(ctx, referredBy).catch((err) =>
       console.error("[/start] background error:", err.message)
     );
+
+    // ═══════════════════════════════════════════════
+    // 👈 ደረጃ 3: Referral bonus ካለ ከበስተጀርባ ስጥ
+    // ═══════════════════════════════════════════════
+    if (referredBy) {
+      processReferralBonus(telegramId, referredBy).catch((err) =>
+        console.error("[/start] referral error:", err.message)
+      );
+    }
   } catch (err) {
     console.error("[/start] error:", err.message);
   }
@@ -169,10 +192,12 @@ bot.on("contact", async (ctx) => {
     }
     const user = await getOrCreateUser(ctx);
     if (!user) return;
-    user.phone = contact.phone_number;
-    await user.save();
+    await User.updateOne(
+      { telegramId: user.telegramId },
+      { $set: { phone: contact.phone_number } }
+    );
     await ctx.reply(
-      `✅ ስልክ ቁጥርዎ በተሳካ ሁኔታ ተመዝግቧል!\n📞 Phone: ${user.phone}`,
+      `✅ ስልክ ቁጥርዎ በተሳካ ሁኔታ ተመዝግቧል!\n📞 Phone: ${contact.phone_number}`,
       Markup.removeKeyboard()
     );
     await ctx.reply(MAIN_MENU_TEXT, mainKeyboard());
@@ -363,20 +388,21 @@ const handleConvert = async (ctx) => {
     return ctx.reply("No bonus balance to convert.", mainKeyboard());
   }
   const converted = user.bonusBalance * BONUS_CONVERSION_RATE;
-  user.balance += converted;
-  user.bonusBalance = 0;
-  await user.save();
+  await User.updateOne(
+    { telegramId: user.telegramId },
+    { $inc: { balance: converted }, $set: { bonusBalance: 0 } }
+  );
 
   await Transaction.create({
     user: user._id,
     type: "deposit",
     amount: converted,
-    balanceAfter: user.balance,
+    balanceAfter: user.balance + converted,
     meta: { source: "bonus_conversion" },
   });
 
   await ctx.reply(
-    `✅ Converted ${converted} ETB. New balance: ${user.balance} ETB.`,
+    `✅ Converted ${converted} ETB. New balance: ${user.balance + converted} ETB.`,
     mainKeyboard()
   );
 };
@@ -439,7 +465,7 @@ bot.catch((err, ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// Main — Webhook Mode (uses server.js's express app)
+// Main — Webhook Mode
 // ---------------------------------------------------------------------
 async function main(app) {
   await connectDB();
@@ -470,19 +496,11 @@ async function main(app) {
       .catch((err) => console.error("[bot] Failed to set chat menu button:", err.message));
   }
 
+  // ═══════════════════════════════════════════════════════
+  // 👈 Webhook መንገድ ወደ server.js app ጨምር
+  // ═══════════════════════════════════════════════════════
   const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
   app.use(bot.webhookCallback(webhookPath));
-
-  setTimeout(async () => {
-    try {
-      await bot.telegram.setWebhook(`${RENDER_URL}${webhookPath}`, {
-        drop_pending_updates: true,
-      });
-      console.log(`[bot] Webhook set: ${RENDER_URL}${webhookPath}`);
-    } catch (err) {
-      console.error("[bot] setWebhook failed:", err.message);
-    }
-  }, 3000);
 
   console.log("[bot] Fetan bingo bot registered (webhook mode)");
 }
@@ -493,7 +511,7 @@ function startBot(app) {
   });
 }
 
-module.exports = { startBot };
+module.exports = { startBot, bot };
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
