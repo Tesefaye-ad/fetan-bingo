@@ -4,7 +4,7 @@ import { getSocket } from "./socket";
 export default function CartelaSelection({ roomCode, balance, stake = 10, onConfirm, onCancel }) {
   const [selectedCards, setSelectedCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
-  const [countdown, setCountdown] = useState(null);
+  const [countdown, setCountdown] = useState(50); // 👈 ከ60 ወደ 50
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [bonusBalance, setBonusBalance] = useState(0);
@@ -31,13 +31,13 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
           const remaining = Math.max(0, Math.floor((new Date(data.selectionEndsAt) - Date.now()) / 1000));
           setCountdown(remaining);
         } else {
-          setCountdown(60);
+          setCountdown(50); // 👈 ከ60 ወደ 50
         }
         setServerTimeLoaded(true);
         // 👈 ከ 2 ሰከንድ በኋላ ብቻ auto-trigger እንዲፈቀድ
         setTimeout(() => setInitialTimeReceived(true), 2000);
       } catch (e) {
-        setCountdown(60);
+        setCountdown(50); // 👈 ከ60 ወደ 50
         setServerTimeLoaded(true);
         setTimeout(() => setInitialTimeReceived(true), 2000);
       }
