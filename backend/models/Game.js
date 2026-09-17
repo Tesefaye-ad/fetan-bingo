@@ -25,16 +25,18 @@ const GameSchema = new mongoose.Schema(
     maxNumber: { type: Number, default: 75 },
     calledNumbers: { type: [Number], default: [] },
     players: { type: [PlayerSchema], default: [] },
-    // 👇 አዲስ የተጨመረ፦ ለጊዜው የተያዙ ካርዶችን ለመከታተል
     reservedCards: [
       {
         user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        telegramId: { type: String },
         cardId: { type: Number },
       },
     ],
     allCards: { type: mongoose.Schema.Types.Mixed, default: [] },
     winners: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     winPattern: { type: String },
+    // 👈 አዲስ የተጨመረ — ሁሉም ተጫዋች ተመሳሳይ ሰዓት እንዲያዩ
+    selectionEndsAt: { type: Date },
     nextGameAt: { type: Date },
     startedAt: { type: Date },
     finishedAt: { type: Date },

@@ -6,25 +6,30 @@ const { requireAuth } = require("../middleware/auth");
 const router = express.Router();
 router.use(requireAuth);
 
-router.get("/rooms", async (req, res) => {
+router.get("/rooms/:roomCode", async (req, res) => {
   try {
-    const rooms = await Game.find({ status: "waiting" })
-      .sort({ createdAt: -1 })
-      .limit(30)
-      .select("roomCode status entryFee prizePool players maxNumber");
+    const roomCode = req.params.roomCode.trim().toUpperCase();
+    const game = await Game.findOne({ roomCode }).select(
+      "roomCode status entryFee prizePool players calledNumbers maxNumber winners reservedCards selectionEndsAt"
+    );
+    if (!game) return res.status(404).json({ error: "Room not found" });
 
     res.json({
-      rooms: rooms.map((g) => ({
-        roomCode: g.roomCode,
-        status: g.status,
-        entryFee: g.entryFee,
-        prizePool: g.prizePool,
-        playerCount: g.players.length,
-        maxNumber: g.maxNumber,
-      })),
+      roomCode: game.roomCode,
+      status: game.status,
+      entryFee: game.entryFee,
+      prizePool: game.prizePool,
+      playerCount: game.players.length,
+      calledNumbers: game.calledNumbers,
+      maxNumber: game.maxNumber,
+      takenCards: game.players.map((p) => p.cardId),
+      reservedCards: (game.reservedCards || []).map((r) => r.cardId),
+      selectionEndsAt: game.selectionEndsAt, // 👈 አዲስ
+      winnersCount: game.winners?.length || 0,
     });
   } catch (err) {
-    res.status(500).json({ error: "Could not load rooms" });
+    console.error("[GET /api/game/rooms/:roomCode] error:", err);
+    res.status(500).json({ error: "Could not load room" });
   }
 });
 

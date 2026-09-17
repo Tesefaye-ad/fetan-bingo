@@ -43,6 +43,7 @@ function buildRoomState(game) {
     })),
     winnersCount: game.winners?.length || 0,
     nextGameAt: game.nextGameAt,
+    selectionEndsAt: game.selectionEndsAt,
   };
 }
 
@@ -177,7 +178,6 @@ function initGameSocket(io) {
         if (!roomCode) return socket.emit("error_message", { message: "roomCode is required." });
         roomCode = String(roomCode).trim().toUpperCase();
 
-        // 👈 ብዙ ካርዶችን ወደ array ቀይር
         const cardsToJoin = Array.isArray(cardIds) && cardIds.length > 0
           ? cardIds
           : (cardId ? [cardId] : []);
@@ -196,19 +196,23 @@ function initGameSocket(io) {
             allCards: generate1000Cards(),
             winners: [],
             reservedCards: [],
+            selectionEndsAt: new Date(Date.now() + 60000),
           });
         } else if (!game.allCards || game.allCards.length === 0) {
           game.allCards = generate1000Cards();
           await game.save();
         }
 
+        if (game.status === "waiting" && (!game.selectionEndsAt || game.selectionEndsAt < new Date())) {
+          game.selectionEndsAt = new Date(Date.now() + 60000);
+          await game.save();
+        }
+
         const user = await User.findById(socket.userId);
         if (!user) return socket.emit("error_message", { message: "User not found." });
 
-        // የአሁኑ ተጠቃሚ ተጫዋች ነው?
         const existingPlayers = game.players.filter((p) => p.user.toString() === socket.userId);
 
-        // ጨዋታ ከጀመረ በኋላ - ለመመልከት ብቻ
         if ((game.status === "active" || game.status === "finished") && existingPlayers.length === 0) {
           socket.join(roomCode);
           socket.data.roomCode = roomCode;
@@ -218,7 +222,6 @@ function initGameSocket(io) {
           return;
         }
 
-        // ካርድ ካልመረጠ ወይም watchOnly ከሆነ - ተመልካች
         if (existingPlayers.length === 0 && (watchOnly || cardsToJoin.length === 0)) {
           socket.join(roomCode);
           socket.data.roomCode = roomCode;
@@ -228,7 +231,6 @@ function initGameSocket(io) {
           return;
         }
 
-        // አዲስ ተጫዋች ከሆነ - ካርዶቹን ጨምር
         if (existingPlayers.length === 0) {
           if (game.players.length >= MAX_PLAYERS) {
             return socket.emit("error_message", {
@@ -249,7 +251,6 @@ function initGameSocket(io) {
             const cardData = game.allCards.find((c) => c.cardId === selectedId);
             if (!cardData) continue;
 
-            // ብሩ አስቀድሞ ተከፍሏል?
             const reservedByUser = (game.reservedCards || []).find(
               (r) => r.cardId === selectedId && String(r.telegramId) === String(socket.telegramId)
             );
@@ -285,13 +286,11 @@ function initGameSocket(io) {
             playerCardIds.push(cardData.cardId);
           }
 
-          // ከተያዙት ዝርዝር አጽዳ
           game.reservedCards = (game.reservedCards || []).filter(
             (r) => String(r.telegramId) !== String(socket.telegramId)
           );
 
           if (playerCards.length === 0) {
-            // ካርድ ካልተመረጠ ተመልካች ሁን
             socket.join(roomCode);
             socket.data.roomCode = roomCode;
             socket.data.watching = true;
@@ -310,7 +309,6 @@ function initGameSocket(io) {
             cardIds: playerCardIds,
           });
         } else {
-          // ተጫዋች ከሆነ - ያሉትን ካርዶች ላክ
           const allCards = existingPlayers.map((p) => p.card);
           const allMarked = existingPlayers.map((p) => p.marked);
           const allIds = existingPlayers.map((p) => p.cardId);
@@ -336,18 +334,16 @@ function initGameSocket(io) {
       }
     });
 
-    // ---- MARK CELL — ሁሉንም ካርዶች አርም ----
+    // ---- MARK CELL ----
     socket.on("mark_cell", async ({ roomCode, row, col }) => {
       try {
         if (typeof row !== "number" || typeof col !== "number" || row < 0 || row > 4 || col < 0 || col > 4) return;
         const game = await Game.findOne({ roomCode });
         if (!game || game.status !== "active") return;
 
-        // 👈 የተጠቃሚውን ሁሉንም ካርዶች ፈልግ
         const userPlayers = game.players.filter((p) => p.user.toString() === socket.userId);
         if (userPlayers.length === 0) return;
 
-        // በማንኛውም ካርድ ላይ ቁጥሩ ይገኛል?
         let hasNumber = false;
         for (const player of userPlayers) {
           const number = player.card[row][col];
@@ -360,7 +356,6 @@ function initGameSocket(io) {
           return socket.emit("error_message", { message: "That number hasn't been called yet." });
         }
 
-        // በሁሉም ካርዶች ላይ ምልክት አድርግ
         for (const player of userPlayers) {
           const number = player.card[row][col];
           if (number === 0 || game.calledNumbers.includes(number)) {
@@ -371,7 +366,6 @@ function initGameSocket(io) {
         game.markModified("players");
         await game.save();
 
-        // ሁሉንም ካርዶች መልሰህ ላክ
         const updatedCards = userPlayers.map((p) => p.card);
         const updatedMarked = userPlayers.map((p) => p.marked);
         const updatedIds = userPlayers.map((p) => p.cardId);
@@ -385,7 +379,7 @@ function initGameSocket(io) {
       }
     });
 
-    // ---- CLAIM BINGO — ብዙ ካርዶች ----
+    // ---- CLAIM BINGO ----
     socket.on("claim_bingo", async ({ roomCode }) => {
       try {
         const game = await Game.findOne({ roomCode });
@@ -396,7 +390,6 @@ function initGameSocket(io) {
         const userPlayers = game.players.filter((p) => p.user.toString() === socket.userId);
         if (userPlayers.length === 0) return;
 
-        // ማንኛውም ያላሸነፈ ካርድ አለ?
         let validPlayer = null;
         let winPattern = null;
         for (const player of userPlayers) {
@@ -471,11 +464,15 @@ function initGameSocket(io) {
     });
   });
 
+  // ═══════════════════════════════════════════════════════
+  // finishGame — በትክክል የተዘጋ
+  // ═══════════════════════════════════════════════════════
   async function finishGame(io, roomCode, game, nextDelayMs) {
     stopCaller(roomCode);
     game.status = "finished";
     game.finishedAt = new Date();
     game.nextGameAt = new Date(Date.now() + nextDelayMs);
+    game.selectionEndsAt = new Date(Date.now() + nextDelayMs + 60000);
     await game.save();
 
     for (const p of game.players) {
@@ -507,12 +504,16 @@ function initGameSocket(io) {
       fresh.nextGameAt = undefined;
       fresh.players = [];
       fresh.reservedCards = [];
+      fresh.selectionEndsAt = new Date(Date.now() + 60000);
       await fresh.save();
       io.to(roomCode).emit("next_game_ready", { roomCode });
       io.to(roomCode).emit("room_state", buildRoomState(fresh));
     }, nextDelayMs);
   }
 
+  // ═══════════════════════════════════════════════════════
+  // startGame
+  // ═══════════════════════════════════════════════════════
   async function startGame(io, roomCode, intervalMs, nextDelayMs) {
     const game = await Game.findOne({ roomCode });
     if (!game || game.status !== "waiting") return;
@@ -549,7 +550,6 @@ function initGameSocket(io) {
         current.markModified("calledNumbers");
         await current.save();
 
-        // 👈 የእያንዳንዱን ተጠቃሚ ካርዶች ለየብቻ ላክ
         const groupedByUser = {};
         for (const player of current.players) {
           const uid = player.user.toString();
