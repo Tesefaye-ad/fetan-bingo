@@ -17,62 +17,6 @@ function getLetter(num) {
   return { letter: "O", color: "#ff9800" };
 }
 
-function WinningCard({ card, marked, pattern, cardId }) {
-  const isWinningCell = (r, c) => {
-    if (!pattern) return false;
-    if (pattern.startsWith("row-")) return r === parseInt(pattern.split("-")[1]) - 1;
-    if (pattern.startsWith("column-")) return c === parseInt(pattern.split("-")[1]) - 1;
-    if (pattern === "diagonal-1") return r === c;
-    if (pattern === "diagonal-2") return r === 4 - c;
-    if (pattern === "full-card") return true;
-    return false;
-  };
-
-  if (!card) return null;
-
-  return (
-    <div style={{ background: "#2a2a40", borderRadius: "14px", padding: "12px", border: "1px solid #444", width: "100%", maxWidth: "320px" }}>
-      <div style={{ textAlign: "center", color: "#fff", fontSize: "14px", fontWeight: "bold", marginBottom: "10px" }}>
-        🏆 Winning Cartela : {cardId}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "4px", marginBottom: "4px" }}>
-        {HEADERS.map((h) => (
-          <div key={h.letter} style={{ background: h.color, color: "#fff", textAlign: "center", fontWeight: "bold", fontSize: "14px", padding: "6px 0", borderRadius: "6px" }}>
-            {h.letter}
-          </div>
-        ))}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "4px" }}>
-        {card.map((row, r) =>
-          row.map((value, c) => {
-            const isFree = r === 2 && c === 2;
-            const isMarked = marked?.[r]?.[c];
-            const isWinning = isWinningCell(r, c);
-            return (
-              <div
-                key={`${r}-${c}`}
-                style={{
-                  aspectRatio: "1",
-                  background: isFree ? "#f39c12" : isWinning ? "#2ecc71" : isMarked ? "#e67e22" : "#f5f5f5",
-                  color: isFree || isWinning || isMarked ? "#fff" : "#333",
-                  fontSize: "14px",
-                  fontWeight: "bold",
-                  borderRadius: "6px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                {isFree ? "★" : value}
-              </div>
-            );
-          })
-        )}
-      </div>
-    </div>
-  );
-}
-
 export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegramId }) {
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
@@ -543,58 +487,214 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
         </button>
       </div>
 
-      {/* ═══ Game Over Overlay ═══ */}
+      {/* ═══ Game Over Overlay — Winner Announcement ═══ */}
       {gameOver && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(15,20,32,0.97)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "20px", gap: "14px", zIndex: 10, overflowY: "auto" }}>
-          <div style={{ width: "60px", height: "60px", borderRadius: "50%", background: "linear-gradient(135deg, #f39c12, #e67e22)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "32px", boxShadow: "0 0 30px rgba(243,156,18,0.6)" }}>
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(15,20,32,0.97)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "flex-start",
+          textAlign: "center",
+          padding: "20px 15px",
+          gap: "12px",
+          zIndex: 100,
+          overflowY: "auto",
+        }}>
+          {/* Crown */}
+          <div style={{
+            width: "70px",
+            height: "70px",
+            borderRadius: "50%",
+            background: "linear-gradient(135deg, #f39c12, #e67e22)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "38px",
+            boxShadow: "0 0 40px rgba(243,156,18,0.7)",
+            marginTop: "20px",
+          }}>
             👑
           </div>
 
-          <h2 style={{ color: "#f39c12", margin: 0, fontSize: "32px", letterSpacing: "2px" }}>BINGO!</h2>
+          <h2 style={{
+            color: "#f39c12",
+            margin: 0,
+            fontSize: "36px",
+            letterSpacing: "3px",
+            fontWeight: "bold",
+          }}>
+            BINGO!
+          </h2>
 
           {gameOver.winners && gameOver.winners.length > 0 ? (
             <>
-              <p style={{ color: "#fff", fontSize: "18px", margin: 0 }}>
-                🎉 {gameOver.totalWinners || gameOver.winners.length} player{(gameOver.totalWinners || gameOver.winners.length) > 1 ? "s" : ""} won!
+              {/* 👈 የአሸናፊው ስም */}
+              <p style={{
+                color: "#fff",
+                fontSize: "20px",
+                margin: 0,
+                fontWeight: "bold",
+              }}>
+                🎉 {gameOver.winners[0].name} WON! 🎉
               </p>
 
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center", maxWidth: "90%" }}>
-                {gameOver.winners.map((w, i) => (
-                  <div key={i} style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "20px", padding: "6px 14px", fontSize: "12px", display: "flex", alignItems: "center", gap: "6px", color: "#fff" }}>
-                    <span style={{ color: "#f39c12", fontWeight: "bold" }}>🏆</span>
-                    <span>{w.name}</span>
-                    <span style={{ color: "#888" }}>#{w.cardId}</span>
-                  </div>
-                ))}
+              {/* 👈 የአሸናፊው ሙሉ ካርቴላ */}
+              <div style={{
+                background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
+                border: "2px solid #f39c12",
+                borderRadius: "16px",
+                padding: "15px",
+                maxWidth: "95%",
+                width: "380px",
+                boxShadow: "0 0 30px rgba(243,156,18,0.3)",
+              }}>
+                <div style={{
+                  color: "#f39c12",
+                  fontSize: "14px",
+                  fontWeight: "bold",
+                  marginBottom: "10px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "6px",
+                }}>
+                  🏆 Winning Cartela : {gameOver.winners[0].cardId}
+                </div>
+
+                {/* B-I-N-G-O Headers */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "4px", marginBottom: "4px" }}>
+                  {[
+                    { l: "B", c: "#4c6ef5" },
+                    { l: "I", c: "#9c27b0" },
+                    { l: "N", c: "#e91e63" },
+                    { l: "G", c: "#4caf50" },
+                    { l: "O", c: "#ff9800" },
+                  ].map((h) => (
+                    <div key={h.l} style={{
+                      background: h.c,
+                      color: "#fff",
+                      textAlign: "center",
+                      fontWeight: "bold",
+                      fontSize: "14px",
+                      padding: "6px 0",
+                      borderRadius: "6px",
+                    }}>
+                      {h.l}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Cartela Grid */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "4px" }}>
+                  {gameOver.winners[0].card?.map((row, r) =>
+                    row.map((value, c) => {
+                      const isMarked = gameOver.winners[0].marked?.[r]?.[c];
+                      const isFree = r === 2 && c === 2;
+                      return (
+                        <div
+                          key={`${r}-${c}`}
+                          style={{
+                            aspectRatio: "1",
+                            background: isFree ? "#4caf50" : isMarked ? "#f39c12" : "#fff",
+                            color: isMarked || isFree ? "#fff" : "#1b2233",
+                            fontSize: "14px",
+                            fontWeight: "bold",
+                            borderRadius: "6px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            border: "1px solid #ddd",
+                          }}
+                        >
+                          {isFree ? "★" : value}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
 
-              {gameOver.winners[0] && (
-                <WinningCard
-                  card={gameOver.winners[0].card}
-                  marked={gameOver.winners[0].marked}
-                  pattern={gameOver.winners[0].pattern}
-                  cardId={gameOver.winners[0].cardId}
-                />
+              {/* 👈 ሌሎች አሸናፊዎች ካሉ */}
+              {gameOver.winners.length > 1 && (
+                <div style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "6px",
+                  justifyContent: "center",
+                  maxWidth: "95%",
+                }}>
+                  {gameOver.winners.slice(1).map((w, i) => (
+                    <div key={i} style={{
+                      background: "#1a1a2e",
+                      border: "1px solid #f39c12",
+                      borderRadius: "20px",
+                      padding: "5px 12px",
+                      fontSize: "11px",
+                      color: "#fff",
+                    }}>
+                      🏆 {w.name} #{w.cardId}
+                    </div>
+                  ))}
+                </div>
               )}
 
-              <p style={{ color: "#2ecc71", fontSize: "16px", fontWeight: "bold", margin: 0 }}>
-                Prize Pool: {gameOver.prizePool} ETB
+              {/* 👈 የሽልማት መጠን */}
+              <p style={{
+                color: "#2ecc71",
+                fontSize: "16px",
+                fontWeight: "bold",
+                margin: 0,
+              }}>
+                💰 Prize Pool: {gameOver.prizePool} ETB
               </p>
             </>
           ) : (
             <p style={{ color: "#fff", fontSize: "16px" }}>No winner this round.</p>
           )}
 
+          {/* 👈 የሚቀጥለው ጨዋታ ቆጣሪ */}
           {nextGameCountdown > 0 && (
-            <div style={{ background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: "20px", padding: "8px 18px", display: "flex", alignItems: "center", gap: "8px" }}>
-              <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#f39c12" }} />
+            <div style={{
+              background: "#1a1a2e",
+              border: "1px solid #2a2a40",
+              borderRadius: "20px",
+              padding: "8px 18px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}>
+              <div style={{
+                width: "8px",
+                height: "8px",
+                borderRadius: "50%",
+                background: "#f39c12",
+                animation: "pulse 1s infinite",
+              }} />
               <span style={{ color: "#fff", fontSize: "13px" }}>
                 Auto-starting next game in <b style={{ color: "#f39c12" }}>{nextGameCountdown}s</b>
               </span>
             </div>
           )}
 
-          <button onClick={onExit} style={{ background: "linear-gradient(135deg, #4c6ef5, #364fc7)", color: "#fff", border: "none", borderRadius: "10px", padding: "12px 30px", fontWeight: "bold", cursor: "pointer", fontSize: "14px", marginTop: "8px" }}>
+          {/* 👈 ወደ Lobby መመለሻ */}
+          <button
+            onClick={onExit}
+            style={{
+              background: "linear-gradient(135deg, #4c6ef5, #364fc7)",
+              color: "#fff",
+              border: "none",
+              borderRadius: "12px",
+              padding: "12px 40px",
+              fontWeight: "bold",
+              cursor: "pointer",
+              fontSize: "14px",
+              marginTop: "8px",
+              marginBottom: "20px",
+            }}
+          >
             Back to Lobby
           </button>
         </div>

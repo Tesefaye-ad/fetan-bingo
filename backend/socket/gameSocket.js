@@ -425,6 +425,7 @@ function initGameSocket(io) {
         if (!game.winningCartelas) game.winningCartelas = [];
         if (!game.winners) game.winners = [];
 
+              // 👈 እያንዳንዱን ካርቴላ ሙሉ መረጃ ጋር መዝግብ
         for (const { player, pattern } of winningPlayers) {
           game.winningCartelas.push({
             userId: player.user,
@@ -432,6 +433,8 @@ function initGameSocket(io) {
             cardId: player.cardId,
             name: user.username || user.firstName || "Player",
             pattern,
+            card: player.card,      // 👈 ሙሉ ካርቴላ grid
+            marked: player.marked,  // 👈 የተመለከቱ ሴሎች
           });
         }
 
@@ -460,16 +463,18 @@ function initGameSocket(io) {
         socket.emit("balance_update", { balance: user.balance });
         await game.save();
 
+                // 👈 ሁሉንም አሸናፊዎች ሙሉ ካርቴላ ጋር ላክ
         io.to(roomCode).emit("bingo_claimed", {
           winners: game.winningCartelas.map((w) => ({
             telegramId: w.telegramId,
             name: w.name,
             cardId: w.cardId,
             pattern: w.pattern,
+            card: w.card,       // 👈 ሙሉ ካርቴላ
+            marked: w.marked,   // 👈 የተመለከቱ
           })),
-          totalWinners: totalWinningCartelas,
+          totalWinners: game.winningCartelas.length,
           prizePool: game.prizePool,
-          prizePerCartela,
         });
 
         setTimeout(async () => {
@@ -524,10 +529,16 @@ function initGameSocket(io) {
     const uniqueUsers = new Set(winningPlayersData.map((w) => w.telegramId));
     const totalCartelas = winningPlayersData.length;
 
-    io.to(roomCode).emit("game_over", {
-      winners: winningPlayersData,
-      totalWinners: totalCartelas,
-      uniqueUsers: uniqueUsers.size,
+        io.to(roomCode).emit("game_over", {
+      winners: (game.winningCartelas || []).map((w) => ({
+        telegramId: w.telegramId,
+        name: w.name,
+        cardId: w.cardId,
+        pattern: w.pattern,
+        card: w.card,       // 👈 ሙሉ ካርቴላ
+        marked: w.marked,   // 👈 የተመለከቱ
+      })),
+      totalWinners: (game.winningCartelas || []).length,
       prizePool: game.prizePool,
       nextGameAt: game.nextGameAt,
       pattern: game.winPattern,

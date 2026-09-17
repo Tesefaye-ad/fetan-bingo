@@ -58,3 +58,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 .nav-item.active { color: #4c6ef5; }
 
 .page-view { text-align: center; padding: 40px 12px; color: #9aa3b5; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.3); }
+}
