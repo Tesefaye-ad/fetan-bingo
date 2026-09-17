@@ -188,7 +188,7 @@ function initGameSocket(io) {
         joinGuards.set(guardKey, true);
         setTimeout(() => joinGuards.delete(guardKey), 3000);
 
-        let game = await Game.findOne({ roomCode });
+               let game = await Game.findOne({ roomCode });
         if (!game) {
           game = await Game.create({
             roomCode,
@@ -196,13 +196,22 @@ function initGameSocket(io) {
             maxNumber: Number(process.env.BINGO_MAX_NUMBER || 75),
             allCards: generate1000Cards(),
             winners: [],
-            winningCartelas: [],
             reservedCards: [],
-            selectionEndsAt: new Date(Date.now() + SELECTION_DURATION_MS),
+            selectionEndsAt: new Date(Date.now() + 60000),
           });
         } else if (!game.allCards || game.allCards.length === 0) {
           game.allCards = generate1000Cards();
           await game.save();
+        }
+
+        // 👈 አዲስ የተጨመረ — ሰዓቱ ካለፈ አድስ (ክፍሉ ገና waiting ከሆነ)
+        if (game.status === "waiting") {
+          const now = new Date();
+          if (!game.selectionEndsAt || game.selectionEndsAt < now) {
+            game.selectionEndsAt = new Date(Date.now() + 60000);
+            await game.save();
+            console.log(`[join_room] Reset timer for ${roomCode} to 60s`);
+          }
         }
 
         if (game.status === "waiting" && (!game.selectionEndsAt || game.selectionEndsAt < new Date())) {

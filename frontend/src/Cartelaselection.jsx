@@ -10,6 +10,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   const [bonusBalance, setBonusBalance] = useState(0);
   const [autoTriggered, setAutoTriggered] = useState(false);
   const [serverTimeLoaded, setServerTimeLoaded] = useState(false);
+  const [initialTimeReceived, setInitialTimeReceived] = useState(false);
 
   // 👈 የመጀመሪያ ሁኔታን ከ Server አምጣ — ሁልጊዜ ተመሳሳይ ሰዓት
   useEffect(() => {
@@ -25,16 +26,20 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
         if (data.reservedCards) {
           setTakenCards((prev) => [...new Set([...prev, ...data.reservedCards])]);
         }
+        // 👈 ሰዓቱን ከ Server አስላ
         if (data.selectionEndsAt) {
           const remaining = Math.max(0, Math.floor((new Date(data.selectionEndsAt) - Date.now()) / 1000));
           setCountdown(remaining);
         } else {
-          setCountdown(0);
+          setCountdown(60);
         }
-      } catch (e) {
-        setCountdown(0);
-      } finally {
         setServerTimeLoaded(true);
+        // 👈 ከ 2 ሰከንድ በኋላ ብቻ auto-trigger እንዲፈቀድ
+        setTimeout(() => setInitialTimeReceived(true), 2000);
+      } catch (e) {
+        setCountdown(60);
+        setServerTimeLoaded(true);
+        setTimeout(() => setInitialTimeReceived(true), 2000);
       }
     };
     fetchInitial();
@@ -103,8 +108,9 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  // 👈 ሰዓቱ ሲያልቅ ወዲያውኑ ወደ ጨዋታው ሂድ
+  // 👈 ሰዓቱ ሲያልቅ ወዲያውኑ ወደ ጨዋታው ሂድ (ከ 2 ሰከንድ በኋላ ብቻ)
   useEffect(() => {
+    if (!initialTimeReceived) return;
     if (countdown === null || countdown > 0 || autoTriggered) return;
     setAutoTriggered(true);
     if (selectedCards.length === 0) {
@@ -118,7 +124,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       }
     }
     onConfirm(selectedCards);
-  }, [countdown, selectedCards, takenCards, onConfirm, autoTriggered]);
+  }, [countdown, selectedCards, takenCards, onConfirm, autoTriggered, initialTimeReceived]);
 
   const handleSelectCard = (cardId) => {
     if (takenCards.includes(cardId)) {
@@ -315,7 +321,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       </div>
 
       <div style={{ fontSize: "11px", color: "#888", textAlign: "center", paddingBottom: "10px" }}>
-      
+        ሰዓቱ ሲያልቅ በራስ-ሰር ወደ ጨዋታው ይገባል
       </div>
     </div>
   );
