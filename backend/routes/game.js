@@ -42,7 +42,8 @@ router.post("/rooms", async (req, res) => {
   try {
     let { roomCode, entryFee } = req.body;
     roomCode = (roomCode || generateRoomCode()).trim().toUpperCase();
-    entryFee = Number(entryFee ?? process.env.ENTRY_FEE ?? 10);
+    entryFee = Number(entryFee ?? process.env.ENTRY_FEE ?? 10);  // 👈 በትክክል ይወስዳል
+    // ... ቀሪው
 
     let game = await Game.findOne({ roomCode });
     if (!game) {

@@ -2,11 +2,11 @@ import React, { useEffect, useRef, useState } from "react";
 import { getSocket } from "./socket";
 import BingoCard from "./Bingocard.jsx";
 
-export default function LiveGame({ roomCode, onExit, setBalance, telegramId, cardId }) {
+export default function LiveGame({ roomCode, onExit, setBalance, telegramId, cardIds }) {
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
-  const [card, setCard] = useState(null);
-  const [marked, setMarked] = useState(null);
+  const [cards, setCards] = useState([]);          // 👈 ብዙ ካርዶች
+  const [markedCards, setMarkedCards] = useState([]); // 👈 ብዙ ካርዶች ምልክት
   const [status, setStatus] = useState("waiting");
   const [calledNumbers, setCalledNumbers] = useState([]);
   const [lastNumber, setLastNumber] = useState(null);
@@ -23,11 +23,24 @@ export default function LiveGame({ roomCode, onExit, setBalance, telegramId, car
     socketRef.current = socket;
 
     if (!joinedRef.current) {
-      socket.emit("join_room", { roomCode, cardId });
+      // 👈 ብዙ ካርዶች ካሉ በ array ላካቸው
+      const idsToSend = Array.isArray(cardIds) ? cardIds : (cardIds ? [cardIds] : []);
+      socket.emit("join_room", { roomCode, cardIds: idsToSend });
       joinedRef.current = true;
     }
 
-    socket.on("your_card", ({ card, marked }) => { setCard(card); setMarked(marked); });
+    // 👈 አዲሱ የ cards event
+    socket.on("your_cards", ({ cards: c, markedCards: m }) => {
+      setCards(c || []);
+      setMarkedCards(m || []);
+    });
+
+    // የቆየው የ single card event (ለተመጣጣኝነት)
+    socket.on("your_card", ({ card, marked }) => {
+      setCards([card]);
+      setMarkedCards([marked]);
+    });
+
     socket.on("watching_mode", () => setWatching(true));
 
     socket.on("room_state", (state) => {
@@ -77,9 +90,13 @@ export default function LiveGame({ roomCode, onExit, setBalance, telegramId, car
     return () => {
       socket.emit("leave_room");
       joinedRef.current = false;
-      ["your_card", "room_state", "game_started", "number_called", "bingo_rejected", "bingo_claimed", "game_over", "next_game_ready", "balance_update", "watching_mode", "error_message"].forEach((e) => socket.off(e));
+      [
+        "your_cards", "your_card", "room_state", "game_started", "number_called",
+        "bingo_rejected", "bingo_claimed", "game_over", "next_game_ready",
+        "balance_update", "watching_mode", "error_message"
+      ].forEach((e) => socket.off(e));
     };
-  }, [roomCode, cardId, setBalance]);
+  }, [roomCode, cardIds, setBalance]);
 
   useEffect(() => {
     if (nextGameCountdown <= 0) return;
@@ -87,13 +104,14 @@ export default function LiveGame({ roomCode, onExit, setBalance, telegramId, car
     return () => clearTimeout(t);
   }, [nextGameCountdown]);
 
-  function handleCellClick(r, c) {
+  // 👈 የካርድ ሴል ጠቅታ (በ cardIndex ይለያል)
+  function handleCellClick(cardIndex, r, c) {
     if (status !== "active" || watching) return;
     socketRef.current.emit("mark_cell", { roomCode, row: r, col: c });
-    setMarked((prev) => {
-      if (!prev) return prev;
-      const copy = prev.map((row) => [...row]);
-      copy[r][c] = true;
+    setMarkedCards((prev) => {
+      if (!prev || !prev[cardIndex]) return prev;
+      const copy = prev.map((m) => m.map((row) => [...row]));
+      copy[cardIndex][r][c] = true;
       return copy;
     });
   }
@@ -138,9 +156,19 @@ export default function LiveGame({ roomCode, onExit, setBalance, telegramId, car
         ))}
       </div>
 
-      {card && <BingoCard card={card} marked={marked} onCellClick={handleCellClick} cardId={cardId} />}
+      {/* 👈 ብዙ ካርዶች ማሳያ */}
+      {cards.map((card, idx) => (
+        <div key={idx} style={{ marginBottom: "20px", borderBottom: idx < cards.length - 1 ? "2px dashed #2a2a40" : "none", paddingBottom: "15px" }}>
+          <BingoCard
+            card={card}
+            marked={markedCards[idx]}
+            onCellClick={(r, c) => handleCellClick(idx, r, c)}
+            cardId={cardIds[idx] || (Array.isArray(cardIds) ? cardIds[idx] : cardId)}
+          />
+        </div>
+      ))}
 
-      {status === "active" && !watching && (
+      {status === "active" && !watching && cards.length > 0 && (
         <button onClick={claimBingo} style={{ display: "block", margin: "16px auto 0", background: "#f03e3e", color: "#fff", border: "none", borderRadius: "10px", padding: "14px 40px", fontSize: "18px", fontWeight: "bold", cursor: "pointer" }}>
           BINGO!
         </button>

@@ -1,4 +1,5 @@
 require("dotenv").config();
+const express = require("express");
 const { Telegraf, Markup } = require("telegraf");
 const mongoose = require("mongoose");
 
@@ -15,6 +16,8 @@ const DEPOSIT_PHONE = process.env.DEPOSIT_TELEBIRR_PHONE || "0920790583";
 const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 10);
 const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 50);
 const BONUS_CONVERSION_RATE = Number(process.env.BONUS_CONVERSION_RATE || 1);
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL || "https://fetan-bingo-he4x.onrender.com";
+const PORT = process.env.PORT || 10000;
 
 if (!BOT_TOKEN) {
   console.error("[bot] TELEGRAM_BOT_TOKEN is missing. Aborting.");
@@ -23,6 +26,8 @@ if (!BOT_TOKEN) {
 
 const bot = new Telegraf(BOT_TOKEN);
 const pendingAction = new Map();
+const app = express();
+app.use(express.json());
 
 const MAIN_MENU_TEXT =
   "👋 Welcome to Fetan Bingo! Choose an option below.\n\n" +
@@ -64,7 +69,7 @@ async function getOrCreateUser(ctx, referredBy) {
           referralCount: 0,
           isBanned: false,
           isAdmin: false,
-          phone: null, // 👈 አዲስ የተጨመረ
+          phone: null,
           referredBy: referredBy && referredBy !== telegramId ? referredBy : undefined,
         },
       },
@@ -102,22 +107,24 @@ async function getOrCreateUser(ctx, referredBy) {
 }
 
 // ---------------------------------------------------------------------
-// /start
+// /start — FAST (reply immediately, DB in background)
 // ---------------------------------------------------------------------
 bot.start(async (ctx) => {
   try {
     const payload = ctx.startPayload || "";
     const referredBy = payload.startsWith("ref_") ? payload.slice(4) : null;
 
+    // 👇 ምናሌውን ወዲያውኑ ላክ (DB ሳይጠብቅ)
     const banner = getBannerSource();
     if (banner) {
       ctx
         .replyWithPhoto(banner, { caption: MAIN_MENU_TEXT, ...mainKeyboard() })
         .catch(() => ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {}));
     } else {
-      await ctx.reply(MAIN_MENU_TEXT, mainKeyboard());
+      ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {});
     }
 
+    // 👇 ከበስተጀርባ ዳታቤዙን አስኬድ
     getOrCreateUser(ctx, referredBy).catch((err) =>
       console.error("[/start] background error:", err.message)
     );
@@ -132,7 +139,7 @@ bot.action("play_not_configured", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// 1. REGISTER — Share Contact
+// REGISTER — Share Contact
 // ---------------------------------------------------------------------
 const handleRegister = async (ctx) => {
   const user = await getOrCreateUser(ctx);
@@ -159,20 +166,16 @@ bot.action("action_register", async (ctx) => {
   await handleRegister(ctx);
 });
 
-// Contact handler
 bot.on("contact", async (ctx) => {
   try {
     const contact = ctx.message.contact;
     if (contact.user_id !== ctx.from.id) {
       return ctx.reply("❌ እባክዎ የራስዎን ስልክ ቁጥር ብቻ ያጋሩ።");
     }
-
     const user = await getOrCreateUser(ctx);
     if (!user) return;
-
     user.phone = contact.phone_number;
     await user.save();
-
     await ctx.reply(
       `✅ ስልክ ቁጥርዎ በተሳካ ሁኔታ ተመዝግቧል!\n📞 Phone: ${user.phone}`,
       Markup.removeKeyboard()
@@ -184,7 +187,7 @@ bot.on("contact", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// 2. CHECK BALANCE
+// CHECK BALANCE
 // ---------------------------------------------------------------------
 const handleBalance = async (ctx) => {
   const user = await getOrCreateUser(ctx);
@@ -213,12 +216,21 @@ bot.action("action_balance", async (ctx) => {
 });
 
 bot.action("copy_code", async (ctx) => {
-  await ctx.answerCbQuery("✅ ኮድ ተቀድቷል!");
-  await ctx.reply("📋 የእርስዎ የመግቢያ ኮድ ተቀድቷል!", mainKeyboard());
+  try {
+    const user = await getOrCreateUser(ctx);
+    if (!user) return;
+    await ctx.answerCbQuery("✅ ኮድ ተቀድቷል!");
+    await ctx.reply(
+      `📋 የእርስዎ መታወቂያ ኮድ: \`${user.telegramId}\`\n\n(ለመቅዳት ከላይ ያለውን ቁጥር ተጭነው ይያዙ)`,
+      { parse_mode: "Markdown" }
+    );
+  } catch (err) {
+    console.error("[copy_code] error:", err.message);
+  }
 });
 
 // ---------------------------------------------------------------------
-// 3. DEPOSIT
+// DEPOSIT
 // ---------------------------------------------------------------------
 const handleDeposit = async (ctx) => {
   await getOrCreateUser(ctx);
@@ -261,7 +273,7 @@ bot.action("cancel_action", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// 4. WITHDRAW
+// WITHDRAW
 // ---------------------------------------------------------------------
 const handleWithdraw = async (ctx) => {
   const user = await getOrCreateUser(ctx);
@@ -283,7 +295,7 @@ bot.action("action_withdraw", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// 5. INSTRUCTION
+// INSTRUCTION
 // ---------------------------------------------------------------------
 const handleInstruction = async (ctx) => {
   const text =
@@ -304,7 +316,7 @@ bot.action("action_instruction", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// 6. INVITE
+// INVITE
 // ---------------------------------------------------------------------
 const handleInvite = async (ctx) => {
   const user = await getOrCreateUser(ctx);
@@ -338,7 +350,7 @@ bot.action("action_invite", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// Support + Convert Bonus
+// SUPPORT + CONVERT BONUS
 // ---------------------------------------------------------------------
 const handleSupport = async (ctx) => {
   await ctx.reply(`☎️ Need help? Message ${SUPPORT_CONTACT}.`, mainKeyboard());
@@ -380,15 +392,7 @@ bot.action("action_convert", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// Helper: notify admin
-// ---------------------------------------------------------------------
-function notifyAdmin(text) {
-  if (!ADMIN_CHAT_ID) return;
-  bot.telegram.sendMessage(ADMIN_CHAT_ID, text).catch(() => {});
-}
-
-// ---------------------------------------------------------------------
-// Text handler (deposit / withdraw amounts)
+// Text handler (deposit amounts)
 // ---------------------------------------------------------------------
 bot.on("text", async (ctx) => {
   try {
@@ -421,9 +425,14 @@ bot.on("text", async (ctx) => {
         `📥 To deposit ${amount} ETB:\nSend via Telebirr to ${DEPOSIT_PHONE}, then send a screenshot here.\nReference: ${reference}\n\nBalance updates after admin confirms.`,
         mainKeyboard()
       );
-      notifyAdmin(
-        `🆕 Deposit\nUser: ${user.firstName} (${user.telegramId})\nAmount: ${amount} ETB\nRef: ${reference}`
-      );
+      if (ADMIN_CHAT_ID) {
+        bot.telegram
+          .sendMessage(
+            ADMIN_CHAT_ID,
+            `🆕 Deposit\nUser: ${user.firstName} (${user.telegramId})\nAmount: ${amount} ETB\nRef: ${reference}`
+          )
+          .catch(() => {});
+      }
     }
   } catch (err) {
     console.error("[text handler] error:", err.message);
@@ -435,20 +444,10 @@ bot.catch((err, ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// Main
+// Main — Webhook Mode (FAST)
 // ---------------------------------------------------------------------
 async function main() {
   await connectDB();
-  if (mongoose.connection.readyState !== 1) {
-    await new Promise((resolve) => mongoose.connection.once("connected", resolve));
-  }
-
-  try {
-    await bot.telegram.deleteWebhook({ drop_pending_updates: true });
-    console.log("[bot] Webhook cleared successfully.");
-  } catch (err) {
-    console.error("[bot] Failed to clear webhook:", err.message);
-  }
 
   try {
     await bot.telegram.setMyCommands([
@@ -465,10 +464,6 @@ async function main() {
     console.error("Menu setup error:", err);
   }
 
-  bot.launch().catch((err) => {
-    console.error("[bot.launch] error:", err.message);
-  });
-
   if (WEBAPP_URL) {
     bot.telegram
       .setChatMenuButton({
@@ -480,7 +475,23 @@ async function main() {
       .catch((err) => console.error("[bot] Failed to set chat menu button:", err.message));
   }
 
-  console.log("[bot] Fetan bingo bot is running");
+  // 👇 Webhook Mode (FAST)
+  const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
+  app.use(bot.webhookCallback(webhookPath));
+
+  app.listen(PORT, "0.0.0.0", async () => {
+    console.log(`[bot] Express listening on port ${PORT}`);
+    try {
+      await bot.telegram.setWebhook(`${RENDER_URL}${webhookPath}`, {
+        drop_pending_updates: true,
+      });
+      console.log(`[bot] Webhook set: ${RENDER_URL}${webhookPath}`);
+    } catch (err) {
+      console.error("[bot] setWebhook failed:", err.message);
+    }
+  });
+
+  console.log("[bot] Fetan bingo bot is running (webhook mode)");
 }
 
 function startBot() {

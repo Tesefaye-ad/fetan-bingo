@@ -4,20 +4,24 @@ import Wallet from "./Wallet.jsx";
 import GameLobby from "./Gamelobby.jsx";
 import AdminPanel from "./Adminpanel.jsx";
 import { disconnectSocket } from "./socket";
+import { useTelegram } from "./useTelegram";
 
 // ከባድ ገጾች - አስፈላጊ ሲሆኑ ብቻ እንዲጫኑ
 const LiveGame = lazy(() => import("./Livegame.jsx"));
 const CartelaSelection = lazy(() => import("./Cartelaselection.jsx"));
 
 function App() {
+  useTelegram(); // 👈 የቴሌግራም ስክሪፕት እንዲሰራ
+
   const [user, setUser] = useState(null);
   const [balance, setBalance] = useState(0);
   const [roomCode, setRoomCode] = useState(null);
-  const [cardId, setCardId] = useState(null);
+  const [selectedCards, setSelectedCards] = useState([]); // 👈 የተመረጡ ካርዶች (array)
   const [showCartela, setShowCartela] = useState(false);
   const [activeTab, setActiveTab] = useState("Game");
   const [adminStats, setAdminStats] = useState({ activeUsers: 0, registeredUsers: 0, totalGames: 0 });
   const [copySuccess, setCopySuccess] = useState(false);
+  const [stake, setStake] = useState(10); // 👈 የተመረጠው ስታክ
 
   const ADMIN_TELEGRAM_IDS = ["494653076"];
 
@@ -71,21 +75,24 @@ function App() {
   function handleExitGame() {
     disconnectSocket();
     setRoomCode(null);
-    setCardId(null);
+    setSelectedCards([]); // 👈 አጽዳ
+    setStake(10);
   }
 
   function handleJoinRoom(code, selectedCardId) {
     setRoomCode(code);
-    setCardId(selectedCardId);
+    setSelectedCards(Array.isArray(selectedCardId) ? selectedCardId : [selectedCardId]);
   }
 
   function handlePlayStake(fee, code) {
+    setStake(fee);
     setRoomCode(code);
     setShowCartela(true);
   }
 
-  function handleCartelaConfirm(selectedCardId) {
-    setCardId(selectedCardId);
+  function handleCartelaConfirm(selectedCardIds) {
+    const cardArray = Array.isArray(selectedCardIds) ? selectedCardIds : [selectedCardIds];
+    setSelectedCards(cardArray);
     setShowCartela(false);
   }
 
@@ -107,17 +114,17 @@ function App() {
 
   return (
     <div className="app" style={{ paddingBottom: "80px" }}>
-      <header className="app-header">
-        <h1>🎱 Fetan Bingo</h1>
-        <span>Hi, {user.firstName || user.username}</span>
-      </header>
+      {/* 👈 በ Cartela ገጽ ላይ Header አይታይም */}
+      {!showCartela && (
+        <header className="app-header">
+          <h1>Fetan Bingo</h1>
+          <span>Hi, {user.firstName || user.username}</span>
+        </header>
+      )}
 
       {/* ============ GAME TAB ============ */}
-            {/* ============ GAME TAB ============ */}
       {activeTab === "Game" && (
         <div>
-          {/* ❌ የባላንስ ማሳያው ተወግዷል */}
-
           <Suspense
             fallback={
               <div style={{ color: "#fff", textAlign: "center", padding: "50px" }}>
@@ -129,13 +136,15 @@ function App() {
               <CartelaSelection
                 roomCode={roomCode}
                 balance={balance}
+                stake={stake}
                 onConfirm={handleCartelaConfirm}
                 onCancel={() => setShowCartela(false)}
               />
             ) : roomCode ? (
               <LiveGame
                 roomCode={roomCode}
-                cardId={cardId}
+                cardIds={selectedCards}
+                stake={stake}
                 setBalance={setBalance}
                 telegramId={user.telegramId}
                 onExit={handleExitGame}

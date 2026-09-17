@@ -44,19 +44,14 @@ export default function GameLobby({ onPlayStake, isAdmin, adminStats }) {
     };
   }, [loadData]);
 
-  async function handleQuickPlay(fee) {
+   async function handleQuickPlay(fee) {
     setErrorMessage("");
     setQuickPlayFee(fee);
     try {
-      const room = await createRoom(fee);
-      if (!room || !room.roomCode) {
-        throw new Error("Room creation failed");
-      }
-      onPlayStake(fee, room.roomCode);
+      const room = await createRoom(fee);   // 👈 fee ወደ backend ይላካል
+      onPlayStake(fee, room.roomCode);      // 👈 fee ወደ App.jsx ይላካል
     } catch (err) {
-      setErrorMessage(
-        err?.response?.data?.error || "Could not start the game. Please try again."
-      );
+      setErrorMessage("Could not start the game. Please try again.");
     } finally {
       setQuickPlayFee(null);
     }
