@@ -21,7 +21,7 @@ function App() {
   const [activeTab, setActiveTab] = useState("Game");
   const [adminStats, setAdminStats] = useState({ activeUsers: 0, registeredUsers: 0, totalGames: 0 });
   const [copySuccess, setCopySuccess] = useState(false);
-  const [stake, setStake] = useState(10); // 👈 የተመረጠው ስታክ
+  const [stake, setStake] = useState(10);
 
   const ADMIN_TELEGRAM_IDS = ["494653076"];
 
@@ -120,8 +120,12 @@ function App() {
     ? user.username.charAt(0).toUpperCase()
     : "U";
 
+  // 👈 ናቪጌሽኑ የሚታየው GameLobby ገጽ ላይ ብቻ ነው
+  const showNav = !showCartela && !roomCode;
+  const appPadding = showNav ? "80px" : "10px";
+
   return (
-    <div className="app" style={{ paddingBottom: "80px" }}>
+    <div className="app" style={{ paddingBottom: appPadding }}>
       {/* 👈 Header የሚታየው GameLobby ገጽ ላይ ብቻ ነው */}
       {!showCartela && !roomCode && (
         <header className="app-header">
@@ -260,22 +264,25 @@ function App() {
       {activeTab === "Admin" && isUserAdmin && <AdminPanel adminStats={adminStats} />}
 
       {/* ============ BOTTOM NAV ============ */}
-      <nav className="bottom-nav">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            className={activeTab === tab.id ? "nav-item active" : "nav-item"}
-            onClick={() => {
-              setActiveTab(tab.id);
-              if (tab.id !== "Game") setShowCartela(false);
-            }}
-          >
-            <span>{tab.icon}</span>
-            <span>{tab.label}</span>
-          </button>
-        ))}
-      </nav>
+      {/* 👈 ናቪጌሽኑ የሚታየው GameLobby ገጽ ላይ ብቻ ነው */}
+      {showNav && (
+        <nav className="bottom-nav">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              className={activeTab === tab.id ? "nav-item active" : "nav-item"}
+              onClick={() => {
+                setActiveTab(tab.id);
+                if (tab.id !== "Game") setShowCartela(false);
+              }}
+            >
+              <span>{tab.icon}</span>
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </nav>
+      )}
     </div>
   );
 }
