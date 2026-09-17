@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { getSocket } from "./socket";
 import BingoCard from "./Bingocard.jsx";
 
-export default function LiveGame({ roomCode, onExit, setBalance, telegramId, cardIds }) {
+export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegramId }) {
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
-  const [cards, setCards] = useState([]);          // 👈 ብዙ ካርዶች
-  const [markedCards, setMarkedCards] = useState([]); // 👈 ብዙ ካርዶች ምልክት
+  const [cards, setCards] = useState([]);
   const [status, setStatus] = useState("waiting");
   const [calledNumbers, setCalledNumbers] = useState([]);
   const [lastNumber, setLastNumber] = useState(null);
@@ -23,22 +22,19 @@ export default function LiveGame({ roomCode, onExit, setBalance, telegramId, car
     socketRef.current = socket;
 
     if (!joinedRef.current) {
-      // 👈 ብዙ ካርዶች ካሉ በ array ላካቸው
-      const idsToSend = Array.isArray(cardIds) ? cardIds : (cardIds ? [cardIds] : []);
-      socket.emit("join_room", { roomCode, cardIds: idsToSend });
+      socket.emit("join_room", { roomCode, cardIds });
       joinedRef.current = true;
     }
 
-    // 👈 አዲሱ የ cards event
-    socket.on("your_cards", ({ cards: c, markedCards: m }) => {
-      setCards(c || []);
-      setMarkedCards(m || []);
-    });
-
-    // የቆየው የ single card event (ለተመጣጣኝነት)
-    socket.on("your_card", ({ card, marked }) => {
-      setCards([card]);
-      setMarkedCards([marked]);
+    // 👈 ሁሉንም መረጃ በአንድ ላይ ተቀበል
+    socket.on("your_cards", ({ cards: c, markedCards: m, cardIds: ids }) => {
+      if (!c || !m || !ids) return;
+      const cardObjects = c.map((card, i) => ({
+        cardId: ids[i],
+        card: card,
+        marked: m[i],
+      }));
+      setCards(cardObjects);
     });
 
     socket.on("watching_mode", () => setWatching(true));
@@ -82,6 +78,7 @@ export default function LiveGame({ roomCode, onExit, setBalance, telegramId, car
       setLastNumber(null);
       setCalledNumbers([]);
       setNextGameCountdown(0);
+      setCards([]);
     });
 
     socket.on("balance_update", ({ balance }) => setBalance(balance));
@@ -90,11 +87,7 @@ export default function LiveGame({ roomCode, onExit, setBalance, telegramId, car
     return () => {
       socket.emit("leave_room");
       joinedRef.current = false;
-      [
-        "your_cards", "your_card", "room_state", "game_started", "number_called",
-        "bingo_rejected", "bingo_claimed", "game_over", "next_game_ready",
-        "balance_update", "watching_mode", "error_message"
-      ].forEach((e) => socket.off(e));
+      ["your_cards", "room_state", "game_started", "number_called", "bingo_rejected", "bingo_claimed", "game_over", "next_game_ready", "balance_update", "watching_mode", "error_message"].forEach((e) => socket.off(e));
     };
   }, [roomCode, cardIds, setBalance]);
 
@@ -104,14 +97,17 @@ export default function LiveGame({ roomCode, onExit, setBalance, telegramId, car
     return () => clearTimeout(t);
   }, [nextGameCountdown]);
 
-  // 👈 የካርድ ሴል ጠቅታ (በ cardIndex ይለያል)
   function handleCellClick(cardIndex, r, c) {
     if (status !== "active" || watching) return;
     socketRef.current.emit("mark_cell", { roomCode, row: r, col: c });
-    setMarkedCards((prev) => {
-      if (!prev || !prev[cardIndex]) return prev;
-      const copy = prev.map((m) => m.map((row) => [...row]));
-      copy[cardIndex][r][c] = true;
+
+    setCards((prevCards) => {
+      const copy = [...prevCards];
+      const cardCopy = { ...copy[cardIndex] };
+      const newMarked = cardCopy.marked.map((row) => [...row]);
+      newMarked[r][c] = true;
+      cardCopy.marked = newMarked;
+      copy[cardIndex] = cardCopy;
       return copy;
     });
   }
@@ -122,7 +118,7 @@ export default function LiveGame({ roomCode, onExit, setBalance, telegramId, car
   }
 
   return (
-    <div className="live-game" style={{ padding: "15px", maxWidth: "450px", margin: "0 auto" }}>
+    <div className="live-game" style={{ padding: "15px", maxWidth: "480px", margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "10px", flexWrap: "wrap", gap: "6px", background: "#1a1a2e", padding: "10px", borderRadius: "10px" }}>
         <div><div style={{ color: "#aaa", fontSize: "10px" }}>GAME ID</div><div style={{ color: "#f39c12", fontWeight: "bold" }}>{roomCode}</div></div>
         <div><div style={{ color: "#aaa", fontSize: "10px" }}>PLAYERS</div><div style={{ color: "#fff", fontWeight: "bold" }}>{playerCount}</div></div>
@@ -156,14 +152,14 @@ export default function LiveGame({ roomCode, onExit, setBalance, telegramId, car
         ))}
       </div>
 
-      {/* 👈 ብዙ ካርዶች ማሳያ */}
-      {cards.map((card, idx) => (
-        <div key={idx} style={{ marginBottom: "20px", borderBottom: idx < cards.length - 1 ? "2px dashed #2a2a40" : "none", paddingBottom: "15px" }}>
+      {/* 👈 የተመረጡትን ካርዶች ሁሉ አሳይ */}
+      {cards.map((cardItem, index) => (
+        <div key={cardItem.cardId || index} style={{ marginBottom: "15px" }}>
           <BingoCard
-            card={card}
-            marked={markedCards[idx]}
-            onCellClick={(r, c) => handleCellClick(idx, r, c)}
-            cardId={cardIds[idx] || (Array.isArray(cardIds) ? cardIds[idx] : cardId)}
+            card={cardItem.card}
+            marked={cardItem.marked}
+            onCellClick={(r, c) => handleCellClick(index, r, c)}
+            cardId={cardItem.cardId}
           />
         </div>
       ))}
