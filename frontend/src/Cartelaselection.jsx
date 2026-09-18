@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 import React, { useEffect, useState } from "react";
 import { getSocket } from "./socket";
 
@@ -29,7 +30,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
         });
         const data = await res.json();
 
-        // 👈 የሌሎች ሰዎች ካርዶች ብቻ (የእኔ ካርዶች ከ selectedCards ይመጣሉ)
+        // 👈 የሌሎች ሰዎች ካርዶች ብቻ
         const othersReserved = (data.reservedCards || []).filter(
           (id) => !selectedCards.includes(id)
         );
@@ -69,11 +70,9 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
     // 👈 ካርድ ሲመረጥ (በሌሎች ወይም በእኔ)
     socket.on("card_selected", ({ cardId, telegramId }) => {
       const myTelegramId = localStorage.getItem("telegramId");
-      // የእኔ ካርድ ከሆነ በ selectedCards ውስጥ አስቀምጠው (አረንጓዴ)
       if (String(telegramId) === String(myTelegramId)) {
         setSelectedCards((prev) => [...new Set([...prev, cardId])]);
       }
-      // የሌሎች ካርድ ከሆነ በ takenCards ውስጥ (ቀይ)
       setTakenCards((prev) => [...new Set([...prev, cardId])]);
     });
 
