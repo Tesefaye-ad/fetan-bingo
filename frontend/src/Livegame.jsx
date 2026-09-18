@@ -41,7 +41,7 @@ function LoadingDots() {
   );
 }
 
-export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegramId }) {
+export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBalance, telegramId }) {
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
   const [cards, setCards] = useState([]);
@@ -163,6 +163,16 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
     const t = setTimeout(() => setNextGameCountdown((c) => c - 1), 1000);
     return () => clearTimeout(t);
   }, [nextGameCountdown]);
+
+    // 👈 አሸናፊው ከታየ 5 ሰከንድ በኋላ ወደ ካርቴላ መምረጫ ተመለስ
+    useEffect(() => {
+    if (!gameOver) return;
+    const timer = setTimeout(() => {
+      if (onGameEnded) onGameEnded();
+      else onExit();
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [gameOver, onGameEnded, onExit]);
 
   useEffect(() => {
     if (status !== "active") {
@@ -637,7 +647,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
         </div>
       </div>
 
-      {/* BOTTOM BUTTONS */}
+            {/* ═══ BOTTOM BUTTONS — Leave + BINGO only ═══ */}
       <div
         style={{
           position: "fixed",
@@ -647,7 +657,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
           maxWidth: "480px",
           margin: "0 auto",
           display: "grid",
-          gridTemplateColumns: "1fr 1fr 1.4fr",
+          gridTemplateColumns: watching ? "1fr" : "1fr 1fr",
           gap: "8px",
           padding: "10px 12px",
           background: "#0f1420",
@@ -669,40 +679,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
         >
           Leave
         </button>
-        <button
-          onClick={refreshRoom}
-          style={{
-            background: "#3a3a55",
-            color: "#fff",
-            border: "none",
-            borderRadius: "12px",
-            padding: "14px 0",
-            fontSize: "14px",
-            fontWeight: "bold",
-            cursor: "pointer",
-          }}
-        >
-          🔄 Refresh
-        </button>
-        {watching ? (
-          <button
-            onClick={() => setAutoMode((a) => !a)}
-            style={{
-              background: autoMode
-                ? "linear-gradient(135deg, #d4a017, #b8860b)"
-                : "#444",
-              color: "#fff",
-              border: "none",
-              borderRadius: "12px",
-              padding: "14px 0",
-              fontSize: "14px",
-              fontWeight: "bold",
-              cursor: "pointer",
-            }}
-          >
-            Automatic
-          </button>
-        ) : (
+        {!watching && (
           <button
             onClick={claimBingo}
             disabled={status !== "active"}

@@ -72,11 +72,27 @@ function App() {
     );
   }
 
-  function handleExitGame() {
+    function handleExitGame() {
+    disconnectSocket();
+    // 👈 ክፍሉ ገና waiting ከሆነ ወደ ካርቴላ መምረጫ ተመለስ
+    if (roomCode) {
+      setCardIds([]);
+      setShowCartela(true);
+      // roomCode እንዳለ ይቆይ
+    } else {
+      setRoomCode(null);
+      setCardIds([]);
+      setShowCartela(false);
+    }
+  }
+
+  function handleLeaveGame() {
+    // 👈 Leave ቁልፍ ሲነካ — ወደ GameLobby ተመለስ
     disconnectSocket();
     setRoomCode(null);
-    setSelectedCards([]);
-    setStake(10);
+    setCardIds([]);
+    setShowCartela(false);
+    setStakeAmount(10);
   }
 
   function handleJoinRoom(code, selectedCardId) {
@@ -152,15 +168,15 @@ function App() {
                 onConfirm={handleCartelaConfirm}
                 onCancel={handleCartelaCancel}
               />
-            ) : roomCode ? (
-              <LiveGame
-                roomCode={roomCode}
-                cardIds={selectedCards}
-                stake={stake}
-                setBalance={setBalance}
-                telegramId={user.telegramId}
-                onExit={handleExitGame}
-              />
+                      ) : roomCode ? (
+            <LiveGame
+              roomCode={roomCode}
+              cardIds={cardIds}
+              setBalance={setBalance}
+              telegramId={user.telegramId}
+              onExit={handleLeaveGame}        // 👈 Leave ቁልፍ
+              onGameEnded={handleExitGame}    // 👈 5s በኋላ auto-return
+            />
             ) : (
               <GameLobby
                 onJoin={handleJoinRoom}
@@ -287,4 +303,4 @@ function App() {
   );
 }
 
-export default App;
+export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBalance, telegramId }) {

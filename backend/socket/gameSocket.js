@@ -298,7 +298,8 @@ function initGameSocket(io) {
               hasWon: false,
               isWatching: false,
             });
-            game.prizePool += game.entryFee;
+                        // 👈 Derash = 80% የ entry fee
+            game.prizePool += Math.floor(game.entryFee * 0.8);
             takenSet.add(selectedId);
 
             playerCards.push(cardData.card);
@@ -449,7 +450,8 @@ function initGameSocket(io) {
           game.winners.push(user._id);
         }
 
-        const totalWinningCartelas = game.winningCartelas.length;
+                const totalWinningCartelas = game.winningCartelas.length;
+        // 👈 ድስቱ አስቀድሞ 80% ነው፣ በአሸናፊዎች ተከፋፍሏል
         const prizePerCartela = Math.floor(game.prizePool / totalWinningCartelas);
         const totalPrizeForUser = prizePerCartela * winningPlayers.length;
 
