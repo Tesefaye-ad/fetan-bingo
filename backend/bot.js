@@ -513,5 +513,21 @@ function startBot(app) {
 
 module.exports = { startBot, bot };
 
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
+// 👈 በ Webhook mode ላይ bot.stop() ስህተት ስለሚሰጥ በ try/catch አጥረነዋል
+process.once("SIGINT", () => {
+  try {
+    bot.stop("SIGINT");
+  } catch (err) {
+    console.log("[bot] SIGINT received, already stopped:", err.message);
+  }
+  process.exit(0);
+});
+
+process.once("SIGTERM", () => {
+  try {
+    bot.stop("SIGTERM");
+  } catch (err) {
+    console.log("[bot] SIGTERM received, already stopped:", err.message);
+  }
+  process.exit(0);
+});
