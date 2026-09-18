@@ -29,6 +29,40 @@ function stopCaller(roomCode) {
   }
 }
 
+// ═══════════════════════════════════════════════════════
+// 👈 ሳምንታዊ ጨዋታ — ቀጣዩን ቅዳሜ ማታ ሰዓት አስላ
+// ═══════════════════════════════════════════════════════
+function getNextWeeklyStart(fee) {
+  const ETHIOPIA_OFFSET_MS = 3 * 60 * 60 * 1000; // UTC+3
+  const now = new Date();
+  const ethiopiaNow = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
+
+  const targetDay = 6; // ቅዳሜ
+  const targetHour = 0; // 12:00 AM Ethiopian
+  const targetMinute = fee === 50 ? 0 : 5;
+
+  let daysUntil = (targetDay - ethiopiaNow.getUTCDay() + 7) % 7;
+  if (daysUntil === 0) {
+    const todayTarget = new Date(ethiopiaNow);
+    todayTarget.setUTCHours(targetHour, targetMinute, 0, 0);
+    if (ethiopiaNow >= todayTarget) daysUntil = 7;
+  }
+
+  const nextStart = new Date(ethiopiaNow);
+  nextStart.setUTCDate(nextStart.getUTCDate() + daysUntil);
+  nextStart.setUTCHours(targetHour, targetMinute, 0, 0);
+
+  return new Date(nextStart.getTime() - ETHIOPIA_OFFSET_MS);
+}
+
+function isWeeklyRoom(roomCode) {
+  return roomCode === "ROOM50" || roomCode === "ROOM100";
+}
+
+function getWeeklyFee(roomCode) {
+  return roomCode === "ROOM50" ? 50 : 100;
+}
+
 function buildRoomState(game) {
   return {
     roomCode: game.roomCode,
@@ -45,11 +79,13 @@ function buildRoomState(game) {
     winnersCount: game.winners?.length || 0,
     nextGameAt: game.nextGameAt,
     selectionEndsAt: game.selectionEndsAt,
+    scheduledStart: game.scheduledStart,
+    isWeeklyGame: game.isWeeklyGame || false,
   };
 }
 
 function initGameSocket(io) {
-  const MIN_PLAYERS = Number(process.env.MIN_PLAYERS || 0);
+  const MIN_PLAYERS = Number(process.env.MIN_PLAYERS ?? 0);
   const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 1000);
   const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 2000);
   const NEXT_GAME_DELAY_MS = Number(process.env.NEXT_GAME_DELAY_MS || 15000);
@@ -65,30 +101,99 @@ function initGameSocket(io) {
   });
 
   // ═══════════════════════════════════════════════════════
-  // 👈 AUTO-STARTER — ማንም ሳይገባ ጨዋታው ራሱን በራሱ እንዲጀምር
-  //    (MIN_PLAYERS=0 ሲሆን ወሳኝ ነው!)
+  // 👈 AUTO-STARTER + STALE CLEANER (በየ 3 ሰከንዱ)
   // ═══════════════════════════════════════════════════════
   setInterval(async () => {
     try {
-      const waitingRooms = await Game.find({ status: "waiting" });
-
-      for (const game of waitingRooms) {
-        // ሰዓቱ ካለፈ እና ጨዋታው ገና ካልጀመረ ጀምር
+      // ─── 1. የመደበኛ ጨዋታዎች (ROOM10, ROOM20) — ሰዓቱ ካለፈ ጀምር ───
+      const regularRooms = await Game.find({
+        status: "waiting",
+        isWeeklyGame: false,
+      });
+      for (const game of regularRooms) {
         if (
           game.selectionEndsAt &&
-          new Date(game.selectionEndsAt) < new Date() &&
-          game.status === "waiting"
+          new Date(game.selectionEndsAt) < new Date()
         ) {
-          console.log(
-            `[auto-starter] Starting ${game.roomCode} (players: ${game.players.length})`
-          );
+          console.log(`[auto-starter] Starting regular ${game.roomCode}`);
           startGame(io, game.roomCode, CALL_INTERVAL_MS, NEXT_GAME_DELAY_MS, SELECTION_TIMER_MS);
+        }
+      }
+
+      // ─── 2. ሳምንታዊ ጨዋታዎች (ROOM50, ROOM100) — በተዘጋጀው ሰዓት ብቻ ───
+      const weeklyRooms = await Game.find({
+        status: "waiting",
+        isWeeklyGame: true,
+      });
+      for (const game of weeklyRooms) {
+        if (game.scheduledStart && new Date(game.scheduledStart) <= new Date()) {
+          console.log(`[auto-starter] Starting WEEKLY ${game.roomCode}`);
+          startGame(io, game.roomCode, CALL_INTERVAL_MS, NEXT_GAME_DELAY_MS, SELECTION_TIMER_MS);
+        }
+      }
+
+      // ─── 3. የቆዩ "active" ጨዋታዎችን አጽዳ (ከ 3 ደቂቃ በላይ) ───
+      const activeRooms = await Game.find({ status: "active" });
+      for (const game of activeRooms) {
+        if (game.startedAt) {
+          const minutes = (Date.now() - new Date(game.startedAt).getTime()) / 60000;
+          if (minutes > 3) {
+            console.log(`[auto-starter] Resetting stale active: ${game.roomCode} (${minutes.toFixed(1)} min)`);
+            game.status = "waiting";
+            game.calledNumbers = [];
+            game.prizePool = 0;
+            game.winners = [];
+            game.winningCartelas = [];
+            game.winPattern = undefined;
+            game.startedAt = undefined;
+            game.finishedAt = undefined;
+            game.nextGameAt = undefined;
+            game.players = [];
+            game.reservedCards = [];
+
+            // 👈 ሳምንታዊ ከሆነ — ቀጣዩ ቅዳሜ
+            if (game.isWeeklyGame) {
+              game.scheduledStart = getNextWeeklyStart(getWeeklyFee(game.roomCode));
+            } else {
+              game.selectionEndsAt = new Date(Date.now() + SELECTION_TIMER_MS);
+            }
+            await game.save();
+          }
+        }
+      }
+
+      // ─── 4. የቆዩ "finished" ጨዋታዎችን አጽዳ (ከ 5 ደቂቃ በላይ) ───
+      const finishedRooms = await Game.find({ status: "finished" });
+      for (const game of finishedRooms) {
+        if (game.finishedAt) {
+          const minutes = (Date.now() - new Date(game.finishedAt).getTime()) / 60000;
+          if (minutes > 5) {
+            console.log(`[auto-starter] Resetting stale finished: ${game.roomCode}`);
+            game.status = "waiting";
+            game.calledNumbers = [];
+            game.prizePool = 0;
+            game.winners = [];
+            game.winningCartelas = [];
+            game.winPattern = undefined;
+            game.startedAt = undefined;
+            game.finishedAt = undefined;
+            game.nextGameAt = undefined;
+            game.players = [];
+            game.reservedCards = [];
+
+            if (game.isWeeklyGame) {
+              game.scheduledStart = getNextWeeklyStart(getWeeklyFee(game.roomCode));
+            } else {
+              game.selectionEndsAt = new Date(Date.now() + SELECTION_TIMER_MS);
+            }
+            await game.save();
+          }
         }
       }
     } catch (err) {
       console.error("[auto-starter] error:", err.message);
     }
-  }, 3000); // በየ 3 ሰከንዱ ያረጋግጥ
+  }, 3000);
 
   io.on("connection", (socket) => {
     console.log(`[socket] connected: user ${socket.telegramId}`);
@@ -114,7 +219,9 @@ function initGameSocket(io) {
         const takenByPlayer = game.players.some((p) => p.cardId === cardId);
 
         if (reservedByOther || takenByPlayer) {
-          return socket.emit("error_message", { message: `❌ ካርድ #${cardId} አስቀድሞ ተይዟል!` });
+          return socket.emit("error_message", {
+            message: `❌ ካርድ #${cardId} አስቀድሞ ተይዟል!`,
+          });
         }
 
         const alreadyReservedByMe = (game.reservedCards || []).some(
@@ -125,7 +232,9 @@ function initGameSocket(io) {
         }
 
         if (user.balance < game.entryFee) {
-          return socket.emit("error_message", { message: "Insufficient balance to reserve this card." });
+          return socket.emit("error_message", {
+            message: "Insufficient balance to reserve this card.",
+          });
         }
 
         user.balance -= game.entryFee;
@@ -174,7 +283,9 @@ function initGameSocket(io) {
           (r) => r.cardId === cardId && String(r.telegramId) === String(socket.telegramId)
         );
         if (reservationIndex === -1) {
-          return socket.emit("error_message", { message: "This card is not reserved by you." });
+          return socket.emit("error_message", {
+            message: "This card is not reserved by you.",
+          });
         }
 
         user.balance += game.entryFee;
@@ -206,7 +317,8 @@ function initGameSocket(io) {
     // ═══════════════════════════════════════════════════════
     socket.on("join_room", async ({ roomCode, cardId, cardIds, watchOnly }) => {
       try {
-        if (!roomCode) return socket.emit("error_message", { message: "roomCode is required." });
+        if (!roomCode)
+          return socket.emit("error_message", { message: "roomCode is required." });
         roomCode = String(roomCode).trim().toUpperCase();
 
         const cardsToJoin = Array.isArray(cardIds) && cardIds.length > 0
@@ -218,38 +330,97 @@ function initGameSocket(io) {
         joinGuards.set(guardKey, true);
         setTimeout(() => joinGuards.delete(guardKey), 3000);
 
-                let game = await Game.findOne({ roomCode });
+        let game = await Game.findOne({ roomCode });
+
+        // ═══════════════════════════════════════════════
+        // 1️⃣ የቆየ "active" ጨዋታ ካለ አጽዳ (ከ 3 ደቂቃ በላይ)
+        // ═══════════════════════════════════════════════
+        if (game && game.status === "active" && game.startedAt) {
+          const activeMinutes =
+            (Date.now() - new Date(game.startedAt).getTime()) / 60000;
+          if (activeMinutes > 3) {
+            console.log(
+              `[join_room] Stale active game (${activeMinutes.toFixed(1)} min), resetting ${roomCode}`
+            );
+            game.status = "waiting";
+            game.calledNumbers = [];
+            game.prizePool = 0;
+            game.winners = [];
+            game.winningCartelas = [];
+            game.winPattern = undefined;
+            game.startedAt = undefined;
+            game.finishedAt = undefined;
+            game.nextGameAt = undefined;
+            game.players = [];
+            game.reservedCards = [];
+
+            if (game.isWeeklyGame) {
+              game.scheduledStart = getNextWeeklyStart(getWeeklyFee(game.roomCode));
+            } else {
+              game.selectionEndsAt = new Date(Date.now() + SELECTION_TIMER_MS);
+            }
+            await game.save();
+          }
+        }
+
+        // ═══════════════════════════════════════════════
+        // 2️⃣ ክፍሉ ከሌለ አዲስ ፍጠር
+        // ═══════════════════════════════════════════════
         if (!game) {
-          game = await Game.create({
+          const weekly = isWeeklyRoom(roomCode);
+          const weeklyFee = weekly ? getWeeklyFee(roomCode) : 10;
+
+          const newGameData = {
             roomCode,
-            entryFee: Number(process.env.ENTRY_FEE || 10),
+            entryFee: Number(process.env.ENTRY_FEE || weeklyFee),
             maxNumber: Number(process.env.BINGO_MAX_NUMBER || 75),
             allCards: generate1000Cards(),
             winners: [],
             reservedCards: [],
-            selectionEndsAt: new Date(Date.now() + SELECTION_TIMER_MS),
-          });
+            isWeeklyGame: weekly,
+          };
+
+          if (weekly) {
+            newGameData.scheduledStart = getNextWeeklyStart(weeklyFee);
+            console.log(
+              `[join_room] Created weekly room ${roomCode}, scheduled at ${newGameData.scheduledStart.toISOString()}`
+            );
+          } else {
+            newGameData.selectionEndsAt = new Date(Date.now() + SELECTION_TIMER_MS);
+            console.log(`[join_room] Created regular room ${roomCode}`);
+          }
+
+          game = await Game.create(newGameData);
         } else if (!game.allCards || game.allCards.length === 0) {
           game.allCards = generate1000Cards();
           await game.save();
         }
 
-        // 👈 ሰዓቱ ካለፈ ወይም ከሌለ ብቻ አድስ (ክፍሉ ገና waiting ከሆነ)
+        // ═══════════════════════════════════════════════
+        // 3️⃣ መደበኛ ጨዋታ ከሆነ ብቻ — ሰዓቱ ካለፈ አድስ
+        // ═══════════════════════════════════════════════
         if (
+          !game.isWeeklyGame &&
           game.status === "waiting" &&
-          (!game.selectionEndsAt || game.selectionEndsAt < new Date())
+          (!game.selectionEndsAt || new Date(game.selectionEndsAt) < new Date())
         ) {
           game.selectionEndsAt = new Date(Date.now() + SELECTION_TIMER_MS);
           await game.save();
-          console.log(`[join_room] Timer reset for ${roomCode} to ${SELECTION_TIMER_MS / 1000}s`);
+          console.log(`[join_room] Timer reset for ${roomCode}`);
         }
+
         const user = await User.findById(socket.userId);
         if (!user) return socket.emit("error_message", { message: "User not found." });
 
-        const existingPlayers = game.players.filter((p) => p.user.toString() === socket.userId);
+        const existingPlayers = game.players.filter(
+          (p) => p.user.toString() === socket.userId
+        );
 
-        // ጨዋታ ከጀመረ ወይም ካርድ ከሌለ - ተመልካች
-        if ((game.status === "active" || game.status === "finished") && existingPlayers.length === 0) {
+        // ─── ጨዋታ ከጀመረ ወይም ካርድ ከሌለ - ተመልካች ───
+        if (
+          (game.status === "active" || game.status === "finished") &&
+          existingPlayers.length === 0
+        ) {
           socket.join(roomCode);
           socket.data.roomCode = roomCode;
           socket.data.watching = true;
@@ -290,7 +461,9 @@ function initGameSocket(io) {
             if (!cardData) continue;
 
             const reservedByUser = (game.reservedCards || []).find(
-              (r) => r.cardId === selectedId && String(r.telegramId) === String(socket.telegramId)
+              (r) =>
+                r.cardId === selectedId &&
+                String(r.telegramId) === String(socket.telegramId)
             );
 
             if (!reservedByUser) {
@@ -323,6 +496,7 @@ function initGameSocket(io) {
               isWatching: false,
             });
 
+            // 👈 Derash = 80%
             game.prizePool += Math.floor(game.entryFee * 0.8);
             takenSet.add(selectedId);
 
@@ -371,10 +545,22 @@ function initGameSocket(io) {
 
         io.to(roomCode).emit("room_state", buildRoomState(game));
 
-        // 👈 ጨዋታው ገና ካልጀመረ እና በቂ ተጫዋቾች ካሉ ጀምር
-        // (MIN_PLAYERS=0 ሲሆን ማንም ቢገባ ወዲያውኑ ይጀምራል)
-        if (game.status === "waiting" && game.players.length >= MIN_PLAYERS) {
-          startGame(io, roomCode, CALL_INTERVAL_MS, NEXT_GAME_DELAY_MS, SELECTION_TIMER_MS);
+        // ═══════════════════════════════════════════════
+        // 👈 ወሳኝ: መደበኛ ጨዋታ ብቻ — ወዲያውኑ ጀምር
+        // ሳምንታዊ — በተዘጋጀው ሰዓት ብቻ (auto-starter ይጀምረዋል)
+        // ═══════════════════════════════════════════════
+        if (
+          !game.isWeeklyGame &&
+          game.status === "waiting" &&
+          game.players.length >= MIN_PLAYERS
+        ) {
+          startGame(
+            io,
+            roomCode,
+            CALL_INTERVAL_MS,
+            NEXT_GAME_DELAY_MS,
+            SELECTION_TIMER_MS
+          );
         }
       } catch (err) {
         console.error("[join_room] error:", err);
@@ -382,14 +568,26 @@ function initGameSocket(io) {
       }
     });
 
-    // ---- MARK CELL ----
+    // ═══════════════════════════════════════════════════════
+    // MARK CELL
+    // ═══════════════════════════════════════════════════════
     socket.on("mark_cell", async ({ roomCode, row, col }) => {
       try {
-        if (typeof row !== "number" || typeof col !== "number" || row < 0 || row > 4 || col < 0 || col > 4) return;
+        if (
+          typeof row !== "number" ||
+          typeof col !== "number" ||
+          row < 0 ||
+          row > 4 ||
+          col < 0 ||
+          col > 4
+        )
+          return;
         const game = await Game.findOne({ roomCode });
         if (!game || game.status !== "active") return;
 
-        const userPlayers = game.players.filter((p) => p.user.toString() === socket.userId);
+        const userPlayers = game.players.filter(
+          (p) => p.user.toString() === socket.userId
+        );
         if (userPlayers.length === 0) return;
 
         let hasNumber = false;
@@ -401,7 +599,9 @@ function initGameSocket(io) {
           }
         }
         if (!hasNumber) {
-          return socket.emit("error_message", { message: "That number hasn't been called yet." });
+          return socket.emit("error_message", {
+            message: "That number hasn't been called yet.",
+          });
         }
 
         for (const player of userPlayers) {
@@ -427,7 +627,9 @@ function initGameSocket(io) {
       }
     });
 
-    // ---- CLAIM BINGO ----
+    // ═══════════════════════════════════════════════════════
+    // CLAIM BINGO
+    // ═══════════════════════════════════════════════════════
     socket.on("claim_bingo", async ({ roomCode }) => {
       try {
         const game = await Game.findOne({ roomCode });
@@ -435,7 +637,9 @@ function initGameSocket(io) {
           return socket.emit("error_message", { message: "No active game here." });
         }
 
-        const userPlayers = game.players.filter((p) => p.user.toString() === socket.userId);
+        const userPlayers = game.players.filter(
+          (p) => p.user.toString() === socket.userId
+        );
         if (userPlayers.length === 0) return;
 
         const user = await User.findById(socket.userId);
@@ -452,7 +656,9 @@ function initGameSocket(io) {
         }
 
         if (winningPlayers.length === 0) {
-          return socket.emit("bingo_rejected", { message: "Not a valid bingo yet - keep playing!" });
+          return socket.emit("bingo_rejected", {
+            message: "Not a valid bingo yet - keep playing!",
+          });
         }
 
         game.markModified("players");
@@ -526,7 +732,9 @@ function initGameSocket(io) {
     });
 
     socket.on("disconnect", () => {
-      const stillConnected = [...io.sockets.sockets.values()].some((s) => s.userId === socket.userId);
+      const stillConnected = [...io.sockets.sockets.values()].some(
+        (s) => s.userId === socket.userId
+      );
       if (!stillConnected) activeUserIds.delete(socket.userId);
     });
   });
@@ -575,7 +783,13 @@ function initGameSocket(io) {
       fresh.nextGameAt = undefined;
       fresh.players = [];
       fresh.reservedCards = [];
-      fresh.selectionEndsAt = new Date(Date.now() + selectionTimerMs);
+
+      if (fresh.isWeeklyGame) {
+        // 👈 ሳምንታዊ — ቀጣዩ ቅዳሜ
+        fresh.scheduledStart = getNextWeeklyStart(getWeeklyFee(fresh.roomCode));
+      } else {
+        fresh.selectionEndsAt = new Date(Date.now() + selectionTimerMs);
+      }
       await fresh.save();
       io.to(roomCode).emit("next_game_ready", { roomCode });
       io.to(roomCode).emit("room_state", buildRoomState(fresh));
@@ -617,7 +831,10 @@ function initGameSocket(io) {
           return;
         }
 
-        const number = randomUncalledNumber(current.calledNumbers, current.maxNumber);
+        const number = randomUncalledNumber(
+          current.calledNumbers,
+          current.maxNumber
+        );
         if (number === null) {
           callerActive = false;
           activeCallers.delete(roomCode);
@@ -626,7 +843,9 @@ function initGameSocket(io) {
         }
 
         current.calledNumbers.push(number);
-        console.log(`[caller:${roomCode}] Called ${number} (${current.calledNumbers.length}/${current.maxNumber})`);
+        console.log(
+          `[caller:${roomCode}] Called ${number} (${current.calledNumbers.length}/${current.maxNumber})`
+        );
 
         for (const player of current.players) {
           markNumber(player.card, player.marked, number);
@@ -640,7 +859,8 @@ function initGameSocket(io) {
           const groupedByUser = {};
           for (const player of current.players) {
             const uid = player.user.toString();
-            if (!groupedByUser[uid]) groupedByUser[uid] = { cards: [], markedCards: [], cardIds: [] };
+            if (!groupedByUser[uid])
+              groupedByUser[uid] = { cards: [], markedCards: [], cardIds: [] };
             groupedByUser[uid].cards.push(player.card);
             groupedByUser[uid].markedCards.push(player.marked);
             groupedByUser[uid].cardIds.push(player.cardId);
