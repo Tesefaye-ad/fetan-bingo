@@ -1,14 +1,12 @@
-import { useState, useEffect, Suspense, lazy } from "react";
+import React, { useState, useEffect } from "react";
 import Login from "./Login.jsx";
 import Wallet from "./Wallet.jsx";
 import GameLobby from "./Gamelobby.jsx";
+import LiveGame from "./Livegame.jsx";
+import CartelaSelection from "./Cartelaselection.jsx";
 import AdminPanel from "./Adminpanel.jsx";
-import { disconnectSocket } from "./socket";
+import { disconnectSocket, getSocket } from "./socket";
 import { useTelegram } from "./useTelegram";
-
-// ከባድ ገጾች - አስፈላጊ ሲሆኑ ብቻ እንዲጫኑ
-const LiveGame = lazy(() => import("./Livegame.jsx"));
-const CartelaSelection = lazy(() => import("./Cartelaselection.jsx"));
 
 function App() {
   useTelegram();
@@ -16,18 +14,24 @@ function App() {
   const [user, setUser] = useState(null);
   const [balance, setBalance] = useState(0);
   const [roomCode, setRoomCode] = useState(null);
-  const [selectedCards, setSelectedCards] = useState([]);
+  const [cardIds, setCardIds] = useState([]);
   const [showCartela, setShowCartela] = useState(false);
+  const [stakeAmount, setStakeAmount] = useState(10);
   const [activeTab, setActiveTab] = useState("Game");
-  const [adminStats, setAdminStats] = useState({ activeUsers: 0, registeredUsers: 0, totalGames: 0 });
+  const [adminStats, setAdminStats] = useState({
+    activeUsers: 0,
+    registeredUsers: 0,
+    totalGames: 0,
+  });
   const [copySuccess, setCopySuccess] = useState(false);
-  const [stake, setStake] = useState(10);
 
   const ADMIN_TELEGRAM_IDS = ["494653076"];
 
   const isUserAdmin =
     (user && (user.isAdmin || user.role === "admin")) ||
-    (user && user.telegramId && ADMIN_TELEGRAM_IDS.includes(String(user.telegramId)));
+    (user &&
+      user.telegramId &&
+      ADMIN_TELEGRAM_IDS.includes(String(user.telegramId)));
 
   const getTabs = () => {
     const tabs = [
@@ -72,22 +76,24 @@ function App() {
     );
   }
 
-    function handleExitGame() {
-    disconnectSocket();
-    // 👈 ክፍሉ ገና waiting ከሆነ ወደ ካርቴላ መምረጫ ተመለስ
-    if (roomCode) {
-      setCardIds([]);
-      setShowCartela(true);
-      // roomCode እንዳለ ይቆይ
-    } else {
-      setRoomCode(null);
-      setCardIds([]);
-      setShowCartela(false);
-    }
+  function handleJoinRoom(code, selectedCardIds) {
+    setRoomCode(code);
+    setCardIds(selectedCardIds);
   }
 
+  function handlePlayStake(fee, code) {
+    setStakeAmount(fee);
+    setRoomCode(code);
+    setShowCartela(true);
+  }
+
+  function handleCartelaConfirm(selectedCardIds) {
+    setCardIds(selectedCardIds);
+    setShowCartela(false);
+  }
+
+  // 👈 Leave ቁልፍ — ወደ GameLobby ተመለስ
   function handleLeaveGame() {
-    // 👈 Leave ቁልፍ ሲነካ — ወደ GameLobby ተመለስ
     disconnectSocket();
     setRoomCode(null);
     setCardIds([]);
@@ -95,29 +101,12 @@ function App() {
     setStakeAmount(10);
   }
 
-  function handleJoinRoom(code, selectedCardId) {
-    setRoomCode(code);
-    setSelectedCards(Array.isArray(selectedCardId) ? selectedCardId : [selectedCardId]);
-  }
-
-  function handlePlayStake(fee, code) {
-    setStake(fee);
-    setRoomCode(code);
+  // 👈 ጨዋታ ካለቀ 5s በኋላ — ወደ ካርቴላ መምረጫ ተመለስ
+  function handleGameEnded() {
+    disconnectSocket();
+    setCardIds([]);
     setShowCartela(true);
-  }
-
-  function handleCartelaConfirm(selectedCardIds) {
-    const cardArray = Array.isArray(selectedCardIds) ? selectedCardIds : [selectedCardIds];
-    setSelectedCards(cardArray);
-    setShowCartela(false);
-  }
-
-  // 👈 የ Back ቁልፍ — ወደ GameLobby ይመልሳል
-  function handleCartelaCancel() {
-    setShowCartela(false);
-    setRoomCode(null);
-    setSelectedCards([]);
-    setStake(10);
+    // roomCode እንዳለ ይቆይ
   }
 
   const handleCopyInviteLink = () => {
@@ -136,13 +125,9 @@ function App() {
     ? user.username.charAt(0).toUpperCase()
     : "U";
 
-  // 👈 ናቪጌሽኑ የሚታየው GameLobby ገጽ ላይ ብቻ ነው
-  const showNav = !showCartela && !roomCode;
-  const appPadding = showNav ? "80px" : "10px";
-
   return (
-    <div className="app" style={{ paddingBottom: appPadding }}>
-      {/* 👈 Header የሚታየው GameLobby ገጽ ላይ ብቻ ነው */}
+    <div className="app" style={{ paddingBottom: "80px" }}>
+      {/* Header በ GameLobby ገጽ ላይ ብቻ */}
       {!showCartela && !roomCode && (
         <header className="app-header">
           <h1>🎱 Fetan Bingo</h1>
@@ -150,56 +135,49 @@ function App() {
         </header>
       )}
 
-      {/* ============ GAME TAB ============ */}
       {activeTab === "Game" && (
-        <div>
-          <Suspense
-            fallback={
-              <div style={{ color: "#fff", textAlign: "center", padding: "50px" }}>
-                Loading game...
-              </div>
-            }
-          >
-            {showCartela ? (
-              <CartelaSelection
-                roomCode={roomCode}
-                balance={balance}
-                stake={stake}
-                onConfirm={handleCartelaConfirm}
-                onCancel={handleCartelaCancel}
-              />
-                      ) : roomCode ? (
+        <>
+          {showCartela ? (
+            <CartelaSelection
+              roomCode={roomCode}
+              balance={balance}
+              stake={stakeAmount}
+              onConfirm={handleCartelaConfirm}
+              onCancel={handleLeaveGame}
+            />
+          ) : roomCode ? (
             <LiveGame
               roomCode={roomCode}
               cardIds={cardIds}
               setBalance={setBalance}
               telegramId={user.telegramId}
-              onExit={handleLeaveGame}        // 👈 Leave ቁልፍ
-              onGameEnded={handleExitGame}    // 👈 5s በኋላ auto-return
+              onExit={handleLeaveGame}
+              onGameEnded={handleGameEnded}
             />
-            ) : (
-              <GameLobby
-                onJoin={handleJoinRoom}
-                onPlayStake={handlePlayStake}
-                isAdmin={isUserAdmin}
-                adminStats={adminStats}
-              />
-            )}
-          </Suspense>
-        </div>
+          ) : (
+            <GameLobby
+              onJoin={handleJoinRoom}
+              onPlayStake={handlePlayStake}
+              isAdmin={isUserAdmin}
+              adminStats={adminStats}
+            />
+          )}
+        </>
       )}
 
-      {/* ============ HISTORY TAB ============ */}
       {activeTab === "History" && (
-        <Wallet balance={balance} setBalance={setBalance} showHistory={true} />
+        <Wallet balance={balance} setBalance={setBalance} showHistory />
       )}
 
-      {/* ============ WALLET TAB ============ */}
-      {activeTab === "Wallet" && <Wallet balance={balance} setBalance={setBalance} />}
+      {activeTab === "Wallet" && (
+        <Wallet balance={balance} setBalance={setBalance} />
+      )}
 
-      {/* ============ PROFILE TAB ============ */}
       {activeTab === "Profile" && (
-        <div className="page-view profile-view" style={{ padding: "15px", textAlign: "center" }}>
+        <div
+          className="page-view profile-view"
+          style={{ padding: "15px", textAlign: "center" }}
+        >
           <div
             style={{
               width: "80px",
@@ -227,32 +205,102 @@ function App() {
           </p>
 
           <div style={{ display: "flex", gap: "10px", marginBottom: "15px" }}>
-            <div style={{ flex: 1, background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "15px" }}>
-              <div style={{ color: "#f39c12", fontSize: "12px", marginBottom: "5px" }}>💳 Main Wallet</div>
-              <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>{balance} ETB</div>
+            <div
+              style={{
+                flex: 1,
+                background: "#1a1a2e",
+                border: "1px solid #f39c12",
+                borderRadius: "12px",
+                padding: "15px",
+              }}
+            >
+              <div style={{ color: "#f39c12", fontSize: "12px", marginBottom: "5px" }}>
+                💳 Main Wallet
+              </div>
+              <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>
+                {balance} ETB
+              </div>
             </div>
-            <div style={{ flex: 1, background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: "12px", padding: "15px" }}>
-              <div style={{ color: "#f39c12", fontSize: "12px", marginBottom: "5px" }}>🎁 Bonus</div>
-              <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>{user.bonusBalance || 0} ETB</div>
+            <div
+              style={{
+                flex: 1,
+                background: "#1a1a2e",
+                border: "1px solid #f39c12",
+                borderRadius: "12px",
+                padding: "15px",
+              }}
+            >
+              <div style={{ color: "#f39c12", fontSize: "12px", marginBottom: "5px" }}>
+                🎁 Bonus
+              </div>
+              <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>
+                {user.bonusBalance || 0} ETB
+              </div>
             </div>
           </div>
 
           <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
-            <div style={{ flex: 1, background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: "12px", padding: "15px" }}>
-              <div style={{ color: "#aaa", fontSize: "12px", marginBottom: "5px" }}>🏆 Games Won</div>
-              <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>{user.gamesWon ?? 0}</div>
+            <div
+              style={{
+                flex: 1,
+                background: "#1a1a2e",
+                border: "1px solid #2a2a40",
+                borderRadius: "12px",
+                padding: "15px",
+              }}
+            >
+              <div style={{ color: "#aaa", fontSize: "12px", marginBottom: "5px" }}>
+                🏆 Games Won
+              </div>
+              <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>
+                {user.gamesWon ?? 0}
+              </div>
             </div>
-            <div style={{ flex: 1, background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: "12px", padding: "15px" }}>
-              <div style={{ color: "#aaa", fontSize: "12px", marginBottom: "5px" }}>👥 Total Invite</div>
-              <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>{user.referralCount ?? 0}</div>
+            <div
+              style={{
+                flex: 1,
+                background: "#1a1a2e",
+                border: "1px solid #2a2a40",
+                borderRadius: "12px",
+                padding: "15px",
+              }}
+            >
+              <div style={{ color: "#aaa", fontSize: "12px", marginBottom: "5px" }}>
+                👥 Total Invite
+              </div>
+              <div style={{ color: "#fff", fontSize: "18px", fontWeight: "bold" }}>
+                {user.referralCount ?? 0}
+              </div>
             </div>
           </div>
 
-          <div style={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: "14px", padding: "20px", textAlign: "center" }}>
-            <div style={{ fontSize: "16px", fontWeight: "bold", color: "#f39c12", marginBottom: "8px" }}>
+          <div
+            style={{
+              background: "#1a1a2e",
+              border: "1px solid #333",
+              borderRadius: "14px",
+              padding: "20px",
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "16px",
+                fontWeight: "bold",
+                color: "#f39c12",
+                marginBottom: "8px",
+              }}
+            >
               🎁 ጓደኞች ይጋብዙ (Invite Friends)
             </div>
-            <p style={{ color: "#bbb", fontSize: "12px", lineHeight: "1.5", marginBottom: "15px" }}>
+            <p
+              style={{
+                color: "#bbb",
+                fontSize: "12px",
+                lineHeight: "1.5",
+                marginBottom: "15px",
+              }}
+            >
               የእርስዎን የመጋበዣ ሊንክ ለጓደኞችዎ በመላክ በእያንዳንዱ ግንኙነት 5 ETB ቦነስ ያግኙ!
             </p>
             <button
@@ -270,18 +318,21 @@ function App() {
                 boxShadow: "0 4px 10px rgba(0, 136, 204, 0.3)",
               }}
             >
-              🔗 {copySuccess ? "ተቀድቷል! (Copied!)" : "የመጋበዣ ሊንክ ቅዳ"}
+              🔗{" "}
+              {copySuccess
+                ? "ተቀድቷል! (Copied!)"
+                : "የመጋበዣ ሊንክ ቅዳ"}
             </button>
           </div>
         </div>
       )}
 
-      {/* ============ ADMIN TAB ============ */}
-      {activeTab === "Admin" && isUserAdmin && <AdminPanel adminStats={adminStats} />}
+      {activeTab === "Admin" && (
+        <AdminPanel adminStats={adminStats} />
+      )}
 
-      {/* ============ BOTTOM NAV ============ */}
-      {/* 👈 ናቪጌሽኑ የሚታየው GameLobby ገጽ ላይ ብቻ ነው */}
-      {showNav && (
+      {/* Bottom nav — በ LiveGame ወይም Cartela ገጽ ላይ አይታይም */}
+      {!showCartela && !roomCode && (
         <nav className="bottom-nav">
           {tabs.map((tab) => (
             <button
@@ -303,4 +354,4 @@ function App() {
   );
 }
 
-export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBalance, telegramId }) {
+export default App;
