@@ -8,15 +8,14 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [bonusBalance, setBonusBalance] = useState(0);
-  // 👈 autoTriggered state ተወግዷል (autoTriggerRef ብቻ ነው የምንጠቀመው)
 
-  // 👈 የሰዓቱ መጨረሻ ጊዜ (timestamp) በ ref እናስቀምጠው
+  // 👈 የሰዓቱ መጨረሻ ጊዜ (timestamp) — አንድ ጊዜ ብቻ ይዘጋጃል
   const selectionEndsAtRef = useRef(null);
   const hasReceivedServerTime = useRef(false);
   const autoTriggerRef = useRef(false);
 
   // ═══════════════════════════════════════════════════
-  // አንድ ጊዜ ብቻ ከ Server አምጣ እና Socket አዳምጥ
+  // አንድ ጊዜ ብቻ ከ Server ሰዓቱን አምጣ
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     const socket = getSocket();
@@ -33,14 +32,13 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
           setTakenCards((prev) => [...new Set([...prev, ...data.reservedCards])]);
         }
 
-        // 👈 የሰዓቱን መጨረሻ ጊዜ አስቀምጥ (timestamp)
+        // 👈 የሰዓቱን መጨረሻ ጊዜ አስቀምጥ (timestamp) — ይህ ብቻ ነው ዋናው
         if (data.selectionEndsAt) {
           selectionEndsAtRef.current = new Date(data.selectionEndsAt).getTime();
-          hasReceivedServerTime.current = true;
         } else {
           selectionEndsAtRef.current = Date.now() + 50000;
-          hasReceivedServerTime.current = true;
         }
+        hasReceivedServerTime.current = true;
       } catch (e) {
         selectionEndsAtRef.current = Date.now() + 50000;
         hasReceivedServerTime.current = true;
@@ -59,7 +57,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       })
       .catch(() => {});
 
-    // 👈 Socket events
+    // Socket events
     socket.on("card_selected", ({ cardId }) => {
       setTakenCards((prev) => [...new Set([...prev, cardId])]);
     });
@@ -72,15 +70,8 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       setCurrentBalance(newBal);
     });
 
-    // 👈 room_state — ሰዓቱ ከተቀየረ ብቻ አዘምን
+    // 👈 room_state — ሰዓቱን አይቀይርም (takenCards ብቻ አዘምን)
     socket.on("room_state", (state) => {
-      if (state.selectionEndsAt) {
-        const newEndsAt = new Date(state.selectionEndsAt).getTime();
-        // የሰዓቱ መጨረሻ ጊዜ ከ 3 ሰከንድ በላይ ከተለወጠ ብቻ አዘምን
-        if (selectionEndsAtRef.current && Math.abs(newEndsAt - selectionEndsAtRef.current) > 3000) {
-          selectionEndsAtRef.current = newEndsAt;
-        }
-      }
       if (state.takenCards) setTakenCards(state.takenCards);
     });
 
@@ -158,12 +149,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       });
       const data = await res.json();
       if (data.takenCards) setTakenCards(data.takenCards);
-      if (data.selectionEndsAt) {
-        const newEndsAt = new Date(data.selectionEndsAt).getTime();
-        if (!selectionEndsAtRef.current || Math.abs(newEndsAt - selectionEndsAtRef.current) > 3000) {
-          selectionEndsAtRef.current = newEndsAt;
-        }
-      }
+      // 👈 ሰዓቱን አትቀይር — selectionEndsAtRef አይነካ
     } catch (e) {}
   };
 

@@ -10,7 +10,7 @@ router.use(requireAuth);
 const TIMER_MS = Number(process.env.SELECTION_TIMER_MS || 50000);
 
 // ═══════════════════════════════════════════════════════
-// GET /api/game/rooms/:roomCode
+// GET /api/game/rooms/:roomCode — ሰዓቱን አይቀይርም
 // ═══════════════════════════════════════════════════════
 router.get("/rooms/:roomCode", async (req, res) => {
   try {
@@ -20,14 +20,18 @@ router.get("/rooms/:roomCode", async (req, res) => {
     );
     if (!game) return res.status(404).json({ error: "Room not found" });
 
-    // 👈 ሰዓቱ ካለፈ እና ጨዋታው ገና ካልጀመረ - አዲስ 50s ስጥ
+    // 👈 ሰዓቱ ካለፈ እና ጨዋታው ገና ካልጀመረ እና ማንም ካልጫወተ ብቻ አዲስ ሰዓት ስጥ
+    //    (ማለትም — ተጫዋቾች ከሌሉ እና ካርዶች ከሌሉ ብቻ አድስ)
     if (
       game.status === "waiting" &&
+      game.players.length === 0 &&
       (!game.selectionEndsAt || game.selectionEndsAt < new Date())
     ) {
+      await Game.updateOne(
+        { _id: game._id },
+        { $set: { selectionEndsAt: new Date(Date.now() + TIMER_MS) } }
+      );
       game.selectionEndsAt = new Date(Date.now() + TIMER_MS);
-      await game.save();
-      console.log(`[GET room] Reset timer for ${roomCode} to ${TIMER_MS / 1000}s`);
     }
 
     res.json({
@@ -90,7 +94,7 @@ router.get("/rooms", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// POST /api/game/rooms
+// POST /api/game/rooms — አዲስ ክፍል ፍጠር
 // ═══════════════════════════════════════════════════════
 router.post("/rooms", async (req, res) => {
   try {
@@ -100,18 +104,13 @@ router.post("/rooms", async (req, res) => {
 
     let game = await Game.findOne({ roomCode });
     if (!game) {
+      // 👈 አዲስ ክፍል ሲፈጠር ብቻ ሰዓቱን አስቀምጥ
       game = await Game.create({
         roomCode,
         entryFee,
         maxNumber: Number(process.env.BINGO_MAX_NUMBER || 75),
         selectionEndsAt: new Date(Date.now() + TIMER_MS),
       });
-    } else if (
-      game.status === "waiting" &&
-      (!game.selectionEndsAt || game.selectionEndsAt < new Date())
-    ) {
-      game.selectionEndsAt = new Date(Date.now() + TIMER_MS);
-      await game.save();
     }
 
     res.status(201).json({
