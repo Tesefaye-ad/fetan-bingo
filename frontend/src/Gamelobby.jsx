@@ -44,12 +44,20 @@ export default function GameLobby({ onPlayStake, isAdmin, adminStats }) {
     };
   }, [loadData]);
 
-   async function handleQuickPlay(fee) {
+     async function handleQuickPlay(fee) {
     setErrorMessage("");
     setQuickPlayFee(fee);
     try {
-      const room = await createRoom(fee);   // 👈 fee ወደ backend ይላካል
-      onPlayStake(fee, room.roomCode);      // 👈 fee ወደ App.jsx ይላካል
+      // 👈 ቋሚ የክፍል ኮድ — ሁሉም ተጠቃሚዎች ወደዚሁ ይገባሉ
+      const SHARED_ROOMS = {
+        10: "ROOM10",
+        20: "ROOM20",
+        50: "ROOM50",
+        100: "ROOM100",
+      };
+      const roomCode = SHARED_ROOMS[fee] || `ROOM${fee}`;
+      const room = await createRoom(fee, roomCode);
+      onPlayStake(fee, room.roomCode);
     } catch (err) {
       setErrorMessage("Could not start the game. Please try again.");
     } finally {

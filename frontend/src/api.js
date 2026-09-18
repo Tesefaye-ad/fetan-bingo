@@ -41,8 +41,10 @@ export async function getGameStats() {
   return data;
 }
 
-export async function createRoom(entryFee) {
-  const { data } = await api.post("/api/game/rooms", { entryFee });
+export async function createRoom(entryFee, roomCode) {
+  const body = { entryFee };
+  if (roomCode) body.roomCode = roomCode;
+  const { data } = await api.post("/api/game/rooms", body);
   return data;
 }
 

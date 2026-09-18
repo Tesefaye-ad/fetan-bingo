@@ -9,7 +9,7 @@ router.use(requireAuth);
 const TIMER_MS = Number(process.env.SELECTION_TIMER_MS || 50000);
 
 // ═══════════════════════════════════════════════════════
-// GET /rooms/:roomCode
+// GET /rooms/:roomCode — ሰዓቱን ፈጽሞ አይቀይር
 // ═══════════════════════════════════════════════════════
 router.get("/rooms/:roomCode", async (req, res) => {
   try {
@@ -19,7 +19,7 @@ router.get("/rooms/:roomCode", async (req, res) => {
     );
     if (!game) return res.status(404).json({ error: "Room not found" });
 
-    // 👈 የቀረውን ሰከንድ አስላ (ሁልጊዜ ትክክለኛውን ይሰጣል)
+    // 👈 የቀረውን ሰከንድ አስላ
     let remainingSeconds = 0;
     if (game.selectionEndsAt) {
       remainingSeconds = Math.max(
@@ -39,7 +39,7 @@ router.get("/rooms/:roomCode", async (req, res) => {
       takenCards: game.players.map((p) => p.cardId),
       reservedCards: (game.reservedCards || []).map((r) => r.cardId),
       selectionEndsAt: game.selectionEndsAt,
-      remainingSeconds: remainingSeconds, // 👈 ዋናው የሚላከው
+      remainingSeconds,
       winnersCount: game.winners?.length || 0,
     });
   } catch (err) {
@@ -82,7 +82,7 @@ router.get("/rooms", async (req, res) => {
   }
 });
 
-// POST /rooms — አዲስ ክፍል
+// POST /rooms — ክፍሉ ካለ ሰዓቱን አትቀይር
 router.post("/rooms", async (req, res) => {
   try {
     let { roomCode, entryFee } = req.body;
@@ -91,6 +91,7 @@ router.post("/rooms", async (req, res) => {
 
     let game = await Game.findOne({ roomCode });
     if (!game) {
+      // 👈 አዲስ ክፍል ሲፈጠር ብቻ ሰዓቱን አስቀምጥ
       game = await Game.create({
         roomCode,
         entryFee,
@@ -98,6 +99,7 @@ router.post("/rooms", async (req, res) => {
         selectionEndsAt: new Date(Date.now() + TIMER_MS),
       });
     }
+    // 👈 ክፍሉ ካለ ሰዓቱን ፈጽሞ አትቀይር!
 
     let remainingSeconds = Math.max(
       0,

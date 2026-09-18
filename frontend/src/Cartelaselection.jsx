@@ -4,7 +4,7 @@ import { getSocket } from "./socket";
 export default function CartelaSelection({ roomCode, balance, stake = 10, onConfirm, onCancel }) {
   const [selectedCards, setSelectedCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
-  const [countdown, setCountdown] = useState(50);
+  const [countdown, setCountdown] = useState(null);
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [bonusBalance, setBonusBalance] = useState(0);
@@ -28,11 +28,11 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
           setTakenCards((prev) => [...new Set([...prev, ...data.reservedCards])]);
         }
 
-        // 👈 የቀረውን ሰከንድ ተጠቀም (ከስልክ ሰዓት ጋር ምንም ግንኙነት የለውም)
-        if (typeof data.remainingSeconds === "number" && data.remainingSeconds > 0) {
+        // 👈 የቀረውን ሰከንድ ተጠቀም
+        if (typeof data.remainingSeconds === "number") {
           setCountdown(data.remainingSeconds);
           timerStartedRef.current = true;
-          console.log("[Cartela] Server remaining:", data.remainingSeconds, "seconds");
+          console.log("[Cartela] Remaining from server:", data.remainingSeconds, "s");
         } else {
           setCountdown(50);
           timerStartedRef.current = true;
@@ -88,7 +88,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (!timerStartedRef.current) return;
-    if (countdown <= 0) return;
+    if (countdown === null || countdown <= 0) return;
 
     const timer = setTimeout(() => {
       setCountdown((c) => Math.max(0, c - 1));
@@ -101,10 +101,10 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (!timerStartedRef.current) return;
-    if (countdown > 0 || autoTriggerRef.current) return;
+    if (countdown === null || countdown > 0 || autoTriggerRef.current) return;
 
     autoTriggerRef.current = true;
-    console.log("[Cartela] Countdown reached 0, moving to game");
+    console.log("[Cartela] Countdown = 0, moving to game");
 
     if (selectedCards.length === 0) {
       const takenSet = new Set(takenCards);
@@ -182,8 +182,8 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
         </div>
         <div style={{ textAlign: "center", borderLeft: "1px solid #2a2a40" }}>
           <div style={{ color: "#aaa", fontSize: "10px", marginBottom: "3px" }}>Time</div>
-          <div style={{ color: countdown <= 10 ? "#e74c3c" : "#ffd43b", fontSize: "16px", fontWeight: "bold" }}>
-            {countdown} S
+          <div style={{ color: countdown !== null && countdown <= 10 ? "#e74c3c" : "#ffd43b", fontSize: "16px", fontWeight: "bold" }}>
+            {countdown !== null ? `${countdown} S` : "…"}
           </div>
         </div>
       </div>
