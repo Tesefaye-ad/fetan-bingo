@@ -9,18 +9,13 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [bonusBalance, setBonusBalance] = useState(0);
 
-  // 👈 የሰዓቱ መጨረሻ ጊዜ (በዚህ ስልክ ሰዓት)
-  const deadlineRef = useRef(null);
   const autoTriggerRef = useRef(false);
-  const initializedRef = useRef(false);
+  const timerStartedRef = useRef(false);
 
   // ═══════════════════════════════════════════════════
-  // አንድ ጊዜ ብቻ ከ Server ሰዓቱን አምጥተን offset አስላ
+  // አንድ ጊዜ ብቻ ከ Server የቀረውን ሰከንድ አምጣ
   // ═══════════════════════════════════════════════════
   useEffect(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
-
     const fetchInitial = async () => {
       try {
         const res = await fetch(`${process.env.REACT_APP_API_URL}/api/game/rooms/${roomCode}`, {
@@ -33,23 +28,18 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
           setTakenCards((prev) => [...new Set([...prev, ...data.reservedCards])]);
         }
 
-        // 👈 የስልኩን ሰዓት ከ Server ሰዓት ጋር አመሳስል
-        const serverNow = data.serverTime ? new Date(data.serverTime).getTime() : Date.now();
-        const clientNow = Date.now();
-        const offset = serverNow - clientNow;
-
-        if (data.selectionEndsAt) {
-          const serverDeadline = new Date(data.selectionEndsAt).getTime();
-          // የ Server ጊዜውን ወደ ስልኩ ሰዓት ቀይረው
-          deadlineRef.current = serverDeadline - offset;
+        // 👈 የቀረውን ሰከንድ ተጠቀም (ከስልክ ሰዓት ጋር ምንም ግንኙነት የለውም)
+        if (typeof data.remainingSeconds === "number" && data.remainingSeconds > 0) {
+          setCountdown(data.remainingSeconds);
+          timerStartedRef.current = true;
+          console.log("[Cartela] Server remaining:", data.remainingSeconds, "seconds");
         } else {
-          deadlineRef.current = Date.now() + 50000;
+          setCountdown(50);
+          timerStartedRef.current = true;
         }
-
-        console.log("[Cartela] Server offset:", offset, "ms | Deadline:", new Date(deadlineRef.current).toISOString());
       } catch (e) {
-        deadlineRef.current = Date.now() + 50000;
-        console.log("[Cartela] Fetch failed, using local 50s");
+        setCountdown(50);
+        timerStartedRef.current = true;
       }
     };
     fetchInitial();
@@ -67,7 +57,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   }, [roomCode]);
 
   // ═══════════════════════════════════════════════════
-  // Socket events — ሰዓቱን አይነኩ
+  // Socket events
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     const socket = getSocket();
@@ -94,25 +84,23 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   }, []);
 
   // ═══════════════════════════════════════════════════
-  // ቆጣሪ — በየ ግማሽ ሰከንድ ከ deadline አስላ
+  // ቆጣሪ — በየ ሰከንዱ አንድ ቀንስ
   // ═══════════════════════════════════════════════════
   useEffect(() => {
-    const tick = () => {
-      if (!deadlineRef.current) return;
-      const remaining = Math.max(0, Math.floor((deadlineRef.current - Date.now()) / 1000));
-      setCountdown(remaining);
-    };
+    if (!timerStartedRef.current) return;
+    if (countdown <= 0) return;
 
-    tick();
-    const timer = setInterval(tick, 500);
-    return () => clearInterval(timer);
-  }, []);
+    const timer = setTimeout(() => {
+      setCountdown((c) => Math.max(0, c - 1));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
 
   // ═══════════════════════════════════════════════════
-  // ሰዓቱ 0 ሲሆን ወደ ጨዋታው ሂድ (አንድ ጊዜ ብቻ)
+  // ሰዓቱ 0 ሲሆን ወደ ጨዋታው ሂድ
   // ═══════════════════════════════════════════════════
   useEffect(() => {
-    if (!deadlineRef.current) return;
+    if (!timerStartedRef.current) return;
     if (countdown > 0 || autoTriggerRef.current) return;
 
     autoTriggerRef.current = true;
@@ -160,7 +148,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
 
   return (
     <div style={{ padding: "10px", maxWidth: "480px", margin: "0 auto", color: "#fff", height: "100vh", display: "flex", flexDirection: "column", background: "#0f1420" }}>
-      {/* Top Row */}
+      {/* Top Row — Back */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
         <button
           onClick={onCancel}
@@ -200,7 +188,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
         </div>
       </div>
 
-      {/* Selection Summary */}
+      {/* Summary */}
       <div style={{
         display: "flex", justifyContent: "space-between",
         background: "#1a1a2e", border: "1px solid #2a2a40",
@@ -249,7 +237,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       </div>
 
       <div style={{ fontSize: "11px", color: "#888", textAlign: "center", paddingBottom: "10px" }}>
-        ሰዓቱ ሲያልቅ በራስ-ሰር ወደ ጨዋታው ይገባል
+        
       </div>
     </div>
   );

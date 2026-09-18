@@ -9,7 +9,7 @@ router.use(requireAuth);
 const TIMER_MS = Number(process.env.SELECTION_TIMER_MS || 50000);
 
 // ═══════════════════════════════════════════════════════
-// GET /rooms/:roomCode — ሰዓቱን ፈጽሞ አይቀይር
+// GET /rooms/:roomCode
 // ═══════════════════════════════════════════════════════
 router.get("/rooms/:roomCode", async (req, res) => {
   try {
@@ -19,7 +19,15 @@ router.get("/rooms/:roomCode", async (req, res) => {
     );
     if (!game) return res.status(404).json({ error: "Room not found" });
 
-    // 👈 ሰዓቱን ፈጽሞ አይቀይር! ክፍሉ ሲፈጠር የተቀመጠውን ብቻ ላክ
+    // 👈 የቀረውን ሰከንድ አስላ (ሁልጊዜ ትክክለኛውን ይሰጣል)
+    let remainingSeconds = 0;
+    if (game.selectionEndsAt) {
+      remainingSeconds = Math.max(
+        0,
+        Math.floor((new Date(game.selectionEndsAt).getTime() - Date.now()) / 1000)
+      );
+    }
+
     res.json({
       roomCode: game.roomCode,
       status: game.status,
@@ -31,7 +39,7 @@ router.get("/rooms/:roomCode", async (req, res) => {
       takenCards: game.players.map((p) => p.cardId),
       reservedCards: (game.reservedCards || []).map((r) => r.cardId),
       selectionEndsAt: game.selectionEndsAt,
-      serverTime: new Date().toISOString(), // 👈 የሰርቨሩ ሰዓት
+      remainingSeconds: remainingSeconds, // 👈 ዋናው የሚላከው
       winnersCount: game.winners?.length || 0,
     });
   } catch (err) {
@@ -40,9 +48,7 @@ router.get("/rooms/:roomCode", async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
 // GET /stats
-// ═══════════════════════════════════════════════════════
 router.get("/stats", async (req, res) => {
   try {
     const totalUsers = await User.countDocuments();
@@ -53,9 +59,7 @@ router.get("/stats", async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
 // GET /rooms
-// ═══════════════════════════════════════════════════════
 router.get("/rooms", async (req, res) => {
   try {
     const rooms = await Game.find({ status: "waiting" })
@@ -71,7 +75,6 @@ router.get("/rooms", async (req, res) => {
         prizePool: g.prizePool,
         playerCount: g.players.length,
         maxNumber: g.maxNumber,
-        selectionEndsAt: g.selectionEndsAt,
       })),
     });
   } catch (err) {
@@ -79,9 +82,7 @@ router.get("/rooms", async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// POST /rooms — አዲስ ክፍል ሲፈጠር ብቻ ሰዓቱን አስቀምጥ
-// ═══════════════════════════════════════════════════════
+// POST /rooms — አዲስ ክፍል
 router.post("/rooms", async (req, res) => {
   try {
     let { roomCode, entryFee } = req.body;
@@ -90,7 +91,6 @@ router.post("/rooms", async (req, res) => {
 
     let game = await Game.findOne({ roomCode });
     if (!game) {
-      // 👈 አዲስ ክፍል ሲፈጠር ብቻ ሰዓቱን አስቀምጥ
       game = await Game.create({
         roomCode,
         entryFee,
@@ -98,7 +98,11 @@ router.post("/rooms", async (req, res) => {
         selectionEndsAt: new Date(Date.now() + TIMER_MS),
       });
     }
-    // 👈 ክፍሉ ካለ — ሰዓቱን ፈጽሞ አትቀይር
+
+    let remainingSeconds = Math.max(
+      0,
+      Math.floor((new Date(game.selectionEndsAt).getTime() - Date.now()) / 1000)
+    );
 
     res.status(201).json({
       roomCode: game.roomCode,
@@ -107,7 +111,7 @@ router.post("/rooms", async (req, res) => {
       prizePool: game.prizePool,
       playerCount: game.players.length,
       selectionEndsAt: game.selectionEndsAt,
-      serverTime: new Date().toISOString(),
+      remainingSeconds,
     });
   } catch (err) {
     console.error("[POST /api/game/rooms] error:", err);
