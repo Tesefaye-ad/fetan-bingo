@@ -5,7 +5,7 @@ import { getSocket } from "./socket";
 export default function CartelaSelection({ roomCode, balance, stake = 10, onConfirm, onCancel }) {
   const [selectedCards, setSelectedCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
-  const [countdown, setCountdown] = useState(50);
+  const [countdown, setCountdown] = useState(null); // 👈 መጀመሪያ null (ከ Server ይመጣል)
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [bonusBalance, setBonusBalance] = useState(0);
@@ -42,16 +42,18 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
         // 👈 ሰዓቱን ከ Server አስላ
         if (data.selectionEndsAt) {
           const remaining = Math.max(0, Math.floor((new Date(data.selectionEndsAt) - Date.now()) / 1000));
+          // 👈 ሰዓቱ ካለፈ 50s ብቻ ከሆነ ተጠቀም (ወደ 0 አይሂድም)
           setCountdown(remaining > 0 ? remaining : 50);
         } else {
           setCountdown(50);
         }
         setServerTimeLoaded(true);
-        setTimeout(() => setInitialTimeReceived(true), 2000);
+        // 👈 ከ5 ሰከንድ በኋላ ብቻ auto-trigger እንዲፈቀድ
+        setTimeout(() => setInitialTimeReceived(true), 5000);
       } catch (e) {
         setCountdown(50);
         setServerTimeLoaded(true);
-        setTimeout(() => setInitialTimeReceived(true), 2000);
+        setTimeout(() => setInitialTimeReceived(true), 5000);
       }
     };
     fetchInitial();
@@ -91,7 +93,8 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
     socket.on("room_state", (state) => {
       if (state.selectionEndsAt) {
         const remaining = Math.max(0, Math.floor((new Date(state.selectionEndsAt) - Date.now()) / 1000));
-        setCountdown(remaining);
+        // 👈 ሰዓቱ ካለፈ 50s ብቻ ከሆነ ተጠቀም
+        setCountdown(remaining > 0 ? remaining : 50);
       }
       if (state.takenCards) setTakenCards(state.takenCards);
     });
@@ -115,7 +118,8 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
         const data = await res.json();
         if (data.selectionEndsAt) {
           const remaining = Math.max(0, Math.floor((new Date(data.selectionEndsAt) - Date.now()) / 1000));
-          setCountdown(remaining);
+          // 👈 ሰዓቱ ካለፈ 50s ብቻ ከሆነ ተጠቀም
+          setCountdown(remaining > 0 ? remaining : 50);
         }
       } catch (e) {}
     }, 3000);
@@ -130,8 +134,10 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   }, [countdown]);
 
   // 👈 ሰዓቱ ሲያልቅ ወዲያውኑ ወደ ጨዋታው ሂድ
+  // 👈 ግን serverTimeLoaded ካልሆነ ወይም initialTimeReceived ካልሆነ አይፈጸምም
   useEffect(() => {
-    if (!initialTimeReceived) return;
+    if (!serverTimeLoaded) return;        // 👈 ከ Server መረጃ ካልመጣ አይሂድ
+    if (!initialTimeReceived) return;     // 👈 ከ 5 ሰከንድ በኋላ ብቻ
     if (countdown === null || countdown > 0 || autoTriggered) return;
     setAutoTriggered(true);
     if (selectedCards.length === 0) {
@@ -145,7 +151,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       }
     }
     onConfirm(selectedCards);
-  }, [countdown, selectedCards, takenCards, onConfirm, autoTriggered, initialTimeReceived]);
+  }, [countdown, selectedCards, takenCards, onConfirm, autoTriggered, initialTimeReceived, serverTimeLoaded]);
 
   const handleSelectCard = (cardId) => {
     const socket = getSocket();
