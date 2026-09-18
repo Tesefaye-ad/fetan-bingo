@@ -6,11 +6,11 @@ const { requireAuth } = require("../middleware/auth");
 const router = express.Router();
 router.use(requireAuth);
 
-// 👈 ነጠላ የሰዓት ተለዋዋጭ — 50 ሰከንድ
+// 👈 50 ሰከንድ
 const TIMER_MS = Number(process.env.SELECTION_TIMER_MS || 50000);
 
 // ═══════════════════════════════════════════════════════
-// GET /api/game/rooms/:roomCode — የክፍል ሁኔታ
+// GET /api/game/rooms/:roomCode
 // ═══════════════════════════════════════════════════════
 router.get("/rooms/:roomCode", async (req, res) => {
   try {
@@ -19,6 +19,16 @@ router.get("/rooms/:roomCode", async (req, res) => {
       "roomCode status entryFee prizePool players calledNumbers maxNumber winners reservedCards selectionEndsAt"
     );
     if (!game) return res.status(404).json({ error: "Room not found" });
+
+    // 👈 ሰዓቱ ካለፈ እና ጨዋታው ገና ካልጀመረ - አዲስ 50s ስጥ
+    if (
+      game.status === "waiting" &&
+      (!game.selectionEndsAt || game.selectionEndsAt < new Date())
+    ) {
+      game.selectionEndsAt = new Date(Date.now() + TIMER_MS);
+      await game.save();
+      console.log(`[GET room] Reset timer for ${roomCode} to ${TIMER_MS / 1000}s`);
+    }
 
     res.json({
       roomCode: game.roomCode,
@@ -40,7 +50,7 @@ router.get("/rooms/:roomCode", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// GET /api/game/stats — አጠቃላይ ስታቲስቲክስ
+// GET /api/game/stats
 // ═══════════════════════════════════════════════════════
 router.get("/stats", async (req, res) => {
   try {
@@ -53,7 +63,7 @@ router.get("/stats", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// GET /api/game/rooms — ክፍት ክፍሎች ዝርዝር
+// GET /api/game/rooms
 // ═══════════════════════════════════════════════════════
 router.get("/rooms", async (req, res) => {
   try {
@@ -80,7 +90,7 @@ router.get("/rooms", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// POST /api/game/rooms — አዲስ ክፍል ፍጠር
+// POST /api/game/rooms
 // ═══════════════════════════════════════════════════════
 router.post("/rooms", async (req, res) => {
   try {
@@ -94,13 +104,13 @@ router.post("/rooms", async (req, res) => {
         roomCode,
         entryFee,
         maxNumber: Number(process.env.BINGO_MAX_NUMBER || 75),
-        selectionEndsAt: new Date(Date.now() + TIMER_MS), // 👈 50s
+        selectionEndsAt: new Date(Date.now() + TIMER_MS),
       });
     } else if (
       game.status === "waiting" &&
       (!game.selectionEndsAt || game.selectionEndsAt < new Date())
     ) {
-      game.selectionEndsAt = new Date(Date.now() + TIMER_MS); // 👈 50s
+      game.selectionEndsAt = new Date(Date.now() + TIMER_MS);
       await game.save();
     }
 
@@ -118,9 +128,6 @@ router.post("/rooms", async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// Helper
-// ═══════════════════════════════════════════════════════
 function generateRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";

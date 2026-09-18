@@ -4,7 +4,7 @@ import { getSocket } from "./socket";
 export default function CartelaSelection({ roomCode, balance, stake = 10, onConfirm, onCancel }) {
   const [selectedCards, setSelectedCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
-  const [countdown, setCountdown] = useState(50); // 👈 ከ60 ወደ 50
+  const [countdown, setCountdown] = useState(50);
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [bonusBalance, setBonusBalance] = useState(0);
@@ -12,7 +12,13 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   const [serverTimeLoaded, setServerTimeLoaded] = useState(false);
   const [initialTimeReceived, setInitialTimeReceived] = useState(false);
 
-  // 👈 የመጀመሪያ ሁኔታን ከ Server አምጣ — ሁልጊዜ ተመሳሳይ ሰዓት
+  // 👈 ካርድ ሲመረጥ አረንጓዴ፣ ሌላ ሰው ሲመርጥ ቀይ
+  const getCardColor = (num) => {
+    if (selectedCards.includes(num)) return "#2ecc71"; // 🟢 የእኔ
+    if (takenCards.includes(num)) return "#e74c3c";    // 🔴 የሌላ
+    return "#1b2233";                                   // ⚫ ክፍት
+  };
+
   useEffect(() => {
     const socket = getSocket();
 
@@ -22,29 +28,34 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
           headers: { Authorization: `Bearer ${localStorage.getItem("bingo_token")}` },
         });
         const data = await res.json();
+
+        // 👈 የሌሎች ሰዎች ካርዶች ብቻ (የእኔ ካርዶች ከ selectedCards ይመጣሉ)
+        const othersReserved = (data.reservedCards || []).filter(
+          (id) => !selectedCards.includes(id)
+        );
         if (data.takenCards) setTakenCards(data.takenCards);
-        if (data.reservedCards) {
-          setTakenCards((prev) => [...new Set([...prev, ...data.reservedCards])]);
+        if (othersReserved.length > 0) {
+          setTakenCards((prev) => [...new Set([...prev, ...othersReserved])]);
         }
+
         // 👈 ሰዓቱን ከ Server አስላ
         if (data.selectionEndsAt) {
           const remaining = Math.max(0, Math.floor((new Date(data.selectionEndsAt) - Date.now()) / 1000));
-          setCountdown(remaining);
+          setCountdown(remaining > 0 ? remaining : 50);
         } else {
-          setCountdown(50); // 👈 ከ60 ወደ 50
+          setCountdown(50);
         }
         setServerTimeLoaded(true);
-        // 👈 ከ 2 ሰከንድ በኋላ ብቻ auto-trigger እንዲፈቀድ
         setTimeout(() => setInitialTimeReceived(true), 2000);
       } catch (e) {
-        setCountdown(50); // 👈 ከ60 ወደ 50
+        setCountdown(50);
         setServerTimeLoaded(true);
         setTimeout(() => setInitialTimeReceived(true), 2000);
       }
     };
     fetchInitial();
 
-    // 👈 የ Wallet መረጃን አምጣ
+    // 👈 Wallet
     fetch(`${process.env.REACT_APP_API_URL}/api/wallet/balance`, {
       headers: { Authorization: `Bearer ${localStorage.getItem("bingo_token")}` },
     })
@@ -55,11 +66,22 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       })
       .catch(() => {});
 
-    socket.on("card_selected", ({ cardId }) => {
+    // 👈 ካርድ ሲመረጥ (በሌሎች ወይም በእኔ)
+    socket.on("card_selected", ({ cardId, telegramId }) => {
+      const myTelegramId = localStorage.getItem("telegramId");
+      // የእኔ ካርድ ከሆነ በ selectedCards ውስጥ አስቀምጠው (አረንጓዴ)
+      if (String(telegramId) === String(myTelegramId)) {
+        setSelectedCards((prev) => [...new Set([...prev, cardId])]);
+      }
+      // የሌሎች ካርድ ከሆነ በ takenCards ውስጥ (ቀይ)
       setTakenCards((prev) => [...new Set([...prev, cardId])]);
     });
 
-    socket.on("card_deselected", ({ cardId }) => {
+    socket.on("card_deselected", ({ cardId, telegramId }) => {
+      const myTelegramId = localStorage.getItem("telegramId");
+      if (String(telegramId) === String(myTelegramId)) {
+        setSelectedCards((prev) => prev.filter((id) => id !== cardId));
+      }
       setTakenCards((prev) => prev.filter((id) => id !== cardId));
     });
 
@@ -101,21 +123,21 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
     return () => clearInterval(timer);
   }, [roomCode, serverTimeLoaded]);
 
-  // 👈 የአካባቢ ቆጣሪ (ለማሳያ ብቻ)
+  // 👈 የአካባቢ ቆጣሪ
   useEffect(() => {
     if (countdown === null || countdown <= 0) return;
     const timer = setTimeout(() => setCountdown((c) => Math.max(0, c - 1)), 1000);
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  // 👈 ሰዓቱ ሲያልቅ ወዲያውኑ ወደ ጨዋታው ሂድ (ከ 2 ሰከንድ በኋላ ብቻ)
+  // 👈 ሰዓቱ ሲያልቅ ወዲያውኑ ወደ ጨዋታው ሂድ
   useEffect(() => {
     if (!initialTimeReceived) return;
     if (countdown === null || countdown > 0 || autoTriggered) return;
     setAutoTriggered(true);
     if (selectedCards.length === 0) {
       const available = Array.from({ length: 1000 }, (_, i) => i + 1).filter(
-        (id) => !takenCards.includes(id)
+        (id) => !takenCards.includes(id) && !selectedCards.includes(id)
       );
       if (available.length > 0) {
         const randomId = available[Math.floor(Math.random() * available.length)];
@@ -127,24 +149,25 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   }, [countdown, selectedCards, takenCards, onConfirm, autoTriggered, initialTimeReceived]);
 
   const handleSelectCard = (cardId) => {
-    if (takenCards.includes(cardId)) {
-      setError(`ካርድ #${cardId} አስቀድሞ ተይዟል!`);
-      return;
-    }
+    const socket = getSocket();
     if (selectedCards.includes(cardId)) {
-      const socket = getSocket();
+      // አስቀድሞ ከመረጥከው - ሰርዝ (refund)
       socket.emit("deselect_card", { roomCode, cardId });
       setSelectedCards((prev) => prev.filter((id) => id !== cardId));
+      setTakenCards((prev) => prev.filter((id) => id !== cardId));
       setError("");
+      return;
+    }
+    if (takenCards.includes(cardId)) {
+      setError(`❌ ካርድ #${cardId} አስቀድሞ በሌላ ተጫዋች ተይዟል!`);
       return;
     }
     if (currentBalance < stake) {
       setError(`❌ በቂ ባላንስ የለዎትም! (${stake} ETB ያስፈልጋል)`);
       return;
     }
-    const socket = getSocket();
     socket.emit("select_card", { roomCode, cardId });
-    setSelectedCards((prev) => [...prev, cardId]);
+    setSelectedCards((prev) => [...new Set([...prev, cardId])]);
     setError("");
   };
 
@@ -155,9 +178,15 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       });
       const data = await res.json();
       if (data.takenCards) setTakenCards(data.takenCards);
+      if (data.reservedCards) {
+        const othersReserved = data.reservedCards.filter(
+          (id) => !selectedCards.includes(id)
+        );
+        setTakenCards((prev) => [...new Set([...prev, ...othersReserved])]);
+      }
       if (data.selectionEndsAt) {
         const remaining = Math.max(0, Math.floor((new Date(data.selectionEndsAt) - Date.now()) / 1000));
-        setCountdown(remaining);
+        setCountdown(remaining > 0 ? remaining : 50);
       }
     } catch (e) {}
   };
@@ -180,9 +209,6 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
             fontSize: "14px",
             fontWeight: "bold",
             cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
           }}
         >
           ← Back
@@ -198,9 +224,6 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
             fontSize: "14px",
             fontWeight: "bold",
             cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
           }}
         >
           🔄 Refresh
@@ -291,27 +314,23 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
         }}
       >
         {numbers.map((num) => {
-          const isTaken = takenCards.includes(num) && !selectedCards.includes(num);
           const isSelected = selectedCards.includes(num);
+          const isTaken = takenCards.includes(num);
           return (
             <button
               key={num}
               onClick={() => handleSelectCard(num)}
-              disabled={isTaken}
+              disabled={isTaken && !isSelected}
               style={{
                 padding: "10px 0",
                 borderRadius: "8px",
-                border: "1px solid #333",
-                background: isTaken
-                  ? "#c0392b"
-                  : isSelected
-                  ? "#2ecc71"
-                  : "#1b2233",
+                border: isSelected ? "2px solid #2ecc71" : isTaken ? "1px solid #e74c3c" : "1px solid #333",
+                background: getCardColor(num),
                 color: "#fff",
                 fontWeight: "bold",
                 fontSize: "11px",
-                cursor: isTaken ? "not-allowed" : "pointer",
-                opacity: isTaken ? 0.7 : 1,
+                cursor: isTaken && !isSelected ? "not-allowed" : "pointer",
+                opacity: isTaken && !isSelected ? 0.75 : 1,
               }}
             >
               {num}
@@ -321,7 +340,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       </div>
 
       <div style={{ fontSize: "11px", color: "#888", textAlign: "center", paddingBottom: "10px" }}>
-        ሰዓቱ ሲያልቅ በራስ-ሰር ወደ ጨዋታው ይገባል
+        🟢 አረንጓዴ = የእኔ | 🔴 ቀይ = የሌላ ተጫዋች
       </div>
     </div>
   );

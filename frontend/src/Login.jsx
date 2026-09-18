@@ -30,6 +30,8 @@ export default function Login({ onLoggedIn }) {
     async function handleLogin() {
       try {
         const user = await loginWithTelegram(initData);
+                
+        localStorage.setItem("telegramId", user.telegramId);
         onLoggedIn(user);
       } catch (err) {
         console.warn("Backend login failed, using mock data:", err.message);

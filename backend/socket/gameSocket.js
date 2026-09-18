@@ -121,9 +121,9 @@ function initGameSocket(io) {
         });
         await game.save();
 
-        io.to(roomCode).emit("card_selected", {
+                io.to(roomCode).emit("card_selected", {
           cardId,
-          telegramId: socket.telegramId,
+          telegramId: socket.telegramId, // 👈 ማን እንደመረጠ ለመለየት
         });
         socket.emit("balance_update", { balance: user.balance });
       } catch (err) {
@@ -165,7 +165,10 @@ function initGameSocket(io) {
         game.reservedCards.splice(reservationIndex, 1);
         await game.save();
 
-        io.to(roomCode).emit("card_deselected", { cardId });
+                io.to(roomCode).emit("card_deselected", {
+          cardId,
+          telegramId: socket.telegramId,
+        });
         socket.emit("balance_update", { balance: user.balance });
       } catch (err) {
         console.error("[deselect_card] error:", err);
@@ -265,9 +268,9 @@ function initGameSocket(io) {
               (r) => r.cardId === selectedId && String(r.telegramId) === String(socket.telegramId)
             );
 
-            if (!reservedByUser) {
+                        if (!reservedByUser) {
               if (user.balance < game.entryFee) {
-                // ባላንስ ካልበቃ - ተመልካች አድርገው
+                // 👈 ባላንስ ካልበቃ - ተመልካች አድርገው (ካርቴላ ሳይሰጥ)
                 socket.join(roomCode);
                 socket.data.roomCode = roomCode;
                 socket.data.watching = true;
