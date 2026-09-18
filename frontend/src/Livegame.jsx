@@ -59,8 +59,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
   const [progress, setProgress] = useState(0);
 
   // ═══════════════════════════════════════════════════
-  // Socket setup
-  // ═══════════════════════════════════════════════════
   useEffect(() => {
     const socket = getSocket();
     socketRef.current = socket;
@@ -134,7 +132,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
       }
     });
 
-    // 👈 አዲስ ጨዋታ ሲዘጋጅ ስቴቱን አጽዳ (ግን ወደ ካርቴላ አትመልስ — 5s useEffect ያደርገዋል)
     socket.on("next_game_ready", () => {
       setGameOver(null);
       setBanner("");
@@ -189,19 +186,30 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
     return () => clearInterval(interval);
   }, [status]);
 
-  // 👈 የተጫዋች ካርቴላ ላይ ምልክት ማድረግ (ሁልጊዜ ይፈቀዳል)
   const handleCellClick = (cardIndex, r, c) => {
     if (status !== "active" || watching) return;
     socketRef.current.emit("mark_cell", { roomCode, row: r, col: c });
   };
 
-  // 👈 BINGO ማለት
   const claimBingo = () => {
     if (watching) return;
     socketRef.current.emit("claim_bingo", { roomCode });
   };
 
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
+
+  // ═══════════════════════════════════════════════════
+  // 👈 ትክክለኛው የቢንጎ 1-75 ፍርግርግ (B-I-N-G-O columns)
+  // ═══════════════════════════════════════════════════
+  const buildBingoBoard = () => {
+    const board = [];
+    for (let r = 0; r < 15; r++) {
+      for (let c = 0; c < 5; c++) {
+        board.push(c * 15 + r + 1);
+      }
+    }
+    return board;
+  };
 
   return (
     <div
@@ -375,7 +383,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
               </div>
             ))
           ) : (
-            /* 👈 ተመልካች — 1-75 ማስተር ቦርድ */
+            /* 👈 ተመልካች — ትክክለኛው የቢንጎ 1-75 ፍርግርግ */
             <div
               style={{
                 display: "grid",
@@ -383,7 +391,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                 gap: "3px",
               }}
             >
-              {Array.from({ length: 75 }, (_, i) => i + 1).map((num) => {
+              {buildBingoBoard().map((num) => {
                 const info = getLetter(num);
                 const isCalled = calledNumbers.includes(num);
                 const isLast = lastNumber === num;
@@ -405,6 +413,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                       alignItems: "center",
                       justifyContent: "center",
                       border: isLast ? "2px solid #ffd43b" : "1px solid #333",
+                      transition: "background 0.3s",
                     }}
                   >
                     {num}
