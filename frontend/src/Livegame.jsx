@@ -17,6 +17,31 @@ function getLetter(num) {
   return { letter: "O", color: "#ff9800" };
 }
 
+// 👈 3 ነጥብ animation component
+function LoadingDots() {
+  const [active, setActive] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setActive((a) => (a + 1) % 3), 400);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <div style={{ display: "flex", justifyContent: "center", gap: "8px", marginBottom: "10px" }}>
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          style={{
+            width: "10px",
+            height: "10px",
+            borderRadius: "50%",
+            background: active >= i ? "#e91e63" : "#3a3a55",
+            transition: "background 0.3s",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegramId }) {
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
@@ -33,10 +58,10 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
   const [autoMode, setAutoMode] = useState(true);
   const [nextGameCountdown, setNextGameCountdown] = useState(0);
   const [soundOn, setSoundOn] = useState(false);
-  const [showAnim, setShowAnim] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   // ═══════════════════════════════════════════════════
-  // Socket setup
+  // Socket Setup
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     const socket = getSocket();
@@ -79,8 +104,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
     socket.on("number_called", ({ number, calledNumbers: cn }) => {
       setLastNumber(number);
       setCalledNumbers(cn);
-      setShowAnim(true);
-      setTimeout(() => setShowAnim(false), 1200);
+      setProgress(0);
       setCards((prev) =>
         prev.map((ci) => {
           const newMarked = ci.marked.map((row) => [...row]);
@@ -137,11 +161,27 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
     };
   }, [roomCode, cardIds, setBalance, soundOn]);
 
+  // Next game countdown
   useEffect(() => {
     if (nextGameCountdown <= 0) return;
     const t = setTimeout(() => setNextGameCountdown((c) => c - 1), 1000);
     return () => clearTimeout(t);
   }, [nextGameCountdown]);
+
+  // Progress bar for next number (visual effect)
+  useEffect(() => {
+    if (status !== "active") {
+      setProgress(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setProgress((p) => {
+        if (p >= 100) return 0;
+        return p + 2.5;
+      });
+    }, 100);
+    return () => clearInterval(interval);
+  }, [status]);
 
   const handleCellClick = (cardIndex, r, c) => {
     if (status !== "active" || watching || autoMode) return;
@@ -157,12 +197,8 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
     socketRef.current.emit("join_room", { roomCode, cardIds });
   };
 
-  const recentNumbers = calledNumbers.slice(-8).reverse();
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
 
-  // ═══════════════════════════════════════════════════
-  // RENDER
-  // ═══════════════════════════════════════════════════
   return (
     <div
       style={{
@@ -187,11 +223,11 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
         }}
       >
         {[
-          { label: "GAME ID", value: roomCode, color: "#f39c12" },
-          { label: "PLAYERS", value: playerCount, color: "#fff" },
-          { label: "BET", value: entryFee, color: "#fff" },
-          { label: "DERASH", value: prizePool, color: "#2ecc71" },
-          { label: "CALLED", value: calledNumbers.length, color: "#fff" },
+          { label: "Game ID", value: roomCode, color: "#f39c12" },
+          { label: "Players", value: playerCount, color: "#fff" },
+          { label: "Bet", value: entryFee, color: "#fff" },
+          { label: "Derash", value: prizePool, color: "#2ecc71" },
+          { label: "Called", value: calledNumbers.length, color: "#fff" },
         ].map((item, i) => (
           <div
             key={i}
@@ -209,7 +245,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
             <div
               style={{
                 color: item.color,
-                fontSize: "11px",
+                fontSize: "12px",
                 fontWeight: "bold",
               }}
             >
@@ -219,7 +255,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
         ))}
       </div>
 
-      {/* ═══ Banner ═══ */}
+      {/* Banner */}
       {banner && (
         <div
           style={{
@@ -246,7 +282,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
           marginBottom: "8px",
         }}
       >
-        {/* ═══ LEFT: Bingo Card OR Watching info ═══ */}
+        {/* ═══ LEFT: Bingo Card Grid ═══ */}
         <div
           style={{
             background: "#1a1a2e",
@@ -254,327 +290,179 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
             borderRadius: "10px",
             padding: "6px",
             overflowY: "auto",
-            minHeight: "380px",
-            maxHeight: "calc(100vh - 200px)",
+            maxHeight: "calc(100vh - 180px)",
           }}
         >
-          {cards.length === 0 ? (
-            /* 👈 ተመልካች — የተጠሩ ቁጥሮች ብቻ */
-            <div style={{ padding: "8px" }}>
-              <div style={{ textAlign: "center", marginBottom: "12px" }}>
-                <div style={{ fontSize: "36px", marginBottom: "6px" }}>👁</div>
+          {/* B-I-N-G-O Headers */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(5, 1fr)",
+              gap: "3px",
+              marginBottom: "3px",
+            }}
+          >
+            {HEADERS.map((h) => (
+              <div
+                key={h.letter}
+                style={{
+                  background: h.color,
+                  color: "#fff",
+                  textAlign: "center",
+                  fontWeight: "bold",
+                  fontSize: "14px",
+                  padding: "6px 0",
+                  borderRadius: "6px",
+                }}
+              >
+                {h.letter}
+              </div>
+            ))}
+          </div>
+
+          {/* 1-75 Grid */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(5, 1fr)",
+              gap: "3px",
+            }}
+          >
+            {Array.from({ length: 75 }, (_, i) => i + 1).map((num) => {
+              const info = getLetter(num);
+              const isCalled = calledNumbers.includes(num);
+              const isLast = lastNumber === num;
+              return (
                 <div
+                  key={num}
                   style={{
+                    aspectRatio: "1",
+                    background: isLast
+                      ? "#ff9800"
+                      : isCalled
+                      ? info.color
+                      : "#252d44",
                     color: "#fff",
                     fontSize: "13px",
                     fontWeight: "bold",
-                    marginBottom: "4px",
-                  }}
-                >
-                  Watching Only
-                </div>
-                <div
-                  style={{
-                    color: "#888",
-                    fontSize: "10px",
-                    lineHeight: "1.5",
-                  }}
-                >
-                  የእርስዎ ካርቴላ የለም
-                </div>
-              </div>
-
-              {/* 📞 የተጠሩ ቁጥሮች ሙሉ ዝርዝር */}
-              <div
-                style={{
-                  background: "#0f1420",
-                  border: "1px solid #2a2a40",
-                  borderRadius: "8px",
-                  padding: "8px",
-                }}
-              >
-                <div
-                  style={{
-                    color: "#f39c12",
-                    fontSize: "11px",
-                    fontWeight: "bold",
-                    marginBottom: "8px",
+                    borderRadius: "6px",
                     display: "flex",
-                    justifyContent: "space-between",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    border: isLast ? "2px solid #ffd43b" : "1px solid #333",
+                    transition: "background 0.3s",
                   }}
                 >
-                  <span>📞 Called</span>
-                  <span>{calledNumbers.length}</span>
+                  {num}
                 </div>
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: "3px",
-                    maxHeight: "260px",
-                    overflowY: "auto",
-                  }}
-                >
-                  {calledNumbers.length === 0 ? (
-                    <span
-                      style={{
-                        color: "#555",
-                        fontSize: "10px",
-                        padding: "10px 0",
-                        width: "100%",
-                        textAlign: "center",
-                      }}
-                    >
-                      ገና አልተጠሩም
-                    </span>
-                  ) : (
-                    calledNumbers.map((n) => {
-                      const info = getLetter(n);
-                      return (
-                        <span
-                          key={n}
-                          style={{
-                            background: info.color,
-                            color: "#fff",
-                            borderRadius: "50%",
-                            width: "26px",
-                            height: "26px",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "10px",
-                            fontWeight: "bold",
-                          }}
-                        >
-                          {n}
-                        </span>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            /* ተጫዋች — የእርሱ ካርቴላዎች */
-            cards.map((cardItem, cardIdx) => (
-              <div
-                key={cardIdx}
-                style={{ marginBottom: cards.length > 1 ? "10px" : 0 }}
-              >
-                <div
-                  style={{
-                    textAlign: "center",
-                    color: "#f39c12",
-                    fontSize: "10px",
-                    fontWeight: "bold",
-                    marginBottom: "4px",
-                  }}
-                >
-                  #{cardItem.cardId}
-                </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(5, 1fr)",
-                    gap: "2px",
-                    marginBottom: "2px",
-                  }}
-                >
-                  {HEADERS.map((h) => (
-                    <div
-                      key={h.letter}
-                      style={{
-                        background: h.color,
-                        color: "#fff",
-                        textAlign: "center",
-                        fontWeight: "bold",
-                        fontSize: "12px",
-                        padding: "4px 0",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      {h.letter}
-                    </div>
-                  ))}
-                </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(5, 1fr)",
-                    gap: "2px",
-                  }}
-                >
-                  {cardItem.card.map((row, r) =>
-                    row.map((value, c) => {
-                      const isMarked = cardItem.marked?.[r]?.[c];
-                      const isFree = r === 2 && c === 2;
-                      const isLastCalled = !isFree && lastNumber === value;
-                      return (
-                        <button
-                          key={`${r}-${c}`}
-                          onClick={() => handleCellClick(cardIdx, r, c)}
-                          style={{
-                            aspectRatio: "1",
-                            background: isFree
-                              ? "#ffd43b"
-                              : isLastCalled
-                              ? "#ff9800"
-                              : isMarked
-                              ? "#4caf50"
-                              : "#252d44",
-                            color: isFree ? "#1b2233" : "#fff",
-                            fontSize: "12px",
-                            fontWeight: "bold",
-                            borderRadius: "5px",
-                            border: isLastCalled
-                              ? "2px solid #ffd43b"
-                              : "1px solid #333",
-                            cursor: isFree ? "default" : "pointer",
-                            padding: 0,
-                          }}
-                        >
-                          {isFree ? "★" : value}
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            ))
-          )}
+              );
+            })}
+          </div>
         </div>
 
-        {/* ═══ RIGHT: Recent Numbers + Current + Automatic + Status ═══ */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "6px",
-          }}
-        >
-          {/* Recent Numbers */}
+        {/* ═══ RIGHT: Side Panel ═══ */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {/* Get Ready + Progress */}
           <div
             style={{
               background: "#1a1a2e",
               border: "1px solid #2a2a40",
               borderRadius: "10px",
-              padding: "8px",
-              minHeight: "60px",
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "4px",
-              alignItems: "flex-start",
+              padding: "12px 10px",
               position: "relative",
+              minHeight: "110px",
             }}
           >
-            {recentNumbers.length === 0 ? (
-              <div
-                style={{
-                  color: "#666",
-                  fontSize: "10px",
-                  width: "100%",
-                  textAlign: "center",
-                  padding: "12px 0",
-                }}
-              >
-                ቁጥሮች ሲጠሩ እዚህ ይታያሉ
-              </div>
-            ) : (
-              recentNumbers.map((n, i) => {
-                const info = getLetter(n);
-                return (
-                  <div
-                    key={`${n}-${i}`}
-                    style={{
-                      background: info.color,
-                      color: "#fff",
-                      borderRadius: "50%",
-                      width: "32px",
-                      height: "32px",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontWeight: "bold",
-                      fontSize: "10px",
-                    }}
-                  >
-                    {info.letter}
-                    {n}
-                  </div>
-                );
-              })
-            )}
             <button
               onClick={() => setSoundOn((s) => !s)}
               style={{
                 position: "absolute",
-                top: "6px",
-                right: "6px",
+                top: "8px",
+                right: "8px",
                 background: "transparent",
                 border: "none",
                 color: soundOn ? "#ffd43b" : "#666",
-                fontSize: "16px",
+                fontSize: "18px",
                 cursor: "pointer",
                 padding: 0,
               }}
             >
               {soundOn ? "🔊" : "🔇"}
             </button>
-          </div>
 
-          {/* Current Number */}
-          <div
-            style={{
-              background: "linear-gradient(135deg, #2a2a40, #1a1a2e)",
-              border: "1px solid #f39c12",
-              borderRadius: "10px",
-              padding: "12px",
-              textAlign: "center",
-            }}
-          >
+            {lastInfo ? (
+              <>
+                <LoadingDots />
+                <div
+                  style={{
+                    color: "#fff",
+                    fontSize: "13px",
+                    fontWeight: "bold",
+                    textAlign: "center",
+                    marginBottom: "12px",
+                    lineHeight: "1.4",
+                  }}
+                >
+                  Get ready for the next number!
+                </div>
+                <div
+                  style={{
+                    background: "#fff",
+                    color: lastInfo.color,
+                    borderRadius: "50%",
+                    width: "60px",
+                    height: "60px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: "bold",
+                    fontSize: "20px",
+                    margin: "0 auto 10px auto",
+                    border: "3px solid #f39c12",
+                    boxShadow: "0 0 20px rgba(243,156,18,0.5)",
+                  }}
+                >
+                  {lastInfo.letter}-{lastNumber}
+                </div>
+              </>
+            ) : (
+              <>
+                <LoadingDots />
+                <div
+                  style={{
+                    color: "#fff",
+                    fontSize: "13px",
+                    fontWeight: "bold",
+                    textAlign: "center",
+                    marginBottom: "12px",
+                    lineHeight: "1.4",
+                  }}
+                >
+                  Get ready for the next number!
+                </div>
+              </>
+            )}
+
+            {/* Progress Bar */}
             <div
               style={{
-                color: "#aaa",
-                fontSize: "10px",
-                marginBottom: "6px",
-                letterSpacing: "1px",
+                background: "#2a2a40",
+                borderRadius: "10px",
+                height: "6px",
+                overflow: "hidden",
+                marginTop: "6px",
               }}
             >
-              CURRENT
+              <div
+                style={{
+                  width: `${progress}%`,
+                  height: "100%",
+                  background: "linear-gradient(90deg, #e91e63, #9c27b0)",
+                  transition: "width 0.1s linear",
+                  borderRadius: "10px",
+                }}
+              />
             </div>
-            {lastInfo ? (
-              <div
-                style={{
-                  background: "#fff",
-                  color: lastInfo.color,
-                  borderRadius: "50%",
-                  width: "70px",
-                  height: "70px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: "bold",
-                  fontSize: "22px",
-                  margin: "0 auto",
-                  border: "4px solid #f39c12",
-                  boxShadow: "0 0 20px rgba(243,156,18,0.5)",
-                  transform: showAnim ? "scale(1.15)" : "scale(1)",
-                  transition: "transform 0.3s ease-out",
-                }}
-              >
-                {lastInfo.letter}-{lastNumber}
-              </div>
-            ) : (
-              <div
-                style={{
-                  color: "#666",
-                  fontSize: "12px",
-                  padding: "18px 0",
-                }}
-              >
-                በመጠበቅ ላይ...
-              </div>
-            )}
           </div>
 
           {/* Automatic Toggle */}
@@ -583,20 +471,20 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
               background: "#1a1a2e",
               border: "1px solid #2a2a40",
               borderRadius: "10px",
-              padding: "8px 12px",
+              padding: "10px 12px",
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
             }}
           >
-            <span style={{ fontSize: "12px", color: "#fff" }}>Automatic</span>
+            <span style={{ fontSize: "13px", color: "#fff" }}>Automatic</span>
             <div
               onClick={() => setAutoMode((a) => !a)}
               style={{
-                width: "36px",
-                height: "20px",
+                width: "40px",
+                height: "22px",
                 background: autoMode ? "#2ecc71" : "#444",
-                borderRadius: "10px",
+                borderRadius: "11px",
                 position: "relative",
                 cursor: "pointer",
                 transition: "all 0.2s",
@@ -604,41 +492,68 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
             >
               <div
                 style={{
-                  width: "16px",
-                  height: "16px",
+                  width: "18px",
+                  height: "18px",
                   background: "#fff",
                   borderRadius: "50%",
                   position: "absolute",
                   top: "2px",
-                  left: autoMode ? "18px" : "2px",
+                  left: autoMode ? "20px" : "2px",
                   transition: "all 0.2s",
                 }}
               />
             </div>
           </div>
 
-          {/* Status Box */}
+          {/* Watching Only / Status Box */}
           <div
             style={{
               background: "#1a1a2e",
               border: "1px solid #2a2a40",
               borderRadius: "10px",
-              padding: "12px",
+              padding: "16px 12px",
               flex: 1,
-              overflowY: "auto",
               display: "flex",
               flexDirection: "column",
               justifyContent: "center",
               alignItems: "center",
+              minHeight: "200px",
             }}
           >
-            {status === "waiting" ? (
+            {watching ? (
+              <>
+                <div
+                  style={{
+                    color: "#fff",
+                    fontSize: "17px",
+                    fontWeight: "bold",
+                    textAlign: "center",
+                    marginBottom: "16px",
+                  }}
+                >
+                  Watching Only
+                </div>
+                <div
+                  style={{
+                    color: "#aaa",
+                    fontSize: "12px",
+                    textAlign: "center",
+                    lineHeight: "1.9",
+                  }}
+                >
+                  የእርስዎ ካርቴላ<br />
+                  ተጨምሯል:: አዲስ ቁጥር<br />
+                  እስኪጠራ ድረስ<br />
+                  ይጠብቁ::
+                </div>
+              </>
+            ) : status === "waiting" ? (
               <div
                 style={{
                   color: "#f39c12",
-                  fontSize: "12px",
+                  fontSize: "13px",
                   textAlign: "center",
-                  lineHeight: "1.7",
+                  lineHeight: "1.8",
                 }}
               >
                 🎯 ተጫዋቾች<br />እስኪገቡ ድረስ<br />በመጠበቅ ላይ...
@@ -647,9 +562,9 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
               <div
                 style={{
                   color: "#2ecc71",
-                  fontSize: "13px",
+                  fontSize: "14px",
                   textAlign: "center",
-                  lineHeight: "1.7",
+                  lineHeight: "1.8",
                 }}
               >
                 🎯 ጨዋታው<br />በሂደት ላይ ነው
@@ -658,9 +573,9 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
               <div
                 style={{
                   color: "#f39c12",
-                  fontSize: "13px",
+                  fontSize: "14px",
                   textAlign: "center",
-                  lineHeight: "1.7",
+                  lineHeight: "1.8",
                 }}
               >
                 🏁 ጨዋታው<br />ተጠናቅቋል
@@ -670,7 +585,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
         </div>
       </div>
 
-      {/* ═══ BOTTOM BUTTONS — fixed ═══ */}
+      {/* ═══ BOTTOM BUTTONS ═══ */}
       <div
         style={{
           position: "fixed",
@@ -680,9 +595,9 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
           maxWidth: "480px",
           margin: "0 auto",
           display: "grid",
-          gridTemplateColumns: watching ? "1fr 1fr" : "1fr 1fr 1fr",
-          gap: "6px",
-          padding: "8px 10px",
+          gridTemplateColumns: "1fr 1fr 1.4fr",
+          gap: "8px",
+          padding: "10px 12px",
           background: "#0f1420",
           borderTop: "1px solid #2a2a40",
         }}
@@ -693,7 +608,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
             background: "linear-gradient(135deg, #e74c3c, #c0392b)",
             color: "#fff",
             border: "none",
-            borderRadius: "10px",
+            borderRadius: "12px",
             padding: "14px 0",
             fontSize: "14px",
             fontWeight: "bold",
@@ -705,39 +620,36 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
         <button
           onClick={refreshRoom}
           style={{
-            background: "linear-gradient(135deg, #e67e22, #d35400)",
+            background: "#3a3a55",
             color: "#fff",
             border: "none",
-            borderRadius: "10px",
+            borderRadius: "12px",
+            padding: "14px 0",
+            fontSize: "14px",
+            fontWeight: "bold",
+            cursor: "pointer",
+            opacity: 0.85,
+          }}
+        >
+          🔄 Refresh
+        </button>
+        <button
+          onClick={() => setAutoMode((a) => !a)}
+          style={{
+            background: autoMode
+              ? "linear-gradient(135deg, #d4a017, #b8860b)"
+              : "#444",
+            color: "#fff",
+            border: "none",
+            borderRadius: "12px",
             padding: "14px 0",
             fontSize: "14px",
             fontWeight: "bold",
             cursor: "pointer",
           }}
         >
-          🔄 Refresh
+          Automatic
         </button>
-        {!watching && (
-          <button
-            onClick={claimBingo}
-            disabled={status !== "active"}
-            style={{
-              background:
-                status !== "active"
-                  ? "#555"
-                  : "linear-gradient(135deg, #f39c12, #e67e22)",
-              color: "#fff",
-              border: "none",
-              borderRadius: "10px",
-              padding: "14px 0",
-              fontSize: "14px",
-              fontWeight: "bold",
-              cursor: status !== "active" ? "not-allowed" : "pointer",
-            }}
-          >
-            BINGO!
-          </button>
-        )}
       </div>
 
       {/* ═══ GAME OVER OVERLAY ═══ */}
@@ -809,7 +721,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
                     padding: "15px",
                     maxWidth: "95%",
                     width: "380px",
-                    boxShadow: "0 0 30px rgba(243,156,18,0.3)",
                   }}
                 >
                   <div
@@ -831,17 +742,11 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
                       marginBottom: "4px",
                     }}
                   >
-                    {[
-                      { l: "B", c: "#4c6ef5" },
-                      { l: "I", c: "#9c27b0" },
-                      { l: "N", c: "#e91e63" },
-                      { l: "G", c: "#4caf50" },
-                      { l: "O", c: "#ff9800" },
-                    ].map((h) => (
+                    {HEADERS.map((h) => (
                       <div
-                        key={h.l}
+                        key={h.letter}
                         style={{
-                          background: h.c,
+                          background: h.color,
                           color: "#fff",
                           textAlign: "center",
                           fontWeight: "bold",
@@ -850,7 +755,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
                           borderRadius: "6px",
                         }}
                       >
-                        {h.l}
+                        {h.letter}
                       </div>
                     ))}
                   </div>
@@ -895,34 +800,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
                 </div>
               )}
 
-              {gameOver.winners.length > 1 && (
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: "6px",
-                    justifyContent: "center",
-                    maxWidth: "95%",
-                  }}
-                >
-                  {gameOver.winners.slice(1).map((w, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        background: "#1a1a2e",
-                        border: "1px solid #f39c12",
-                        borderRadius: "20px",
-                        padding: "5px 12px",
-                        fontSize: "11px",
-                        color: "#fff",
-                      }}
-                    >
-                      🏆 {w.name} #{w.cardId}
-                    </div>
-                  ))}
-                </div>
-              )}
-
               <p
                 style={{
                   color: "#2ecc71",
@@ -958,7 +835,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
                   height: "8px",
                   borderRadius: "50%",
                   background: "#f39c12",
-                  animation: "pulse 1s infinite",
                 }}
               />
               <span style={{ color: "#fff", fontSize: "13px" }}>

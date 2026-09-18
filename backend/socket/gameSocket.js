@@ -346,7 +346,7 @@ function initGameSocket(io) {
 
         io.to(roomCode).emit("room_state", buildRoomState(game));
 
-        if (game.status === "waiting" && game.players.length >= MIN_PLAYERS) {
+                if (game.status === "waiting" && game.players.length >= MIN_PLAYERS) {
           startGame(io, roomCode, CALL_INTERVAL_MS, NEXT_GAME_DELAY_MS, SELECTION_TIMER_MS);
         }
       } catch (err) {
