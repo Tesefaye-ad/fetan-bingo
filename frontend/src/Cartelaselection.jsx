@@ -237,7 +237,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       </div>
 
       <div style={{ fontSize: "11px", color: "#888", textAlign: "center", paddingBottom: "10px" }}>
-        
+        ሰዓቱ ሲያልቅ በራስ-ሰር ወደ ጨዋታው ይገባል
       </div>
     </div>
   );
