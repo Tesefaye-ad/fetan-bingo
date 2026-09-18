@@ -218,7 +218,7 @@ function initGameSocket(io) {
         joinGuards.set(guardKey, true);
         setTimeout(() => joinGuards.delete(guardKey), 3000);
 
-        let game = await Game.findOne({ roomCode });
+                let game = await Game.findOne({ roomCode });
         if (!game) {
           game = await Game.create({
             roomCode,
@@ -234,16 +234,15 @@ function initGameSocket(io) {
           await game.save();
         }
 
-        // 👈 ሰዓቱ ካለፈ እና ጨዋታው ገና ካልጀመረ አዲስ ሰዓት ስጥ
+        // 👈 ሰዓቱ ካለፈ ወይም ከሌለ ብቻ አድስ (ክፍሉ ገና waiting ከሆነ)
         if (
           game.status === "waiting" &&
-          (!game.selectionEndsAt || new Date(game.selectionEndsAt) < new Date())
+          (!game.selectionEndsAt || game.selectionEndsAt < new Date())
         ) {
           game.selectionEndsAt = new Date(Date.now() + SELECTION_TIMER_MS);
           await game.save();
-          console.log(`[join_room] Timer reset for ${roomCode}`);
+          console.log(`[join_room] Timer reset for ${roomCode} to ${SELECTION_TIMER_MS / 1000}s`);
         }
-
         const user = await User.findById(socket.userId);
         if (!user) return socket.emit("error_message", { message: "User not found." });
 
