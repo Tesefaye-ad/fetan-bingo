@@ -8,7 +8,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [bonusBalance, setBonusBalance] = useState(0);
-  const [autoTriggered, setAutoTriggered] = useState(false);
+  // 👈 autoTriggered state ተወግዷል (autoTriggerRef ብቻ ነው የምንጠቀመው)
 
   // 👈 የሰዓቱ መጨረሻ ጊዜ (timestamp) በ ref እናስቀምጠው
   const selectionEndsAtRef = useRef(null);
@@ -59,7 +59,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       })
       .catch(() => {});
 
-    // 👈 Socket events — ካርዶች ብቻ
+    // 👈 Socket events
     socket.on("card_selected", ({ cardId }) => {
       setTakenCards((prev) => [...new Set([...prev, cardId])]);
     });
@@ -115,7 +115,6 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
     if (countdown > 0 || autoTriggerRef.current) return;
 
     autoTriggerRef.current = true;
-    setAutoTriggered(true);
 
     if (selectedCards.length === 0) {
       const available = Array.from({ length: 1000 }, (_, i) => i + 1).filter(
@@ -159,7 +158,6 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       });
       const data = await res.json();
       if (data.takenCards) setTakenCards(data.takenCards);
-      // 👈 ሰዓቱን ብቻ አዘምን (አዲስ timestamp ከሆነ)
       if (data.selectionEndsAt) {
         const newEndsAt = new Date(data.selectionEndsAt).getTime();
         if (!selectionEndsAtRef.current || Math.abs(newEndsAt - selectionEndsAtRef.current) > 3000) {
@@ -273,7 +271,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       </div>
 
       <div style={{ fontSize: "11px", color: "#888", textAlign: "center", paddingBottom: "10px" }}>
-  
+        ሰዓቱ ሲያልቅ በራስ-ሰር ወደ ጨዋታው ይገባል
       </div>
     </div>
   );
