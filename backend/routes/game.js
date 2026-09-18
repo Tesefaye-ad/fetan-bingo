@@ -40,6 +40,7 @@ router.get("/rooms/:roomCode", async (req, res) => {
       reservedCards: (game.reservedCards || []).map((r) => r.cardId),
       selectionEndsAt: game.selectionEndsAt,
       remainingSeconds,
+      serverTime: new Date().toISOString(), // 👈 አዲስ የተጨመረ
       winnersCount: game.winners?.length || 0,
     });
   } catch (err) {
@@ -48,7 +49,9 @@ router.get("/rooms/:roomCode", async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════
 // GET /stats
+// ═══════════════════════════════════════════════════════
 router.get("/stats", async (req, res) => {
   try {
     const totalUsers = await User.countDocuments();
@@ -59,7 +62,9 @@ router.get("/stats", async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════
 // GET /rooms
+// ═══════════════════════════════════════════════════════
 router.get("/rooms", async (req, res) => {
   try {
     const rooms = await Game.find({ status: "waiting" })
@@ -78,11 +83,14 @@ router.get("/rooms", async (req, res) => {
       })),
     });
   } catch (err) {
+    console.error("[GET /api/game/rooms] error:", err);
     res.status(500).json({ error: "Could not load rooms" });
   }
 });
 
-// POST /rooms — ክፍሉ ካለ ሰዓቱን አትቀይር
+// ═══════════════════════════════════════════════════════
+// POST /rooms — አዲስ ክፍል ሲፈጠር ብቻ ሰዓቱን አስቀምጥ
+// ═══════════════════════════════════════════════════════
 router.post("/rooms", async (req, res) => {
   try {
     let { roomCode, entryFee } = req.body;
@@ -98,6 +106,7 @@ router.post("/rooms", async (req, res) => {
         maxNumber: Number(process.env.BINGO_MAX_NUMBER || 75),
         selectionEndsAt: new Date(Date.now() + TIMER_MS),
       });
+      console.log(`[POST room] Created new room: ${roomCode} with ${TIMER_MS / 1000}s timer`);
     }
     // 👈 ክፍሉ ካለ ሰዓቱን ፈጽሞ አትቀይር!
 
@@ -114,6 +123,7 @@ router.post("/rooms", async (req, res) => {
       playerCount: game.players.length,
       selectionEndsAt: game.selectionEndsAt,
       remainingSeconds,
+      serverTime: new Date().toISOString(), // 👈 አዲስ የተጨመረ
     });
   } catch (err) {
     console.error("[POST /api/game/rooms] error:", err);

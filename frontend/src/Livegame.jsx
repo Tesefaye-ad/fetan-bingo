@@ -54,11 +54,12 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
   const [banner, setBanner] = useState("");
   const [gameOver, setGameOver] = useState(null);
   const [watching, setWatching] = useState(false);
-  const [autoMode, setAutoMode] = useState(true);
   const [nextGameCountdown, setNextGameCountdown] = useState(0);
   const [soundOn, setSoundOn] = useState(false);
   const [progress, setProgress] = useState(0);
 
+  // ═══════════════════════════════════════════════════
+  // Socket setup
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     const socket = getSocket();
@@ -133,6 +134,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
       }
     });
 
+    // 👈 አዲስ ጨዋታ ሲዘጋጅ ስቴቱን አጽዳ (ግን ወደ ካርቴላ አትመልስ — 5s useEffect ያደርገዋል)
     socket.on("next_game_ready", () => {
       setGameOver(null);
       setBanner("");
@@ -158,14 +160,15 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
     };
   }, [roomCode, cardIds, setBalance, soundOn]);
 
+  // Next game countdown
   useEffect(() => {
     if (nextGameCountdown <= 0) return;
     const t = setTimeout(() => setNextGameCountdown((c) => c - 1), 1000);
     return () => clearTimeout(t);
   }, [nextGameCountdown]);
 
-    // 👈 አሸናፊው ከታየ 5 ሰከንድ በኋላ ወደ ካርቴላ መምረጫ ተመለስ
-    useEffect(() => {
+  // 👈 አሸናፊው ከታየ 5 ሰከንድ በኋላ ወደ ካርቴላ መምረጫ ተመለስ
+  useEffect(() => {
     if (!gameOver) return;
     const timer = setTimeout(() => {
       if (onGameEnded) onGameEnded();
@@ -174,6 +177,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
     return () => clearTimeout(timer);
   }, [gameOver, onGameEnded, onExit]);
 
+  // Progress bar animation
   useEffect(() => {
     if (status !== "active") {
       setProgress(0);
@@ -185,9 +189,9 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
     return () => clearInterval(interval);
   }, [status]);
 
-  // 👈 የተጫዋች ካርቴላ ላይ ምልክት ማድረግ
+  // 👈 የተጫዋች ካርቴላ ላይ ምልክት ማድረግ (ሁልጊዜ ይፈቀዳል)
   const handleCellClick = (cardIndex, r, c) => {
-    if (status !== "active" || watching || autoMode) return;
+    if (status !== "active" || watching) return;
     socketRef.current.emit("mark_cell", { roomCode, row: r, col: c });
   };
 
@@ -196,8 +200,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
     if (watching) return;
     socketRef.current.emit("claim_bingo", { roomCode });
   };
-
-  
 
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
 
@@ -288,8 +290,35 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
             maxHeight: "calc(100vh - 180px)",
           }}
         >
-          {/* 👈 ተጫዋች ካርቴላ ካለው — የ 5x5 ካርቴላ አሳይ */}
+          {/* B-I-N-G-O headers */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(5, 1fr)",
+              gap: "3px",
+              marginBottom: "3px",
+            }}
+          >
+            {HEADERS.map((h) => (
+              <div
+                key={h.letter}
+                style={{
+                  background: h.color,
+                  color: "#fff",
+                  textAlign: "center",
+                  fontWeight: "bold",
+                  fontSize: "14px",
+                  padding: "6px 0",
+                  borderRadius: "6px",
+                }}
+              >
+                {h.letter}
+              </div>
+            ))}
+          </div>
+
           {cards.length > 0 ? (
+            /* 👈 ተጫዋች — 5x5 ካርቴላ */
             cards.map((cardItem, cardIdx) => (
               <div key={cardIdx} style={{ marginBottom: cards.length > 1 ? "10px" : 0 }}>
                 <div
@@ -302,31 +331,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                   }}
                 >
                   #{cardItem.cardId}
-                </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(5, 1fr)",
-                    gap: "3px",
-                    marginBottom: "3px",
-                  }}
-                >
-                  {HEADERS.map((h) => (
-                    <div
-                      key={h.letter}
-                      style={{
-                        background: h.color,
-                        color: "#fff",
-                        textAlign: "center",
-                        fontWeight: "bold",
-                        fontSize: "13px",
-                        padding: "5px 0",
-                        borderRadius: "6px",
-                      }}
-                    >
-                      {h.letter}
-                    </div>
-                  ))}
                 </div>
                 <div
                   style={{
@@ -371,70 +375,43 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
               </div>
             ))
           ) : (
-            /* 👈 ተመልካች — የ 1-75 ማስተር ቦርድ አሳይ */
-            <>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(5, 1fr)",
-                  gap: "3px",
-                  marginBottom: "3px",
-                }}
-              >
-                {HEADERS.map((h) => (
+            /* 👈 ተመልካች — 1-75 ማስተር ቦርድ */
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(5, 1fr)",
+                gap: "3px",
+              }}
+            >
+              {Array.from({ length: 75 }, (_, i) => i + 1).map((num) => {
+                const info = getLetter(num);
+                const isCalled = calledNumbers.includes(num);
+                const isLast = lastNumber === num;
+                return (
                   <div
-                    key={h.letter}
+                    key={num}
                     style={{
-                      background: h.color,
+                      aspectRatio: "1",
+                      background: isLast
+                        ? "#ff9800"
+                        : isCalled
+                        ? info.color
+                        : "#252d44",
                       color: "#fff",
-                      textAlign: "center",
+                      fontSize: "12px",
                       fontWeight: "bold",
-                      fontSize: "14px",
-                      padding: "6px 0",
                       borderRadius: "6px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: isLast ? "2px solid #ffd43b" : "1px solid #333",
                     }}
                   >
-                    {h.letter}
+                    {num}
                   </div>
-                ))}
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(5, 1fr)",
-                  gap: "3px",
-                }}
-              >
-                {Array.from({ length: 75 }, (_, i) => i + 1).map((num) => {
-                  const info = getLetter(num);
-                  const isCalled = calledNumbers.includes(num);
-                  const isLast = lastNumber === num;
-                  return (
-                    <div
-                      key={num}
-                      style={{
-                        aspectRatio: "1",
-                        background: isLast
-                          ? "#ff9800"
-                          : isCalled
-                          ? info.color
-                          : "#252d44",
-                        color: "#fff",
-                        fontSize: "12px",
-                        fontWeight: "bold",
-                        borderRadius: "6px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        border: isLast ? "2px solid #ffd43b" : "1px solid #333",
-                      }}
-                    >
-                      {num}
-                    </div>
-                  );
-                })}
-              </div>
-            </>
+                );
+              })}
+            </div>
           )}
         </div>
 
@@ -525,7 +502,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
             </div>
           </div>
 
-          {/* Automatic Toggle */}
+          {/* Automatic Toggle (read-only) */}
           <div
             style={{
               background: "#1a1a2e",
@@ -539,15 +516,12 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
           >
             <span style={{ fontSize: "13px", color: "#fff" }}>Automatic</span>
             <div
-              onClick={() => setAutoMode((a) => !a)}
               style={{
                 width: "40px",
                 height: "22px",
-                background: autoMode ? "#2ecc71" : "#444",
+                background: "#2ecc71",
                 borderRadius: "11px",
                 position: "relative",
-                cursor: "pointer",
-                transition: "all 0.2s",
               }}
             >
               <div
@@ -558,8 +532,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                   borderRadius: "50%",
                   position: "absolute",
                   top: "2px",
-                  left: autoMode ? "20px" : "2px",
-                  transition: "all 0.2s",
+                  left: "20px",
                 }}
               />
             </div>
@@ -645,7 +618,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
         </div>
       </div>
 
-            {/* ═══ BOTTOM BUTTONS — Leave + BINGO only ═══ */}
+      {/* BOTTOM BUTTONS */}
       <div
         style={{
           position: "fixed",
@@ -843,6 +816,34 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                       })
                     )}
                   </div>
+                </div>
+              )}
+
+              {gameOver.winners.length > 1 && (
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "6px",
+                    justifyContent: "center",
+                    maxWidth: "95%",
+                  }}
+                >
+                  {gameOver.winners.slice(1).map((w, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        background: "#1a1a2e",
+                        border: "1px solid #f39c12",
+                        borderRadius: "20px",
+                        padding: "5px 12px",
+                        fontSize: "11px",
+                        color: "#fff",
+                      }}
+                    >
+                      🏆 {w.name} #{w.cardId}
+                    </div>
+                  ))}
                 </div>
               )}
 
