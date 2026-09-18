@@ -5,7 +5,7 @@ import GameLobby from "./Gamelobby.jsx";
 import LiveGame from "./Livegame.jsx";
 import CartelaSelection from "./Cartelaselection.jsx";
 import AdminPanel from "./Adminpanel.jsx";
-import { disconnectSocket, getSocket } from "./socket";
+import { disconnectSocket } from "./socket";
 import { useTelegram } from "./useTelegram";
 
 function App() {

@@ -197,9 +197,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
     socketRef.current.emit("claim_bingo", { roomCode });
   };
 
-  const refreshRoom = () => {
-    socketRef.current.emit("join_room", { roomCode, cardIds });
-  };
+  
 
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
 
