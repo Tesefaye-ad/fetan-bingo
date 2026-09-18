@@ -21,7 +21,6 @@ router.get("/rooms/:roomCode", async (req, res) => {
     if (!game) return res.status(404).json({ error: "Room not found" });
 
     // 👈 ሰዓቱ ካለፈ እና ጨዋታው ገና ካልጀመረ እና ማንም ካልጫወተ ብቻ አዲስ ሰዓት ስጥ
-    //    (ማለትም — ተጫዋቾች ከሌሉ እና ካርዶች ከሌሉ ብቻ አድስ)
     if (
       game.status === "waiting" &&
       game.players.length === 0 &&
@@ -45,6 +44,7 @@ router.get("/rooms/:roomCode", async (req, res) => {
       takenCards: game.players.map((p) => p.cardId),
       reservedCards: (game.reservedCards || []).map((r) => r.cardId),
       selectionEndsAt: game.selectionEndsAt,
+      serverTime: new Date().toISOString(), // 👈 አዲስ የተጨመረ
       winnersCount: game.winners?.length || 0,
     });
   } catch (err) {
@@ -86,6 +86,7 @@ router.get("/rooms", async (req, res) => {
         maxNumber: g.maxNumber,
         selectionEndsAt: g.selectionEndsAt,
       })),
+      serverTime: new Date().toISOString(), // 👈 አዲስ የተጨመረ
     });
   } catch (err) {
     console.error("[GET /api/game/rooms] error:", err);
@@ -120,6 +121,7 @@ router.post("/rooms", async (req, res) => {
       prizePool: game.prizePool,
       playerCount: game.players.length,
       selectionEndsAt: game.selectionEndsAt,
+      serverTime: new Date().toISOString(), // 👈 አዲስ የተጨመረ
     });
   } catch (err) {
     console.error("[POST /api/game/rooms] error:", err);
