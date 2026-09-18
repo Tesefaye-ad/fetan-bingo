@@ -17,7 +17,6 @@ function getLetter(num) {
   return { letter: "O", color: "#ff9800" };
 }
 
-// 👈 3 ነጥብ animation component
 function LoadingDots() {
   const [active, setActive] = useState(0);
   useEffect(() => {
@@ -60,8 +59,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
   const [soundOn, setSoundOn] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  // ═══════════════════════════════════════════════════
-  // Socket Setup
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     const socket = getSocket();
@@ -161,33 +158,30 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
     };
   }, [roomCode, cardIds, setBalance, soundOn]);
 
-  // Next game countdown
   useEffect(() => {
     if (nextGameCountdown <= 0) return;
     const t = setTimeout(() => setNextGameCountdown((c) => c - 1), 1000);
     return () => clearTimeout(t);
   }, [nextGameCountdown]);
 
-  // Progress bar for next number (visual effect)
   useEffect(() => {
     if (status !== "active") {
       setProgress(0);
       return;
     }
     const interval = setInterval(() => {
-      setProgress((p) => {
-        if (p >= 100) return 0;
-        return p + 2.5;
-      });
+      setProgress((p) => (p >= 100 ? 0 : p + 2.5));
     }, 100);
     return () => clearInterval(interval);
   }, [status]);
 
+  // 👈 የተጫዋች ካርቴላ ላይ ምልክት ማድረግ
   const handleCellClick = (cardIndex, r, c) => {
     if (status !== "active" || watching || autoMode) return;
     socketRef.current.emit("mark_cell", { roomCode, row: r, col: c });
   };
 
+  // 👈 BINGO ማለት
   const claimBingo = () => {
     if (watching) return;
     socketRef.current.emit("claim_bingo", { roomCode });
@@ -213,7 +207,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
         paddingBottom: "80px",
       }}
     >
-      {/* ═══ TOP STATS BAR ═══ */}
+      {/* TOP STATS BAR */}
       <div
         style={{
           display: "grid",
@@ -242,20 +236,13 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
             <div style={{ color: "#aaa", fontSize: "9px", marginBottom: "2px" }}>
               {item.label}
             </div>
-            <div
-              style={{
-                color: item.color,
-                fontSize: "12px",
-                fontWeight: "bold",
-              }}
-            >
+            <div style={{ color: item.color, fontSize: "12px", fontWeight: "bold" }}>
               {item.value}
             </div>
           </div>
         ))}
       </div>
 
-      {/* Banner */}
       {banner && (
         <div
           style={{
@@ -272,7 +259,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
         </div>
       )}
 
-      {/* ═══ MAIN GRID ═══ */}
+      {/* MAIN GRID */}
       <div
         style={{
           display: "grid",
@@ -282,7 +269,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
           marginBottom: "8px",
         }}
       >
-        {/* ═══ LEFT: Bingo Card Grid ═══ */}
+        {/* LEFT PANEL */}
         <div
           style={{
             background: "#1a1a2e",
@@ -293,74 +280,157 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
             maxHeight: "calc(100vh - 180px)",
           }}
         >
-          {/* B-I-N-G-O Headers */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(5, 1fr)",
-              gap: "3px",
-              marginBottom: "3px",
-            }}
-          >
-            {HEADERS.map((h) => (
-              <div
-                key={h.letter}
-                style={{
-                  background: h.color,
-                  color: "#fff",
-                  textAlign: "center",
-                  fontWeight: "bold",
-                  fontSize: "14px",
-                  padding: "6px 0",
-                  borderRadius: "6px",
-                }}
-              >
-                {h.letter}
-              </div>
-            ))}
-          </div>
-
-          {/* 1-75 Grid */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(5, 1fr)",
-              gap: "3px",
-            }}
-          >
-            {Array.from({ length: 75 }, (_, i) => i + 1).map((num) => {
-              const info = getLetter(num);
-              const isCalled = calledNumbers.includes(num);
-              const isLast = lastNumber === num;
-              return (
+          {/* 👈 ተጫዋች ካርቴላ ካለው — የ 5x5 ካርቴላ አሳይ */}
+          {cards.length > 0 ? (
+            cards.map((cardItem, cardIdx) => (
+              <div key={cardIdx} style={{ marginBottom: cards.length > 1 ? "10px" : 0 }}>
                 <div
-                  key={num}
                   style={{
-                    aspectRatio: "1",
-                    background: isLast
-                      ? "#ff9800"
-                      : isCalled
-                      ? info.color
-                      : "#252d44",
-                    color: "#fff",
-                    fontSize: "13px",
+                    textAlign: "center",
+                    color: "#f39c12",
+                    fontSize: "10px",
                     fontWeight: "bold",
-                    borderRadius: "6px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    border: isLast ? "2px solid #ffd43b" : "1px solid #333",
-                    transition: "background 0.3s",
+                    marginBottom: "4px",
                   }}
                 >
-                  {num}
+                  #{cardItem.cardId}
                 </div>
-              );
-            })}
-          </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(5, 1fr)",
+                    gap: "3px",
+                    marginBottom: "3px",
+                  }}
+                >
+                  {HEADERS.map((h) => (
+                    <div
+                      key={h.letter}
+                      style={{
+                        background: h.color,
+                        color: "#fff",
+                        textAlign: "center",
+                        fontWeight: "bold",
+                        fontSize: "13px",
+                        padding: "5px 0",
+                        borderRadius: "6px",
+                      }}
+                    >
+                      {h.letter}
+                    </div>
+                  ))}
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(5, 1fr)",
+                    gap: "3px",
+                  }}
+                >
+                  {cardItem.card.map((row, r) =>
+                    row.map((value, c) => {
+                      const isMarked = cardItem.marked?.[r]?.[c];
+                      const isFree = r === 2 && c === 2;
+                      const isLast = !isFree && lastNumber === value;
+                      return (
+                        <button
+                          key={`${r}-${c}`}
+                          onClick={() => handleCellClick(cardIdx, r, c)}
+                          style={{
+                            aspectRatio: "1",
+                            background: isFree
+                              ? "#ffd43b"
+                              : isLast
+                              ? "#ff9800"
+                              : isMarked
+                              ? "#4caf50"
+                              : "#252d44",
+                            color: isFree ? "#1b2233" : "#fff",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            borderRadius: "6px",
+                            border: isLast ? "2px solid #ffd43b" : "1px solid #333",
+                            cursor: isFree ? "default" : "pointer",
+                            padding: 0,
+                          }}
+                        >
+                          {isFree ? "★" : value}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            ))
+          ) : (
+            /* 👈 ተመልካች — የ 1-75 ማስተር ቦርድ አሳይ */
+            <>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(5, 1fr)",
+                  gap: "3px",
+                  marginBottom: "3px",
+                }}
+              >
+                {HEADERS.map((h) => (
+                  <div
+                    key={h.letter}
+                    style={{
+                      background: h.color,
+                      color: "#fff",
+                      textAlign: "center",
+                      fontWeight: "bold",
+                      fontSize: "14px",
+                      padding: "6px 0",
+                      borderRadius: "6px",
+                    }}
+                  >
+                    {h.letter}
+                  </div>
+                ))}
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(5, 1fr)",
+                  gap: "3px",
+                }}
+              >
+                {Array.from({ length: 75 }, (_, i) => i + 1).map((num) => {
+                  const info = getLetter(num);
+                  const isCalled = calledNumbers.includes(num);
+                  const isLast = lastNumber === num;
+                  return (
+                    <div
+                      key={num}
+                      style={{
+                        aspectRatio: "1",
+                        background: isLast
+                          ? "#ff9800"
+                          : isCalled
+                          ? info.color
+                          : "#252d44",
+                        color: "#fff",
+                        fontSize: "12px",
+                        fontWeight: "bold",
+                        borderRadius: "6px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        border: isLast ? "2px solid #ffd43b" : "1px solid #333",
+                      }}
+                    >
+                      {num}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
 
-        {/* ═══ RIGHT: Side Panel ═══ */}
+        {/* RIGHT PANEL */}
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           {/* Get Ready + Progress */}
           <div
@@ -390,60 +460,42 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
               {soundOn ? "🔊" : "🔇"}
             </button>
 
-            {lastInfo ? (
-              <>
-                <LoadingDots />
-                <div
-                  style={{
-                    color: "#fff",
-                    fontSize: "13px",
-                    fontWeight: "bold",
-                    textAlign: "center",
-                    marginBottom: "12px",
-                    lineHeight: "1.4",
-                  }}
-                >
-                  Get ready for the next number!
-                </div>
-                <div
-                  style={{
-                    background: "#fff",
-                    color: lastInfo.color,
-                    borderRadius: "50%",
-                    width: "60px",
-                    height: "60px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontWeight: "bold",
-                    fontSize: "20px",
-                    margin: "0 auto 10px auto",
-                    border: "3px solid #f39c12",
-                    boxShadow: "0 0 20px rgba(243,156,18,0.5)",
-                  }}
-                >
-                  {lastInfo.letter}-{lastNumber}
-                </div>
-              </>
-            ) : (
-              <>
-                <LoadingDots />
-                <div
-                  style={{
-                    color: "#fff",
-                    fontSize: "13px",
-                    fontWeight: "bold",
-                    textAlign: "center",
-                    marginBottom: "12px",
-                    lineHeight: "1.4",
-                  }}
-                >
-                  Get ready for the next number!
-                </div>
-              </>
+            <LoadingDots />
+            <div
+              style={{
+                color: "#fff",
+                fontSize: "13px",
+                fontWeight: "bold",
+                textAlign: "center",
+                marginBottom: "12px",
+                lineHeight: "1.4",
+              }}
+            >
+              Get ready for the next number!
+            </div>
+
+            {lastInfo && (
+              <div
+                style={{
+                  background: "#fff",
+                  color: lastInfo.color,
+                  borderRadius: "50%",
+                  width: "60px",
+                  height: "60px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: "bold",
+                  fontSize: "20px",
+                  margin: "0 auto 10px auto",
+                  border: "3px solid #f39c12",
+                  boxShadow: "0 0 20px rgba(243,156,18,0.5)",
+                }}
+              >
+                {lastInfo.letter}-{lastNumber}
+              </div>
             )}
 
-            {/* Progress Bar */}
             <div
               style={{
                 background: "#2a2a40",
@@ -505,7 +557,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
             </div>
           </div>
 
-          {/* Watching Only / Status Box */}
+          {/* Watching Only / Status */}
           <div
             style={{
               background: "#1a1a2e",
@@ -585,7 +637,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
         </div>
       </div>
 
-      {/* ═══ BOTTOM BUTTONS ═══ */}
+      {/* BOTTOM BUTTONS */}
       <div
         style={{
           position: "fixed",
@@ -628,31 +680,52 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
             fontSize: "14px",
             fontWeight: "bold",
             cursor: "pointer",
-            opacity: 0.85,
           }}
         >
           🔄 Refresh
         </button>
-        <button
-          onClick={() => setAutoMode((a) => !a)}
-          style={{
-            background: autoMode
-              ? "linear-gradient(135deg, #d4a017, #b8860b)"
-              : "#444",
-            color: "#fff",
-            border: "none",
-            borderRadius: "12px",
-            padding: "14px 0",
-            fontSize: "14px",
-            fontWeight: "bold",
-            cursor: "pointer",
-          }}
-        >
-          Automatic
-        </button>
+        {watching ? (
+          <button
+            onClick={() => setAutoMode((a) => !a)}
+            style={{
+              background: autoMode
+                ? "linear-gradient(135deg, #d4a017, #b8860b)"
+                : "#444",
+              color: "#fff",
+              border: "none",
+              borderRadius: "12px",
+              padding: "14px 0",
+              fontSize: "14px",
+              fontWeight: "bold",
+              cursor: "pointer",
+            }}
+          >
+            Automatic
+          </button>
+        ) : (
+          <button
+            onClick={claimBingo}
+            disabled={status !== "active"}
+            style={{
+              background:
+                status !== "active"
+                  ? "#555"
+                  : "linear-gradient(135deg, #f39c12, #e67e22)",
+              color: "#fff",
+              border: "none",
+              borderRadius: "12px",
+              padding: "14px 0",
+              fontSize: "14px",
+              fontWeight: "bold",
+              cursor: status !== "active" ? "not-allowed" : "pointer",
+            }}
+          >
+            BINGO!
+          </button>
+        )}
       </div>
 
-      {/* ═══ GAME OVER OVERLAY ═══ */}
+      {/* GAME OVER OVERLAY */}
       {gameOver && (
         <div
           style={{
@@ -733,7 +806,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
                   >
                     🏆 Winning Cartela : {gameOver.winners[0].cardId}
                   </div>
-
                   <div
                     style={{
                       display: "grid",
@@ -759,7 +831,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, setBalance, telegr
                       </div>
                     ))}
                   </div>
-
                   <div
                     style={{
                       display: "grid",
