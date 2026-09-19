@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { createRoom, getGameStats } from "./api";
+import { useState } from "react";
+import { createRoom } from "./api";
 
 const STAKES = [
   { fee: 10, color: "#2ecc71" },
@@ -7,216 +7,85 @@ const STAKES = [
 ];
 
 const WEEKLY_GAMES = [
-  { fee: 50, color: "#3498db", schedule: "weekly (ቅዳሜ ማታ 12:00)" },
-  { fee: 100, color: "#2ecc71", schedule: "weekly (ቅዳሜ ማታ 12:05)" },
+  { fee: 50, color: "#3498db", schedule: "ቅዳሜ ማታ 12:00" },
+  { fee: 100, color: "#2ecc71", schedule: "ቅዳሜ ማታ 12:05" },
 ];
 
+const SHARED_ROOMS = { 10: "ROOM10", 20: "ROOM20", 50: "ROOM50", 100: "ROOM100" };
+
 export default function GameLobby({ onPlayStake, isAdmin, adminStats }) {
-  const [stats, setStats] = useState({ totalUsers: 0, totalGames: 0 });
-  const [quickPlayFee, setQuickPlayFee] = useState(null);
-  const [errorMessage, setErrorMessage] = useState("");
+  const [loading, setLoading] = useState(null);
+  const [error, setError] = useState("");
 
-  // ስታቲስቲክስን በየ15 ሰከንዱ ማደስ
-  const loadData = useCallback(async () => {
+  async function play(fee) {
+    setLoading(fee);
+    setError("");
     try {
-      const statsData = await getGameStats().catch(() => ({ totalUsers: 0, totalGames: 0 }));
-      setStats(statsData || { totalUsers: 0, totalGames: 0 });
-    } catch (err) {
-      console.warn("Failed to load lobby data:", err.message);
-    }
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      if (cancelled) return;
-      await loadData();
-    })();
-
-    const interval = setInterval(() => {
-      if (!cancelled) loadData();
-    }, 15000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [loadData]);
-
-     async function handleQuickPlay(fee) {
-    setErrorMessage("");
-    setQuickPlayFee(fee);
-    try {
-      // 👈 ቋሚ የክፍል ኮድ — ሁሉም ተጠቃሚዎች ወደዚሁ ይገባሉ
-      const SHARED_ROOMS = {
-        10: "ROOM10",
-        20: "ROOM20",
-        50: "ROOM50",
-        100: "ROOM100",
-      };
-      const roomCode = SHARED_ROOMS[fee] || `ROOM${fee}`;
-      const room = await createRoom(fee, roomCode);
+      const room = await createRoom(fee, SHARED_ROOMS[fee]);
       onPlayStake(fee, room.roomCode);
     } catch (err) {
-      setErrorMessage("Could not start the game. Please try again.");
+      setError(err?.response?.data?.error || err.message || "Could not start");
     } finally {
-      setQuickPlayFee(null);
+      setLoading(null);
     }
   }
 
-  function stakeButtonStyle(color) {
-    return {
-      width: "100%",
-      background: color,
-      color: "#fff",
-      border: "none",
-      borderRadius: "10px",
-      padding: "14px",
-      fontWeight: "bold",
-      fontSize: "15px",
-      cursor: "pointer",
-      marginBottom: "6px",
-    };
-  }
-
-  // የ Admin ስታቲስቲክስ ካለ እሱን፣ ካለበለዚያ የጨዋታ ስታቲስቲክስን ተጠቀም
-  const displayActiveUsers = adminStats?.activeUsers ?? 0;
-  const displayRegisteredUsers =
-    adminStats?.registeredUsers ?? stats.totalUsers ?? 0;
+  const btn = (color) => ({
+    width: "100%",
+    background: color,
+    color: "#fff",
+    border: "none",
+    borderRadius: 10,
+    padding: 14,
+    fontWeight: "bold",
+    fontSize: 15,
+    cursor: "pointer",
+    marginBottom: 6,
+  });
 
   return (
-    <div
-      className="lobby"
-      style={{ padding: "15px", maxWidth: "450px", margin: "0 auto" }}
-    >
-      {errorMessage && (
-        <div
-          style={{
-            background: "#e74c3c",
-            color: "#fff",
-            padding: "10px",
-            borderRadius: "8px",
-            marginBottom: "15px",
-            fontSize: "13px",
-            textAlign: "center",
-          }}
-        >
-          {errorMessage}
+    <div style={{ padding: 15, maxWidth: 450, margin: "0 auto" }}>
+      {error && (
+        <div style={{ background: "#e74c3c", color: "#fff", padding: 10, borderRadius: 8, marginBottom: 15, fontSize: 13, textAlign: "center" }}>
+          {error}
         </div>
       )}
 
-      <h2 style={{ color: "#fff", textAlign: "center", marginBottom: "20px" }}>
+      <h2 style={{ color: "#fff", textAlign: "center", marginBottom: 20 }}>
         Welcome to <span style={{ color: "#f39c12" }}>Fetan Bingo</span>
       </h2>
 
-      {/* ---- Choose Stake ---- */}
-      <div
-        style={{
-          border: "1px solid #f39c12",
-          borderRadius: "14px",
-          padding: "16px",
-          marginBottom: "16px",
-        }}
-      >
-        <div
-          style={{
-            color: "#f39c12",
-            fontWeight: "bold",
-            textAlign: "center",
-            marginBottom: "12px",
-          }}
-        >
-          Choose Stake
-        </div>
+      <div style={{ border: "1px solid #f39c12", borderRadius: 14, padding: 16, marginBottom: 16 }}>
+        <div style={{ color: "#f39c12", fontWeight: "bold", textAlign: "center", marginBottom: 12 }}>Choose Stake</div>
         {STAKES.map((s) => (
-          <button
-            key={s.fee}
-            disabled={quickPlayFee !== null}
-            onClick={() => handleQuickPlay(s.fee)}
-            style={stakeButtonStyle(s.color)}
-          >
-            {quickPlayFee === s.fee ? "Starting…" : `▶ Play ${s.fee} ETB`}
+          <button key={s.fee} disabled={loading !== null} onClick={() => play(s.fee)} style={btn(s.color)}>
+            {loading === s.fee ? "Starting…" : `▶ Play ${s.fee} ETB`}
           </button>
         ))}
       </div>
 
-      {/* ---- Weekly Game ---- */}
-      <div
-        style={{
-          border: "1px solid #f39c12",
-          borderRadius: "14px",
-          padding: "16px",
-          marginBottom: "16px",
-        }}
-      >
-        <div
-          style={{
-            color: "#f39c12",
-            fontWeight: "bold",
-            textAlign: "center",
-            marginBottom: "12px",
-          }}
-        >
-          Weekly Game
-        </div>
+      <div style={{ border: "1px solid #f39c12", borderRadius: 14, padding: 16, marginBottom: 16 }}>
+        <div style={{ color: "#f39c12", fontWeight: "bold", textAlign: "center", marginBottom: 12 }}>Weekly Game</div>
         {WEEKLY_GAMES.map((g) => (
-          <div key={g.fee} style={{ marginBottom: "10px" }}>
-            <button
-              disabled={quickPlayFee !== null}
-              onClick={() => handleQuickPlay(g.fee)}
-              style={{ ...stakeButtonStyle(g.color), marginBottom: "4px" }}
-            >
-              {quickPlayFee === g.fee ? "Starting…" : `▶ Play ${g.fee} ETB`}
+          <div key={g.fee} style={{ marginBottom: 10 }}>
+            <button disabled={loading !== null} onClick={() => play(g.fee)} style={{ ...btn(g.color), marginBottom: 4 }}>
+              {loading === g.fee ? "Starting…" : `▶ Play ${g.fee} ETB`}
             </button>
-            <div
-              style={{
-                color: "#f39c12",
-                fontSize: "12px",
-                textAlign: "center",
-              }}
-            >
-              {g.schedule}
-            </div>
+            <div style={{ color: "#f39c12", fontSize: 12, textAlign: "center" }}>{g.schedule}</div>
           </div>
         ))}
       </div>
 
-      {/* ---- ስታቲስቲክስ (ለአድሚን ብቻ የሚታይ) ---- */}
-      {isAdmin && (
-        <div
-          style={{
-            background: "#12121e",
-            border: "1px solid #2a2a40",
-            borderRadius: "14px",
-            padding: "16px",
-            marginBottom: "16px",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-around",
-              textAlign: "center",
-            }}
-          >
+      {isAdmin && adminStats && (
+        <div style={{ background: "#12121e", border: "1px solid #2a2a40", borderRadius: 14, padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-around", textAlign: "center" }}>
             <div>
-              <div
-                style={{ color: "#fff", fontSize: "22px", fontWeight: "bold" }}
-              >
-                {displayActiveUsers}
-              </div>
-              <div style={{ color: "#aaa", fontSize: "11px" }}>Active Users</div>
+              <div style={{ color: "#fff", fontSize: 22, fontWeight: "bold" }}>{adminStats.activeUsers || 0}</div>
+              <div style={{ color: "#aaa", fontSize: 11 }}>Active Users</div>
             </div>
             <div>
-              <div
-                style={{ color: "#fff", fontSize: "22px", fontWeight: "bold" }}
-              >
-                {displayRegisteredUsers}
-              </div>
-              <div style={{ color: "#aaa", fontSize: "11px" }}>
-                Registered Users
-              </div>
+              <div style={{ color: "#fff", fontSize: 22, fontWeight: "bold" }}>{adminStats.registeredUsers || 0}</div>
+              <div style={{ color: "#aaa", fontSize: 11 }}>Registered</div>
             </div>
           </div>
         </div>

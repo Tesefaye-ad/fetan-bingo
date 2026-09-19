@@ -2,52 +2,43 @@ const express = require("express");
 const Game = require("../models/Game");
 const User = require("../models/User");
 const { requireAuth } = require("../middleware/auth");
+const { generate1000Cards } = require("../utils/bingoCard");
 
 const router = express.Router();
 router.use(requireAuth);
 
 const TIMER_MS = Number(process.env.SELECTION_TIMER_MS || 50000);
 
-// ═══════════════════════════════════════════════════════
-// 👈 ሳምንታዊ ጨዋታ — ቀጣዩን ቅዳሜ ማታ 12:00/12:05 አስላ
-// ═══════════════════════════════════════════════════════
 function getNextWeeklyStart(fee) {
-  // የኢትዮጵያ ሰዓት (UTC+3)
   const ETHIOPIA_OFFSET_MS = 3 * 60 * 60 * 1000;
   const now = new Date();
-  const ethiopiaNow = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
+  const et = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
 
-  const targetDay = 6; // ቅዳሜ (0=እሑድ, 6=ቅዳሜ)
-  const targetHour = 0; // 12:00 AM Ethiopian (ወደ UTC ሲቀየር — ይህ ማለት 12:00 AM)
+  const targetDay = 6;
+  const targetHour = 0;
   const targetMinute = fee === 50 ? 0 : 5;
 
-  let daysUntil = (targetDay - ethiopiaNow.getUTCDay() + 7) % 7;
+  let daysUntil = (targetDay - et.getUTCDay() + 7) % 7;
   if (daysUntil === 0) {
-    const todayTarget = new Date(ethiopiaNow);
-    todayTarget.setUTCHours(targetHour, targetMinute, 0, 0);
-    if (ethiopiaNow >= todayTarget) daysUntil = 7;
+    const today = new Date(et);
+    today.setUTCHours(targetHour, targetMinute, 0, 0);
+    if (et >= today) daysUntil = 7;
   }
-
-  const nextStart = new Date(ethiopiaNow);
-  nextStart.setUTCDate(nextStart.getUTCDate() + daysUntil);
-  nextStart.setUTCHours(targetHour, targetMinute, 0, 0);
-
-  // ወደ UTC ቀይረው
-  return new Date(nextStart.getTime() - ETHIOPIA_OFFSET_MS);
+  const next = new Date(et);
+  next.setUTCDate(next.getUTCDate() + daysUntil);
+  next.setUTCHours(targetHour, targetMinute, 0, 0);
+  return new Date(next.getTime() - ETHIOPIA_OFFSET_MS);
 }
 
 // ═══════════════════════════════════════════════════════
-// GET /rooms/:roomCode
+// GET /rooms/:roomCode — NEVER changes the timer
 // ═══════════════════════════════════════════════════════
 router.get("/rooms/:roomCode", async (req, res) => {
   try {
     const roomCode = req.params.roomCode.trim().toUpperCase();
-    const game = await Game.findOne({ roomCode }).select(
-      "roomCode status entryFee prizePool players calledNumbers maxNumber winners reservedCards selectionEndsAt scheduledStart isWeeklyGame"
-    );
+    const game = await Game.findOne({ roomCode });
     if (!game) return res.status(404).json({ error: "Room not found" });
 
-    // 👈 የመደበኛ ጨዋታ — የቀረውን ሰከንድ አስላ
     let remainingSeconds = 0;
     if (!game.isWeeklyGame && game.selectionEndsAt) {
       remainingSeconds = Math.max(
@@ -68,19 +59,16 @@ router.get("/rooms/:roomCode", async (req, res) => {
       reservedCards: (game.reservedCards || []).map((r) => r.cardId),
       selectionEndsAt: game.selectionEndsAt,
       remainingSeconds,
-      scheduledStart: game.scheduledStart, // 👈 ሳምንታዊ
-      isWeeklyGame: game.isWeeklyGame || false, // 👈 ሳምንታዊ ነው?
+      scheduledStart: game.scheduledStart,
+      isWeeklyGame: game.isWeeklyGame || false,
       winnersCount: game.winners?.length || 0,
     });
   } catch (err) {
-    console.error("[GET /api/game/rooms/:roomCode] error:", err);
+    console.error("[GET /rooms/:roomCode]", err);
     res.status(500).json({ error: "Could not load room" });
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// GET /stats
-// ═══════════════════════════════════════════════════════
 router.get("/stats", async (req, res) => {
   try {
     const totalUsers = await User.countDocuments();
@@ -92,36 +80,7 @@ router.get("/stats", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// GET /rooms
-// ═══════════════════════════════════════════════════════
-router.get("/rooms", async (req, res) => {
-  try {
-    const rooms = await Game.find({ status: "waiting" })
-      .sort({ createdAt: -1 })
-      .limit(30)
-      .select("roomCode status entryFee prizePool players maxNumber selectionEndsAt scheduledStart isWeeklyGame");
-
-    res.json({
-      rooms: rooms.map((g) => ({
-        roomCode: g.roomCode,
-        status: g.status,
-        entryFee: g.entryFee,
-        prizePool: g.prizePool,
-        playerCount: g.players.length,
-        maxNumber: g.maxNumber,
-        selectionEndsAt: g.selectionEndsAt,
-        scheduledStart: g.scheduledStart,
-        isWeeklyGame: g.isWeeklyGame || false,
-      })),
-    });
-  } catch (err) {
-    console.error("[GET /api/game/rooms] error:", err);
-    res.status(500).json({ error: "Could not load rooms" });
-  }
-});
-
-// ═══════════════════════════════════════════════════════
-// POST /rooms — ክፍሉ ካለ ሰዓቱን አትቀይር
+// POST /rooms — create only if missing; never touch timer
 // ═══════════════════════════════════════════════════════
 router.post("/rooms", async (req, res) => {
   try {
@@ -130,32 +89,27 @@ router.post("/rooms", async (req, res) => {
     entryFee = Number(entryFee ?? process.env.ENTRY_FEE ?? 10);
 
     let game = await Game.findOne({ roomCode });
-    if (!game) {
-      // 👈 ሳምንታዊ ጨዋታ ነው?
-      const isWeekly = roomCode === "ROOM50" || roomCode === "ROOM100";
-      const weeklyFee = roomCode === "ROOM50" ? 50 : roomCode === "ROOM100" ? 100 : entryFee;
 
-      const newGameData = {
+    if (!game) {
+      const weekly = roomCode === "ROOM50" || roomCode === "ROOM100";
+      const fee = roomCode === "ROOM50" ? 50 : roomCode === "ROOM100" ? 100 : entryFee;
+
+      const data = {
         roomCode,
-        entryFee: Number(process.env.ENTRY_FEE || weeklyFee),
+        entryFee: Number(process.env.ENTRY_FEE || fee),
         maxNumber: Number(process.env.BINGO_MAX_NUMBER || 75),
-        allCards: [],
-        winners: [],
-        reservedCards: [],
-        isWeeklyGame: isWeekly,
+        allCards: generate1000Cards(),
+        isWeeklyGame: weekly,
       };
 
-      if (isWeekly) {
-        // 👈 ሳምንታዊ — በተዘጋጀው ቀን ብቻ ይጀምራል
-        newGameData.scheduledStart = getNextWeeklyStart(weeklyFee);
+      if (weekly) {
+        data.scheduledStart = getNextWeeklyStart(fee);
       } else {
-        // 👈 መደበኛ — 50 ሰከንድ
-        newGameData.selectionEndsAt = new Date(Date.now() + TIMER_MS);
+        data.selectionEndsAt = new Date(Date.now() + TIMER_MS);
       }
-
-      game = await Game.create(newGameData);
+      game = await Game.create(data);
+      console.log(`[POST /rooms] Created ${roomCode} (weekly=${weekly})`);
     }
-    // 👈 ክፍሉ ካለ ሰዓቱን ፈጽሞ አትቀይር!
 
     let remainingSeconds = 0;
     if (!game.isWeeklyGame && game.selectionEndsAt) {
@@ -177,14 +131,11 @@ router.post("/rooms", async (req, res) => {
       isWeeklyGame: game.isWeeklyGame || false,
     });
   } catch (err) {
-    console.error("[POST /api/game/rooms] error:", err);
+    console.error("[POST /rooms]", err);
     res.status(500).json({ error: "Could not create room" });
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// Helper
-// ═══════════════════════════════════════════════════════
 function generateRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
