@@ -5,7 +5,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   const [selectedCards, setSelectedCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
   const [countdown, setCountdown] = useState(null);
-  const [deadlineAt, setDeadlineAt] = useState(null); // 👈 አዲስ (state)
+  const [deadlineAt, setDeadlineAt] = useState(null);
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [isWeekly, setIsWeekly] = useState(false);
@@ -14,6 +14,19 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   const fetchedRef = useRef(false);
 
   const isWeeklyRoom = roomCode === "ROOM50" || roomCode === "ROOM100";
+
+  // ═══════════════════════════════════════════════════
+  // 👈 አዲስ — ክፍል ሲቀየር ሁሉንም አጽዳ
+  // ═══════════════════════════════════════════════════
+  useEffect(() => {
+    triggeredRef.current = false;
+    fetchedRef.current = false;
+    setDeadlineAt(null);
+    setCountdown(null);
+    setSelectedCards([]);
+    setTakenCards([]);
+    setError("");
+  }, [roomCode]);
 
   // ═══════════════════════════════════════════════════
   // Fetch initial state — ONCE
@@ -33,6 +46,12 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
           }
         );
         const data = await res.json();
+        console.log("[Cartela] Server response:", {
+          remaining: data.remainingSeconds,
+          endsAt: data.selectionEndsAt,
+          serverTime: data.serverTime,
+          weekly: data.isWeeklyGame,
+        });
 
         if (data.takenCards) setTakenCards(data.takenCards);
         if (data.reservedCards) {
@@ -43,16 +62,40 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
           setIsWeekly(true);
           setCountdown(null);
           setDeadlineAt(null);
-        } else if (
-          typeof data.remainingSeconds === "number" &&
-          data.remainingSeconds > 0
+          return;
+        }
+
+        // 👈 ዋናው ስሌት
+        let remaining = 0;
+
+        if (
+          data.selectionEndsAt &&
+          data.serverTime &&
+          typeof data.remainingSeconds === "number"
         ) {
-          // 👈 ወደ state አስቀምጥ (አዲስ deadline)
-          setDeadlineAt(Date.now() + data.remainingSeconds * 1000);
-          setCountdown(data.remainingSeconds);
-          console.log(`[Cartela] Server remaining: ${data.remainingSeconds}s`);
+          // Clock offset (ስልኩና ሰርቨሩ ሰዓት ካልተመሳሰለ)
+          const serverDeadline = new Date(data.selectionEndsAt).getTime();
+          const serverNow = new Date(data.serverTime).getTime();
+          const clockOffset = serverNow - Date.now();
+          const localDeadline = serverDeadline - clockOffset;
+          remaining = Math.max(
+            0,
+            Math.floor((localDeadline - Date.now()) / 1000)
+          );
+
+          setDeadlineAt(localDeadline);
+          setCountdown(remaining);
+        } else if (typeof data.remainingSeconds === "number") {
+          remaining = Math.max(0, data.remainingSeconds);
+          if (remaining > 0) {
+            setDeadlineAt(Date.now() + remaining * 1000);
+            setCountdown(remaining);
+          } else {
+            // 👈 ሰዓቱ አልፎ ከሆነ — ወዲያውኑ ወደ ጨዋታ
+            setCountdown(0);
+          }
         } else {
-          // Default fallback
+          // Fallback (ለሙከራ ብቻ)
           setDeadlineAt(Date.now() + 50000);
           setCountdown(50);
         }
@@ -78,13 +121,13 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   }, [roomCode, isWeeklyRoom]);
 
   // ═══════════════════════════════════════════════════
-  // 👈 ቆጣሪ — deadlineAt ሲቀመጥ ብቻ ይጀምራል (state dep!)
+  // ቆጣሪ — deadlineAt ሲቀመጥ ብቻ ይጀምራል
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (isWeekly) return;
     if (!deadlineAt) return;
 
-    console.log("[Cartela] Countdown effect started");
+    console.log("[Cartela] Countdown started");
 
     const tick = () => {
       const rem = Math.max(
@@ -100,7 +143,7 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   }, [deadlineAt, isWeekly]);
 
   // ═══════════════════════════════════════════════════
-  // ሰዓቱ 0 ሲሆን ወደ ጨዋታው ሂድ
+  // ሰዓቱ 0 ሲሆን → ወደ ጨዋታ
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (isWeekly) return;

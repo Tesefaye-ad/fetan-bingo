@@ -13,11 +13,9 @@ function getNextWeeklyStart(fee) {
   const ETHIOPIA_OFFSET_MS = 3 * 60 * 60 * 1000;
   const now = new Date();
   const et = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
-
   const targetDay = 6;
   const targetHour = 0;
   const targetMinute = fee === 50 ? 0 : 5;
-
   let daysUntil = (targetDay - et.getUTCDay() + 7) % 7;
   if (daysUntil === 0) {
     const today = new Date(et);
@@ -31,7 +29,7 @@ function getNextWeeklyStart(fee) {
 }
 
 // ═══════════════════════════════════════════════════════
-// GET /rooms/:roomCode — NEVER changes the timer
+// 👈 GET /rooms/:roomCode — ሰዓቱን ፈጽሞ አይቀይር
 // ═══════════════════════════════════════════════════════
 router.get("/rooms/:roomCode", async (req, res) => {
   try {
@@ -39,13 +37,20 @@ router.get("/rooms/:roomCode", async (req, res) => {
     const game = await Game.findOne({ roomCode });
     if (!game) return res.status(404).json({ error: "Room not found" });
 
+    // 👈 remainingSeconds = selectionEndsAt - serverNow
     let remainingSeconds = 0;
     if (!game.isWeeklyGame && game.selectionEndsAt) {
       remainingSeconds = Math.max(
         0,
-        Math.floor((new Date(game.selectionEndsAt).getTime() - Date.now()) / 1000)
+        Math.floor(
+          (new Date(game.selectionEndsAt).getTime() - Date.now()) / 1000
+        )
       );
     }
+
+    console.log(
+      `[GET /rooms/${roomCode}] status=${game.status} selectionEndsAt=${game.selectionEndsAt?.toISOString()} remaining=${remainingSeconds}s`
+    );
 
     res.json({
       roomCode: game.roomCode,
@@ -57,7 +62,9 @@ router.get("/rooms/:roomCode", async (req, res) => {
       maxNumber: game.maxNumber,
       takenCards: game.players.map((p) => p.cardId),
       reservedCards: (game.reservedCards || []).map((r) => r.cardId),
+      // 👈 ሁለቱንም ላክ — absolute + relative
       selectionEndsAt: game.selectionEndsAt,
+      serverTime: new Date().toISOString(),
       remainingSeconds,
       scheduledStart: game.scheduledStart,
       isWeeklyGame: game.isWeeklyGame || false,
@@ -80,7 +87,7 @@ router.get("/stats", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// POST /rooms — create only if missing; never touch timer
+// 👈 POST /rooms — ክፍሉ ካለ ሰዓቱን ፈጽሞ አትቀይር
 // ═══════════════════════════════════════════════════════
 router.post("/rooms", async (req, res) => {
   try {
@@ -105,17 +112,28 @@ router.post("/rooms", async (req, res) => {
       if (weekly) {
         data.scheduledStart = getNextWeeklyStart(fee);
       } else {
+        // 👈 ሰዓቱ የሚቀመጠው አዲስ ክፍል ሲፈጠር ብቻ ነው
         data.selectionEndsAt = new Date(Date.now() + TIMER_MS);
       }
+
       game = await Game.create(data);
-      console.log(`[POST /rooms] Created ${roomCode} (weekly=${weekly})`);
+      console.log(
+        `[POST /rooms] CREATE ${roomCode} selectionEndsAt=${game.selectionEndsAt?.toISOString()}`
+      );
+    } else {
+      // 👈 ክፍሉ ካለ — ፈጽሞ አትቀይር
+      console.log(
+        `[POST /rooms] EXISTS ${roomCode} selectionEndsAt=${game.selectionEndsAt?.toISOString()} (unchanged)`
+      );
     }
 
     let remainingSeconds = 0;
     if (!game.isWeeklyGame && game.selectionEndsAt) {
       remainingSeconds = Math.max(
         0,
-        Math.floor((new Date(game.selectionEndsAt).getTime() - Date.now()) / 1000)
+        Math.floor(
+          (new Date(game.selectionEndsAt).getTime() - Date.now()) / 1000
+        )
       );
     }
 
@@ -126,6 +144,7 @@ router.post("/rooms", async (req, res) => {
       prizePool: game.prizePool,
       playerCount: game.players.length,
       selectionEndsAt: game.selectionEndsAt,
+      serverTime: new Date().toISOString(),
       remainingSeconds,
       scheduledStart: game.scheduledStart,
       isWeeklyGame: game.isWeeklyGame || false,
