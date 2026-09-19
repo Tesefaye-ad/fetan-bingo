@@ -5,16 +5,19 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   const [selectedCards, setSelectedCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
   const [countdown, setCountdown] = useState(null);
+  const [deadlineAt, setDeadlineAt] = useState(null); // 👈 አዲስ (state)
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [isWeekly, setIsWeekly] = useState(false);
 
-  const deadlineRef = useRef(null);
   const triggeredRef = useRef(false);
   const fetchedRef = useRef(false);
 
   const isWeeklyRoom = roomCode === "ROOM50" || roomCode === "ROOM100";
 
+  // ═══════════════════════════════════════════════════
+  // Fetch initial state — ONCE
+  // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
@@ -24,7 +27,9 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
         const res = await fetch(
           `${process.env.REACT_APP_API_URL}/api/game/rooms/${roomCode}`,
           {
-            headers: { Authorization: `Bearer ${localStorage.getItem("bingo_token")}` },
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("bingo_token")}`,
+            },
           }
         );
         const data = await res.json();
@@ -37,27 +42,33 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
         if (data.isWeeklyGame || isWeeklyRoom) {
           setIsWeekly(true);
           setCountdown(null);
+          setDeadlineAt(null);
         } else if (
           typeof data.remainingSeconds === "number" &&
           data.remainingSeconds > 0
         ) {
-          deadlineRef.current = Date.now() + data.remainingSeconds * 1000;
+          // 👈 ወደ state አስቀምጥ (አዲስ deadline)
+          setDeadlineAt(Date.now() + data.remainingSeconds * 1000);
           setCountdown(data.remainingSeconds);
+          console.log(`[Cartela] Server remaining: ${data.remainingSeconds}s`);
         } else {
-          deadlineRef.current = Date.now() + 50000;
+          // Default fallback
+          setDeadlineAt(Date.now() + 50000);
           setCountdown(50);
         }
       } catch (e) {
         console.error("[Cartela] fetch error:", e);
         if (!isWeeklyRoom) {
-          deadlineRef.current = Date.now() + 50000;
+          setDeadlineAt(Date.now() + 50000);
           setCountdown(50);
         }
       }
     })();
 
     fetch(`${process.env.REACT_APP_API_URL}/api/wallet/balance`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem("bingo_token")}` },
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("bingo_token")}`,
+      },
     })
       .then((r) => r.json())
       .then((d) => {
@@ -66,15 +77,19 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       .catch(() => {});
   }, [roomCode, isWeeklyRoom]);
 
+  // ═══════════════════════════════════════════════════
+  // 👈 ቆጣሪ — deadlineAt ሲቀመጥ ብቻ ይጀምራል (state dep!)
+  // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (isWeekly) return;
-    if (!deadlineRef.current) return;
+    if (!deadlineAt) return;
+
+    console.log("[Cartela] Countdown effect started");
 
     const tick = () => {
-      if (!deadlineRef.current) return;
       const rem = Math.max(
         0,
-        Math.floor((deadlineRef.current - Date.now()) / 1000)
+        Math.floor((deadlineAt - Date.now()) / 1000)
       );
       setCountdown(rem);
     };
@@ -82,14 +97,18 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
     tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [isWeekly]);
+  }, [deadlineAt, isWeekly]);
 
+  // ═══════════════════════════════════════════════════
+  // ሰዓቱ 0 ሲሆን ወደ ጨዋታው ሂድ
+  // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (isWeekly) return;
-    if (countdown === null || countdown > 0 || triggeredRef.current) return;
+    if (countdown === null || countdown > 0) return;
+    if (triggeredRef.current) return;
     triggeredRef.current = true;
 
-    console.log("[Cartela] timer done, moving to game");
+    console.log("[Cartela] Countdown 0 → moving to game");
 
     if (selectedCards.length === 0) {
       const takenSet = new Set(takenCards);
@@ -102,10 +121,15 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
     onConfirm(selectedCards);
   }, [countdown, selectedCards, takenCards, onConfirm, isWeekly]);
 
+  // ═══════════════════════════════════════════════════
+  // Socket events
+  // ═══════════════════════════════════════════════════
   useEffect(() => {
     const s = getSocket();
-    const onSel = ({ cardId }) => setTakenCards((p) => [...new Set([...p, cardId])]);
-    const onDesel = ({ cardId }) => setTakenCards((p) => p.filter((x) => x !== cardId));
+    const onSel = ({ cardId }) =>
+      setTakenCards((p) => [...new Set([...p, cardId])]);
+    const onDesel = ({ cardId }) =>
+      setTakenCards((p) => p.filter((x) => x !== cardId));
     const onBal = ({ balance: b }) => setCurrentBalance(b);
 
     s.on("card_selected", onSel);
