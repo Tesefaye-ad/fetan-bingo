@@ -31,13 +31,39 @@ export async function getGameStats() {
   return data;
 }
 
+export async function getRooms() {
+  const { data } = await api.get("/api/game/rooms");
+  return data.rooms;
+}
+
 export async function getWalletHistory() {
   const { data } = await api.get("/api/wallet/history");
   return data.transactions;
 }
 
+export async function getBalance() {
+  const { data } = await api.get("/api/wallet/balance");
+  return data;
+}
+
+// 👈 አዲስ — Deposit / Withdraw / Transfer
+export async function initiateDeposit(amount) {
+  const { data } = await api.post("/api/wallet/deposit/initiate", { amount });
+  return data;
+}
+
+export async function confirmDeposit(reference, amount) {
+  const { data } = await api.post("/api/wallet/deposit/confirm", { reference, amount });
+  return data.balance;
+}
+
 export async function withdraw(amount) {
   const { data } = await api.post("/api/wallet/withdraw", { amount });
+  return data.balance;
+}
+
+export async function transfer(toTelegramId, amount) {
+  const { data } = await api.post("/api/wallet/transfer", { toTelegramId, amount });
   return data.balance;
 }
 
