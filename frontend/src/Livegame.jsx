@@ -147,6 +147,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
         "game_over", "next_game_ready", "balance_update", "error_message",
       ].forEach((e) => socket.off(e));
     };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode, setBalance]); // cardIds & soundOn removed from deps
 
   // Next-game countdown

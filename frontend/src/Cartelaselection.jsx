@@ -7,7 +7,6 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   const [countdown, setCountdown] = useState(null);
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
-  const [bonusBalance, setBonusBalance] = useState(0);
   const [isWeekly, setIsWeekly] = useState(false);
 
   const deadlineRef = useRef(null);
@@ -16,16 +15,18 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
 
   const isWeeklyRoom = roomCode === "ROOM50" || roomCode === "ROOM100";
 
-  // ─── Fetch initial state ONCE ───
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
 
     (async () => {
       try {
-        const res = await fetch(`${process.env.REACT_APP_API_URL}/api/game/rooms/${roomCode}`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem("bingo_token")}` },
-        });
+        const res = await fetch(
+          `${process.env.REACT_APP_API_URL}/api/game/rooms/${roomCode}`,
+          {
+            headers: { Authorization: `Bearer ${localStorage.getItem("bingo_token")}` },
+          }
+        );
         const data = await res.json();
 
         if (data.takenCards) setTakenCards(data.takenCards);
@@ -36,11 +37,12 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
         if (data.isWeeklyGame || isWeeklyRoom) {
           setIsWeekly(true);
           setCountdown(null);
-        } else if (typeof data.remainingSeconds === "number" && data.remainingSeconds > 0) {
-          // Fixed deadline based on server's remaining seconds
+        } else if (
+          typeof data.remainingSeconds === "number" &&
+          data.remainingSeconds > 0
+        ) {
           deadlineRef.current = Date.now() + data.remainingSeconds * 1000;
           setCountdown(data.remainingSeconds);
-          console.log(`[Cartela] remaining ${data.remainingSeconds}s`);
         } else {
           deadlineRef.current = Date.now() + 50000;
           setCountdown(50);
@@ -60,19 +62,20 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
       .then((r) => r.json())
       .then((d) => {
         if (d.balance !== undefined) setCurrentBalance(d.balance);
-        if (d.bonusBalance !== undefined) setBonusBalance(d.bonusBalance);
       })
       .catch(() => {});
   }, [roomCode, isWeeklyRoom]);
 
-  // ─── Countdown tick every 1s from deadline ───
   useEffect(() => {
     if (isWeekly) return;
     if (!deadlineRef.current) return;
 
     const tick = () => {
       if (!deadlineRef.current) return;
-      const rem = Math.max(0, Math.floor((deadlineRef.current - Date.now()) / 1000));
+      const rem = Math.max(
+        0,
+        Math.floor((deadlineRef.current - Date.now()) / 1000)
+      );
       setCountdown(rem);
     };
 
@@ -81,7 +84,6 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
     return () => clearInterval(timer);
   }, [isWeekly]);
 
-  // ─── Auto-trigger when timer hits 0 ───
   useEffect(() => {
     if (isWeekly) return;
     if (countdown === null || countdown > 0 || triggeredRef.current) return;
@@ -100,7 +102,6 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
     onConfirm(selectedCards);
   }, [countdown, selectedCards, takenCards, onConfirm, isWeekly]);
 
-  // ─── Socket events ───
   useEffect(() => {
     const s = getSocket();
     const onSel = ({ cardId }) => setTakenCards((p) => [...new Set([...p, cardId])]);
@@ -144,36 +145,119 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
   const total = selectedCards.length * stake;
 
   return (
-    <div style={{ padding: 10, maxWidth: 480, margin: "0 auto", color: "#fff", minHeight: "100vh", background: "#0f1420", display: "flex", flexDirection: "column" }}>
+    <div
+      style={{
+        padding: 10,
+        maxWidth: 480,
+        margin: "0 auto",
+        color: "#fff",
+        minHeight: "100vh",
+        background: "#0f1420",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       <button
         onClick={onCancel}
-        style={{ alignSelf: "flex-start", background: "#1a1a2e", border: "1px solid #4c6ef5", color: "#fff", borderRadius: 10, padding: "10px 18px", cursor: "pointer", marginBottom: 10 }}
+        style={{
+          alignSelf: "flex-start",
+          background: "#1a1a2e",
+          border: "1px solid #4c6ef5",
+          color: "#fff",
+          borderRadius: 10,
+          padding: "10px 18px",
+          cursor: "pointer",
+          marginBottom: 10,
+        }}
       >
         ← Back
       </button>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 5, background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: 10, padding: "10px 8px", marginBottom: 10 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 5,
+          background: "#1a1a2e",
+          border: "1px solid #2a2a40",
+          borderRadius: 10,
+          padding: "10px 8px",
+          marginBottom: 10,
+        }}
+      >
         <InfoCell label="Wallet" value={currentBalance} />
         <InfoCell label="Stake" value={stake} />
         <InfoCell label="Selected" value={selectedCards.length} />
         <InfoCell
           label={isWeekly ? "Draw" : "Time"}
-          value={isWeekly ? (roomCode === "ROOM50" ? "ቅዳሜ 12:00" : "ቅዳሜ 12:05") : countdown !== null ? `${countdown}s` : "…"}
-          color={isWeekly ? "#f39c12" : countdown !== null && countdown <= 10 ? "#e74c3c" : "#ffd43b"}
+          value={
+            isWeekly
+              ? roomCode === "ROOM50"
+                ? "ቅዳሜ 12:00"
+                : "ቅዳሜ 12:05"
+              : countdown !== null
+              ? `${countdown}s`
+              : "…"
+          }
+          color={
+            isWeekly
+              ? "#f39c12"
+              : countdown !== null && countdown <= 10
+              ? "#e74c3c"
+              : "#ffd43b"
+          }
           small={isWeekly}
         />
       </div>
 
-      <div style={{ display: "flex", justifyContent: "space-between", background: "#1a1a2e", border: "1px solid #2a2a40", borderRadius: 10, padding: "8px 12px", marginBottom: 10, fontSize: 12 }}>
-        <span>Selected: <b style={{ color: "#2ecc71" }}>{selectedCards.length}</b></span>
-        <span>Total: <b style={{ color: "#f39c12" }}>{total} ETB</b></span>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          background: "#1a1a2e",
+          border: "1px solid #2a2a40",
+          borderRadius: 10,
+          padding: "8px 12px",
+          marginBottom: 10,
+          fontSize: 12,
+        }}
+      >
+        <span>
+          Selected: <b style={{ color: "#2ecc71" }}>{selectedCards.length}</b>
+        </span>
+        <span>
+          Total: <b style={{ color: "#f39c12" }}>{total} ETB</b>
+        </span>
       </div>
 
       {error && (
-        <div style={{ background: "#e74c3c", color: "#fff", padding: 6, borderRadius: 8, marginBottom: 8, fontSize: 11, textAlign: "center" }}>{error}</div>
+        <div
+          style={{
+            background: "#e74c3c",
+            color: "#fff",
+            padding: 6,
+            borderRadius: 8,
+            marginBottom: 8,
+            fontSize: 11,
+            textAlign: "center",
+          }}
+        >
+          {error}
+        </div>
       )}
 
-      <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 5, marginBottom: 10, paddingRight: 5, alignContent: "start" }}>
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          display: "grid",
+          gridTemplateColumns: "repeat(8, 1fr)",
+          gap: 5,
+          marginBottom: 10,
+          paddingRight: 5,
+          alignContent: "start",
+        }}
+      >
         {numbers.map((n) => {
           const isTaken = takenCards.includes(n) && !selectedCards.includes(n);
           const isSelected = selectedCards.includes(n);
@@ -202,7 +286,18 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
 
       {isWeekly ? (
         <>
-          <div style={{ background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: 10, padding: 10, marginBottom: 10, textAlign: "center", fontSize: 11, color: "#f39c12" }}>
+          <div
+            style={{
+              background: "#1a1a2e",
+              border: "1px solid #f39c12",
+              borderRadius: 10,
+              padding: 10,
+              marginBottom: 10,
+              textAlign: "center",
+              fontSize: 11,
+              color: "#f39c12",
+            }}
+          >
             🗓 ሳምንታዊ እጣ! ካርዶችዎን ይምረጡ። ጨዋታው ይጀመራል{" "}
             <b>{roomCode === "ROOM50" ? "ቅዳሜ 12:00" : "ቅዳሜ 12:05"}</b>
           </div>
@@ -211,7 +306,9 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
             disabled={!selectedCards.length}
             style={{
               width: "100%",
-              background: !selectedCards.length ? "#555" : "linear-gradient(135deg,#f39c12,#e67e22)",
+              background: !selectedCards.length
+                ? "#555"
+                : "linear-gradient(135deg,#f39c12,#e67e22)",
               color: "#fff",
               border: "none",
               borderRadius: 12,
@@ -226,7 +323,14 @@ export default function CartelaSelection({ roomCode, balance, stake = 10, onConf
           </button>
         </>
       ) : (
-        <div style={{ fontSize: 11, color: "#888", textAlign: "center", paddingBottom: 10 }}>
+        <div
+          style={{
+            fontSize: 11,
+            color: "#888",
+            textAlign: "center",
+            paddingBottom: 10,
+          }}
+        >
           ሰዓቱ ሲያልቅ በራስ-ሰር ወደ ጨዋታው ይገባል
         </div>
       )}
@@ -238,7 +342,16 @@ function InfoCell({ label, value, color = "#fff", small = false }) {
   return (
     <div style={{ textAlign: "center" }}>
       <div style={{ color: "#aaa", fontSize: 10, marginBottom: 3 }}>{label}</div>
-      <div style={{ color, fontSize: small ? 11 : 14, fontWeight: "bold", lineHeight: 1.2 }}>{value}</div>
+      <div
+        style={{
+          color,
+          fontSize: small ? 11 : 14,
+          fontWeight: "bold",
+          lineHeight: 1.2,
+        }}
+      >
+        {value}
+      </div>
     </div>
   );
 }
