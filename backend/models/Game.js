@@ -30,7 +30,7 @@ const GameSchema = new mongoose.Schema(
       default: "waiting",
     },
     entryFee: { type: Number, default: 10 },
-    prizePool: { type: Number, default: 0 }, // Derash (80%)
+    prizePool: { type: Number, default: 0 },
     maxNumber: { type: Number, default: 75 },
     calledNumbers: { type: [Number], default: [] },
     players: { type: [PlayerSchema], default: [] },
@@ -53,12 +53,14 @@ const GameSchema = new mongoose.Schema(
         marked: [[Boolean]],
       },
     ],
-    // Regular games — countdown
+    winPattern: {
+      type: String,
+      enum: ["any-row", "any-column", "any-diagonal", "full-card"],
+      default: "any-row",
+    },
     selectionEndsAt: { type: Date },
-    // Weekly games (ROOM50, ROOM100)
     isWeeklyGame: { type: Boolean, default: false },
     scheduledStart: { type: Date },
-    // Timestamps
     startedAt: { type: Date },
     finishedAt: { type: Date },
   },

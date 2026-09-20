@@ -47,17 +47,44 @@ function generate1000Cards() {
   return arr;
 }
 
-function checkWin(marked) {
-  for (let r = 0; r < 5; r++) {
-    if (marked[r].every(Boolean)) return `row-${r + 1}`;
+// 👈 Winning patterns — one random pattern per game
+const WIN_PATTERNS = ["any-row", "any-column", "any-diagonal", "full-card"];
+
+function randomWinPattern() {
+  return WIN_PATTERNS[Math.floor(Math.random() * WIN_PATTERNS.length)];
+}
+
+function patternLabel(pattern) {
+  switch (pattern) {
+    case "any-row": return "ማንኛውም ረድፍ (Any Row)";
+    case "any-column": return "ማንኛውም አምድ (Any Column)";
+    case "any-diagonal": return "ዲያጎናል (Diagonal)";
+    case "full-card": return "ሙሉ ካርድ (Full Card)";
+    default: return pattern;
   }
-  for (let c = 0; c < 5; c++) {
-    if (marked.every((row) => row[c])) return `col-${c + 1}`;
+}
+
+// 👈 Check if marked grid satisfies the TARGET pattern
+function checkWin(marked, targetPattern) {
+  const hasRow = () => [0, 1, 2, 3, 4].some((r) => marked[r].every(Boolean));
+  const hasCol = () =>
+    [0, 1, 2, 3, 4].some((c) => marked.every((row) => row[c]));
+  const hasDiag1 = () => [0, 1, 2, 3, 4].every((i) => marked[i][i]);
+  const hasDiag2 = () => [0, 1, 2, 3, 4].every((i) => marked[i][4 - i]);
+  const hasFull = () => marked.every((row) => row.every(Boolean));
+
+  switch (targetPattern) {
+    case "any-row":
+      return hasRow() ? "row" : null;
+    case "any-column":
+      return hasCol() ? "column" : null;
+    case "any-diagonal":
+      return hasDiag1() || hasDiag2() ? "diagonal" : null;
+    case "full-card":
+      return hasFull() ? "full-card" : null;
+    default:
+      return null;
   }
-  if ([0, 1, 2, 3, 4].every((i) => marked[i][i])) return "diag-1";
-  if ([0, 1, 2, 3, 4].every((i) => marked[i][4 - i])) return "diag-2";
-  if (marked.every((row) => row.every(Boolean))) return "full-card";
-  return null;
 }
 
 function markNumber(card, marked, number) {
@@ -68,4 +95,12 @@ function markNumber(card, marked, number) {
   }
 }
 
-module.exports = { generate75BallCard, generate1000Cards, checkWin, markNumber };
+module.exports = {
+  generate75BallCard,
+  generate1000Cards,
+  checkWin,
+  markNumber,
+  randomWinPattern,
+  patternLabel,
+  WIN_PATTERNS,
+};

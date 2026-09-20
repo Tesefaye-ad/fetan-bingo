@@ -9,6 +9,20 @@ const HEADERS = [
   { letter: "O", color: "#ff9800" },
 ];
 
+const PATTERN_LABELS = {
+  "any-row": "ማንኛውም ረድፍ (Any Row)",
+  "any-column": "ማንኛውም አምድ (Any Column)",
+  "any-diagonal": "ዲያጎናል (Diagonal)",
+  "full-card": "ሙሉ ካርድ (Full Card)",
+};
+
+const PATTERN_ICONS = {
+  "any-row": "➡️",
+  "any-column": "⬇️",
+  "any-diagonal": "↘️",
+  "full-card": "🟩",
+};
+
 function getLetter(num) {
   if (num <= 15) return { letter: "B", color: "#4c6ef5" };
   if (num <= 30) return { letter: "I", color: "#9c27b0" };
@@ -30,12 +44,14 @@ function LoadingDots() {
     return () => clearInterval(t);
   }, []);
   return (
-    <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 10 }}>
+    <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 10 }}>
       {[0, 1, 2].map((i) => (
         <div
           key={i}
           style={{
-            width: 10, height: 10, borderRadius: "50%",
+            width: 8,
+            height: 8,
+            borderRadius: "50%",
             background: active >= i ? "#e91e63" : "#3a3a55",
             transition: "background 0.3s",
           }}
@@ -63,6 +79,9 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
   const [watching, setWatching] = useState(false);
   const [nextGameCountdown, setNextGameCountdown] = useState(0);
   const [soundOn, setSoundOn] = useState(false);
+  const [winPattern, setWinPattern] = useState("any-row");
+  const [showPatternBanner, setShowPatternBanner] = useState(false);
+  const [flashNumber, setFlashNumber] = useState(false);
 
   useEffect(() => {
     soundOnRef.current = soundOn;
@@ -97,6 +116,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
       setPrizePool(s.prizePool);
       setEntryFee(s.entryFee || 0);
       setCalledNumbers(s.calledNumbers || []);
+      if (s.winPattern) setWinPattern(s.winPattern);
       if (s.calledNumbers?.length) {
         const last = s.calledNumbers[s.calledNumbers.length - 1];
         setLastNumber(last);
@@ -104,18 +124,28 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
       }
     });
 
-    socket.on("game_started", () => {
+    socket.on("game_started", (data) => {
       setStatus("active");
       setBanner("");
+      if (data.winPattern) {
+        setWinPattern(data.winPattern);
+        setShowPatternBanner(true);
+        setTimeout(() => setShowPatternBanner(false), 5000);
+      }
     });
 
-    // 👈 NUMBER CALLED — highlight + show prominently
-    socket.on("number_called", ({ number, letter, calledNumbers: cn }) => {
+    // ─── NUMBER CALLED — flash animation ───
+    socket.on("number_called", ({ number, letter, calledNumbers: cn, winPattern: wp }) => {
       setLastNumber(number);
       setLastLetter(letter || getLetter(number).letter);
       setCalledNumbers(cn);
+      if (wp) setWinPattern(wp);
 
-      // Auto-mark client-side too (server also marks)
+      // Flash animation
+      setFlashNumber(true);
+      setTimeout(() => setFlashNumber(false), 600);
+
+      // Auto-mark client-side
       setCards((prev) =>
         prev.map((ci) => {
           const m = ci.marked.map((r) => [...r]);
@@ -134,6 +164,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
     socket.on("bingo_claimed", (d) => {
       const names = d.winners.map((w) => w.name).join(", ");
       setBanner(`🎉 BINGO! ${names} won!`);
+      if (d.winPattern) setWinPattern(d.winPattern);
     });
 
     socket.on("bingo_rejected", ({ message }) => setBanner(message));
@@ -141,6 +172,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
     socket.on("game_over", (r) => {
       setStatus("finished");
       setGameOver(r);
+      if (r.winPattern) setWinPattern(r.winPattern);
       if (r.nextGameAt) {
         const rem = Math.max(0, Math.floor((new Date(r.nextGameAt) - Date.now()) / 1000));
         setNextGameCountdown(rem);
@@ -202,8 +234,48 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
         paddingBottom: 80,
       }}
     >
+      {/* ─── WIN PATTERN BANNER ─── */}
+      <div
+        style={{
+          background: "linear-gradient(135deg, #f39c12, #e67e22)",
+          padding: "12px 14px",
+          borderRadius: 12,
+          marginBottom: 10,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          boxShadow: "0 4px 15px rgba(243,156,18,0.4)",
+          transform: showPatternBanner ? "scale(1.02)" : "scale(1)",
+          transition: "transform 0.3s",
+        }}
+      >
+        <div style={{ fontSize: 32 }}>{PATTERN_ICONS[winPattern] || "🎯"}</div>
+        <div style={{ flex: 1 }}>
+          <div
+            style={{
+              fontSize: 10,
+              color: "rgba(255,255,255,0.85)",
+              letterSpacing: 1,
+              marginBottom: 2,
+            }}
+          >
+            🏆 የማሸነፊያ ፓተርን (Winning Pattern)
+          </div>
+          <div style={{ fontSize: 15, fontWeight: "bold", color: "#fff" }}>
+            {PATTERN_LABELS[winPattern] || winPattern}
+          </div>
+        </div>
+      </div>
+
       {/* ─── TOP STATS ─── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4, marginBottom: 8 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(5, 1fr)",
+          gap: 4,
+          marginBottom: 8,
+        }}
+      >
         <Stat label="Game ID" value={roomCode} color="#f39c12" />
         <Stat label="Players" value={playerCount} />
         <Stat label="Bet" value={entryFee} />
@@ -236,11 +308,17 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
             borderRadius: 10,
             padding: 6,
             overflowY: "auto",
-            maxHeight: "calc(100vh - 180px)",
+            maxHeight: "calc(100vh - 260px)",
           }}
         >
-          {/* B-I-N-G-O headers */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 3, marginBottom: 3 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(5, 1fr)",
+              gap: 3,
+              marginBottom: 3,
+            }}
+          >
             {HEADERS.map((h) => (
               <div
                 key={h.letter}
@@ -262,7 +340,15 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
           {cards.length > 0 ? (
             cards.map((ci, idx) => (
               <div key={idx} style={{ marginBottom: cards.length > 1 ? 10 : 0 }}>
-                <div style={{ textAlign: "center", color: "#f39c12", fontSize: 10, fontWeight: "bold", marginBottom: 4 }}>
+                <div
+                  style={{
+                    textAlign: "center",
+                    color: "#f39c12",
+                    fontSize: 10,
+                    fontWeight: "bold",
+                    marginBottom: 4,
+                  }}
+                >
                   #{ci.cardId}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 3 }}>
@@ -291,7 +377,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
-                            transition: "background 0.3s",
+                            transition: "background 0.2s",
                           }}
                         >
                           {free ? "★" : v}
@@ -323,7 +409,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                       alignItems: "center",
                       justifyContent: "center",
                       border: isLast ? "2px solid #ffd43b" : "1px solid #333",
-                      transition: "background 0.3s",
+                      transition: "background 0.2s",
                     }}
                   >
                     {n}
@@ -334,18 +420,19 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
           )}
         </div>
 
-        {/* RIGHT — current number + status */}
+        {/* RIGHT — current number */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {/* 👈 CURRENT NUMBER (big circle) */}
           <div
             style={{
               background: "#1a1a2e",
-              border: "1px solid #f39c12",
+              border: flashNumber ? "2px solid #ffd43b" : "1px solid #f39c12",
               borderRadius: 10,
               padding: 12,
               textAlign: "center",
               minHeight: 160,
               position: "relative",
+              transition: "border 0.3s, box-shadow 0.3s",
+              boxShadow: flashNumber ? "0 0 25px rgba(255,212,59,0.6)" : "none",
             }}
           >
             <button
@@ -385,6 +472,8 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                   margin: "0 auto",
                   border: "4px solid #f39c12",
                   boxShadow: "0 0 30px rgba(243,156,18,0.7)",
+                  transform: flashNumber ? "scale(1.15)" : "scale(1)",
+                  transition: "transform 0.3s ease-out",
                 }}
               >
                 {lastLetter || lastInfo.letter}-{lastNumber}
@@ -398,7 +487,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
             <LoadingDots />
           </div>
 
-          {/* Status box */}
+          {/* Status box (without Watching Only text) */}
           <div
             style={{
               background: "#1a1a2e",
@@ -410,21 +499,12 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
               flexDirection: "column",
               justifyContent: "center",
               alignItems: "center",
-              minHeight: 180,
+              minHeight: 120,
             }}
           >
-            {watching ? (
-              <>
-                <div style={{ color: "#fff", fontSize: 16, fontWeight: "bold", marginBottom: 12 }}>
-                  Watching Only
-                </div>
-                <div style={{ color: "#aaa", fontSize: 12, textAlign: "center", lineHeight: 1.8 }}>
-                  የእርስዎ ካርቴላ<br />የለም። ጨዋታውን<br />ይከታተሉ::
-                </div>
-              </>
-            ) : status === "waiting" ? (
+            {status === "waiting" ? (
               <div style={{ color: "#f39c12", fontSize: 13, textAlign: "center", lineHeight: 1.8 }}>
-                🎯 ተጫዋቾች<br />እስኪገቡ ድረስ<br />በመጠበቅ ላይ...
+                🎯 ጨዋታው<br />በቅርቡ ይጀመራል
               </div>
             ) : status === "active" ? (
               <div style={{ color: "#2ecc71", fontSize: 14, textAlign: "center", lineHeight: 1.8 }}>
@@ -524,7 +604,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                 {gameOver.winners.length > 1 ? "s" : ""} won!
               </p>
 
-              {/* Winners pills */}
               <div
                 style={{
                   display: "flex",
@@ -551,7 +630,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                 ))}
               </div>
 
-              {/* Winning cartela (first winner) */}
               {gameOver.winners[0].card && (
                 <div
                   style={{
@@ -572,7 +650,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                       textAlign: "center",
                     }}
                   >
-                    🏆 Winning Cartela : {gameOver.winners[0].cardId}
+                    🏆 Cartela #{gameOver.winners[0].cardId}
                   </div>
                   <div
                     style={{
@@ -659,8 +737,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                 }}
               />
               <span style={{ color: "#fff", fontSize: 13 }}>
-                Auto-starting next game in{" "}
-                <b style={{ color: "#f39c12" }}>{nextGameCountdown}s</b>
+                Next game in <b style={{ color: "#f39c12" }}>{nextGameCountdown}s</b>
               </span>
             </div>
           )}
