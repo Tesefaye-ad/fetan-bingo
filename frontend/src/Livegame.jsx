@@ -273,11 +273,12 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
   }, [bingoPopup, onGameEnded, onExit]);
 
   // ─── የቀጣይ ጨዋታ ቆጣሪ ───
-  useEffect(() => {
+    useEffect(() => {
     if (nextGameCountdown <= 0) return;
     const t = setTimeout(() => {
-      setNextGameCountdown((c) => c - 1);
-      if (soundOn && c <= 3) sound.tick();
+      setNextGameCountdown((prev) => prev - 1);
+      // 👈 'c' ይልቅ 'nextGameCountdown' ተጠቀም
+      if (soundOn && nextGameCountdown <= 3) sound.tick();
     }, 1000);
     return () => clearTimeout(t);
   }, [nextGameCountdown, soundOn]);
