@@ -413,21 +413,23 @@ function initGameSocket(io) {
   // ═══════════════════════════════════════════════════════
   // PROCESS WINNERS — ሽልማት አከፋፍል
   // ═══════════════════════════════════════════════════════
-  async function processWinners(io, game, winners) {
+    async function processWinners(io, game, winners) {
     stopCaller(game.roomCode);
 
     if (!game.winningCartelas) game.winningCartelas = [];
     if (!game.winners) game.winners = [];
 
+    // ─── Collect winning cartelas ───
     for (const { player, pattern } of winners) {
       const playerUser = await User.findById(player.user);
       if (!playerUser) continue;
 
       game.winningCartelas.push({
+        userId: playerUser._id.toString(),
         telegramId: player.telegramId || String(playerUser.telegramId),
         name: playerUser.username || playerUser.firstName || "Player",
         cardId: player.cardId,
-        pattern,
+        pattern,             // sub-pattern: "row-3", "diag-1", etc.
         card: player.card,
         marked: player.marked,
       });
@@ -439,23 +441,29 @@ function initGameSocket(io) {
 
     await game.save();
 
+    // ─── Prize distribution (80% split evenly per winning cartela) ───
     const totalCartelas = game.winningCartelas.length;
     const prizePerCartela = Math.floor(game.prizePool / totalCartelas);
 
-    // Prize per user (may hold multiple winning cartelas)
     const userPrizeMap = {};
     for (const wc of game.winningCartelas) {
       userPrizeMap[wc.telegramId] =
         (userPrizeMap[wc.telegramId] || 0) + prizePerCartela;
     }
 
+    const winnersPanelData = [];
+
     for (const tgId of Object.keys(userPrizeMap)) {
       const user = await User.findOne({ telegramId: tgId });
       if (!user) continue;
 
       const prize = userPrizeMap[tgId];
+      const cartelaCount = game.winningCartelas.filter(
+        (w) => w.telegramId === tgId
+      ).length;
+
       user.balance += prize;
-      user.gamesWon += game.winningCartelas.filter((w) => w.telegramId === tgId).length;
+      user.gamesWon += cartelaCount;
       user.totalWinnings = (user.totalWinnings || 0) + prize;
       await user.save();
 
@@ -467,35 +475,48 @@ function initGameSocket(io) {
         game: game._id,
       });
 
-      // Notify that user directly
+      // Send updated balance to the winner (live)
       for (const s of io.sockets.sockets.values()) {
         if (String(s.telegramId) === String(tgId)) {
           s.emit("balance_update", { balance: user.balance });
         }
       }
+
+      winnersPanelData.push({
+        userId: user._id.toString(),
+        telegramId: tgId,
+        name: user.username || user.firstName || "Player",
+        cartelas: game.winningCartelas
+          .filter((w) => w.telegramId === tgId)
+          .map((w) => w.cardId),
+        prize,
+        newBalance: user.balance,
+      });
     }
 
-    // Broadcast BINGO! to everyone in room
+    // ─── Broadcast BINGO + Winners Panel data ───
     io.to(game.roomCode).emit("bingo_claimed", {
-      winners: game.winningCartelas.map((w) => ({
+      winPattern: game.winPattern,
+      prizePool: game.prizePool,
+      prizePerCartela,
+      totalCartelas,
+      winners: winnersPanelData,
+      winningCartelas: game.winningCartelas.map((w) => ({
         telegramId: w.telegramId,
         name: w.name,
         cardId: w.cardId,
-        pattern: w.pattern,
+        subPattern: w.pattern,
         card: w.card,
         marked: w.marked,
       })),
-      totalWinners: game.winningCartelas.length,
-      prizePool: game.prizePool,
-      winPattern: game.winPattern,
     });
 
     console.log(
-      `[processWinners] ${game.roomCode} — ${game.winningCartelas.length} cartela(s) won`
+      `[processWinners] ${game.roomCode} — ${totalCartelas} cartela(s), ${winnersPanelData.length} user(s)`
     );
 
-    // Show winner screen for 3s, then finish
-    setTimeout(() => finishGame(io, game.roomCode), 3000);
+    // Show winner screen for 6s, then finish
+    setTimeout(() => finishGame(io, game.roomCode), 6000);
   }
 
   // ═══════════════════════════════════════════════════════

@@ -47,39 +47,71 @@ function generate1000Cards() {
   return arr;
 }
 
-// 👈 Winning patterns — one random pattern per game
-const WIN_PATTERNS = ["any-row", "any-column", "any-diagonal", "full-card"];
+// ═══════════════════════════════════════════════════════
+// WIN PATTERNS — 5 patterns including 4-corners
+// ═══════════════════════════════════════════════════════
+const WIN_PATTERNS = [
+  "any-row",
+  "any-column",
+  "any-diagonal",
+  "four-corners",
+  "full-card",
+];
 
 function randomWinPattern() {
   return WIN_PATTERNS[Math.floor(Math.random() * WIN_PATTERNS.length)];
 }
 
 function patternLabel(pattern) {
-  switch (pattern) {
-    case "any-row": return "ማንኛውም ረድፍ (Any Row)";
-    case "any-column": return "ማንኛውም አምድ (Any Column)";
-    case "any-diagonal": return "ዲያጎናል (Diagonal)";
-    case "full-card": return "ሙሉ ካርድ (Full Card)";
-    default: return pattern;
-  }
+  const labels = {
+    "any-row": "ማንኛውም ረድፍ (Any Row)",
+    "any-column": "ማንኛውም አምድ (Any Column)",
+    "any-diagonal": "ዲያጎናል (Diagonal)",
+    "four-corners": "4 ማዕዘን (4 Corners)",
+    "full-card": "ሙሉ ካርድ (Full Card)",
+  };
+  return labels[pattern] || pattern;
 }
 
-// 👈 Check if marked grid satisfies the TARGET pattern
+// ═══════════════════════════════════════════════════════
+// Check if marked grid satisfies target pattern
+// Returns sub-pattern name (e.g. "row-3", "diag-1") or null
+// ═══════════════════════════════════════════════════════
 function checkWin(marked, targetPattern) {
-  const hasRow = () => [0, 1, 2, 3, 4].some((r) => marked[r].every(Boolean));
-  const hasCol = () =>
-    [0, 1, 2, 3, 4].some((c) => marked.every((row) => row[c]));
+  const findRow = () => {
+    for (let r = 0; r < 5; r++) {
+      if (marked[r].every(Boolean)) return `row-${r + 1}`;
+    }
+    return null;
+  };
+  const findCol = () => {
+    for (let c = 0; c < 5; c++) {
+      if (marked.every((row) => row[c])) return `col-${c + 1}`;
+    }
+    return null;
+  };
   const hasDiag1 = () => [0, 1, 2, 3, 4].every((i) => marked[i][i]);
   const hasDiag2 = () => [0, 1, 2, 3, 4].every((i) => marked[i][4 - i]);
+  const hasFourCorners = () =>
+    marked[0][0] && marked[0][4] && marked[4][0] && marked[4][4];
   const hasFull = () => marked.every((row) => row.every(Boolean));
 
   switch (targetPattern) {
-    case "any-row":
-      return hasRow() ? "row" : null;
-    case "any-column":
-      return hasCol() ? "column" : null;
-    case "any-diagonal":
-      return hasDiag1() || hasDiag2() ? "diagonal" : null;
+    case "any-row": {
+      const r = findRow();
+      return r;
+    }
+    case "any-column": {
+      const c = findCol();
+      return c;
+    }
+    case "any-diagonal": {
+      if (hasDiag1()) return "diag-1";
+      if (hasDiag2()) return "diag-2";
+      return null;
+    }
+    case "four-corners":
+      return hasFourCorners() ? "four-corners" : null;
     case "full-card":
       return hasFull() ? "full-card" : null;
     default:

@@ -13,6 +13,7 @@ const PATTERN_LABELS = {
   "any-row": "ማንኛውም ረድፍ (Any Row)",
   "any-column": "ማንኛውም አምድ (Any Column)",
   "any-diagonal": "ዲያጎናል (Diagonal)",
+  "four-corners": "4 ማዕዘን (4 Corners)",
   "full-card": "ሙሉ ካርድ (Full Card)",
 };
 
@@ -20,6 +21,7 @@ const PATTERN_ICONS = {
   "any-row": "➡️",
   "any-column": "⬇️",
   "any-diagonal": "↘️",
+  "four-corners": "🔲",
   "full-card": "🟩",
 };
 
@@ -37,34 +39,9 @@ function buildBoard() {
   return out;
 }
 
-function LoadingDots() {
-  const [active, setActive] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setActive((a) => (a + 1) % 3), 400);
-    return () => clearInterval(t);
-  }, []);
-  return (
-    <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 10 }}>
-      {[0, 1, 2].map((i) => (
-        <div
-          key={i}
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            background: active >= i ? "#e91e63" : "#3a3a55",
-            transition: "background 0.3s",
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
 export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBalance }) {
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
-  const soundOnRef = useRef(false);
 
   const [cards, setCards] = useState([]);
   const [status, setStatus] = useState("waiting");
@@ -74,20 +51,13 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
   const [playerCount, setPlayerCount] = useState(0);
   const [prizePool, setPrizePool] = useState(0);
   const [entryFee, setEntryFee] = useState(0);
-  const [banner, setBanner] = useState("");
-  const [gameOver, setGameOver] = useState(null);
-  const [nextGameCountdown, setNextGameCountdown] = useState(0);
-  const [soundOn, setSoundOn] = useState(false);
   const [winPattern, setWinPattern] = useState("any-row");
-  const [showPatternBanner, setShowPatternBanner] = useState(false);
   const [flashNumber, setFlashNumber] = useState(false);
-
-  useEffect(() => {
-    soundOnRef.current = soundOn;
-  }, [soundOn]);
+  const [bingoPopup, setBingoPopup] = useState(null);
+  const [nextGameCountdown, setNextGameCountdown] = useState(0);
 
   // ═══════════════════════════════════════════════════
-  // SOCKET SETUP
+  // SOCKET
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     const socket = getSocket();
@@ -125,12 +95,8 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
 
     socket.on("game_started", (data) => {
       setStatus("active");
-      setBanner("");
-      if (data.winPattern) {
-        setWinPattern(data.winPattern);
-        setShowPatternBanner(true);
-        setTimeout(() => setShowPatternBanner(false), 5000);
-      }
+      setBingoPopup(null);
+      if (data.winPattern) setWinPattern(data.winPattern);
     });
 
     socket.on("number_called", ({ number, letter, calledNumbers: cn, winPattern: wp }) => {
@@ -139,11 +105,9 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
       setCalledNumbers(cn);
       if (wp) setWinPattern(wp);
 
-      // Flash animation
       setFlashNumber(true);
       setTimeout(() => setFlashNumber(false), 600);
 
-      // Client-side mark
       setCards((prev) =>
         prev.map((ci) => {
           const m = ci.marked.map((r) => [...r]);
@@ -154,35 +118,26 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
         })
       );
 
-      if (soundOnRef.current && window.navigator.vibrate) {
-        window.navigator.vibrate(80);
-      }
+      if (window.navigator.vibrate) window.navigator.vibrate(80);
     });
 
-    socket.on("bingo_claimed", (d) => {
-      const names = d.winners.map((w) => w.name).join(", ");
-      setBanner(`🎉 BINGO! ${names} won!`);
-      if (d.winPattern) setWinPattern(d.winPattern);
+    // ─── BINGO POPUP + WINNERS PANEL ───
+    socket.on("bingo_claimed", (data) => {
+      console.log("[LiveGame] BINGO:", data);
+      setStatus("finished");
+      setBingoPopup(data);
     });
-
-    socket.on("bingo_rejected", ({ message }) => setBanner(message));
 
     socket.on("game_over", (r) => {
-      setStatus("finished");
-      setGameOver(r);
       if (r.winPattern) setWinPattern(r.winPattern);
       if (r.nextGameAt) {
-        const rem = Math.max(
-          0,
-          Math.floor((new Date(r.nextGameAt) - Date.now()) / 1000)
-        );
+        const rem = Math.max(0, Math.floor((new Date(r.nextGameAt) - Date.now()) / 1000));
         setNextGameCountdown(rem);
       }
     });
 
     socket.on("next_game_ready", () => {
-      setGameOver(null);
-      setBanner("");
+      setBingoPopup(null);
       setLastNumber(null);
       setLastLetter(null);
       setCalledNumbers([]);
@@ -191,42 +146,31 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
     });
 
     socket.on("balance_update", ({ balance: b }) => setBalance(b));
-    socket.on("error_message", ({ message }) => {
-      if (!message.includes("Insufficient")) setBanner(message);
-    });
 
     return () => {
       socket.emit("leave_room");
       joinedRef.current = false;
       [
-        "your_cards",
-        "room_state",
-        "game_started",
-        "number_called",
-        "bingo_claimed",
-        "bingo_rejected",
-        "game_over",
-        "next_game_ready",
-        "balance_update",
-        "error_message",
+        "your_cards", "room_state", "game_started", "number_called",
+        "bingo_claimed", "game_over", "next_game_ready", "balance_update",
       ].forEach((e) => socket.off(e));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode, setBalance]);
 
-  // ─── Countdown tick ───
+  // ─── Auto-return 6s after BINGO popup ───
+  useEffect(() => {
+    if (!bingoPopup) return;
+    const t = setTimeout(() => (onGameEnded ? onGameEnded() : onExit()), 6000);
+    return () => clearTimeout(t);
+  }, [bingoPopup, onGameEnded, onExit]);
+
+  // ─── Next-game countdown ───
   useEffect(() => {
     if (nextGameCountdown <= 0) return;
     const t = setTimeout(() => setNextGameCountdown((c) => c - 1), 1000);
     return () => clearTimeout(t);
   }, [nextGameCountdown]);
-
-  // ─── Auto-return 5s after winner screen ───
-  useEffect(() => {
-    if (!gameOver) return;
-    const t = setTimeout(() => (onGameEnded ? onGameEnded() : onExit()), 5000);
-    return () => clearTimeout(t);
-  }, [gameOver, onGameEnded, onExit]);
 
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
 
@@ -242,10 +186,10 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
         paddingBottom: 80,
       }}
     >
-      {/* ─── WIN PATTERN BANNER ─── */}
+      {/* ═══ WIN PATTERN BANNER ═══ */}
       <div
         style={{
-          background: "linear-gradient(135deg, #f39c12, #e67e22)",
+          background: "linear-gradient(135deg,#f39c12,#e67e22)",
           padding: "12px 14px",
           borderRadius: 12,
           marginBottom: 10,
@@ -253,20 +197,11 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
           alignItems: "center",
           gap: 12,
           boxShadow: "0 4px 15px rgba(243,156,18,0.4)",
-          transform: showPatternBanner ? "scale(1.02)" : "scale(1)",
-          transition: "transform 0.3s",
         }}
       >
         <div style={{ fontSize: 32 }}>{PATTERN_ICONS[winPattern] || "🎯"}</div>
         <div style={{ flex: 1 }}>
-          <div
-            style={{
-              fontSize: 10,
-              color: "rgba(255,255,255,0.85)",
-              letterSpacing: 1,
-              marginBottom: 2,
-            }}
-          >
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.85)", letterSpacing: 1, marginBottom: 2 }}>
             🏆 የማሸነፊያ ፓተርን (Winning Pattern)
           </div>
           <div style={{ fontSize: 15, fontWeight: "bold", color: "#fff" }}>
@@ -275,7 +210,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
         </div>
       </div>
 
-      {/* ─── TOP STATS ─── */}
+      {/* ═══ TOP STATS ═══ */}
       <div
         style={{
           display: "grid",
@@ -291,22 +226,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
         <Stat label="Called" value={calledNumbers.length} />
       </div>
 
-      {banner && (
-        <div
-          style={{
-            background: "#2c3550",
-            padding: "6px 10px",
-            borderRadius: 8,
-            fontSize: 12,
-            marginBottom: 8,
-            textAlign: "center",
-          }}
-        >
-          {banner}
-        </div>
-      )}
-
-      {/* ─── MAIN GRID ─── */}
+      {/* ═══ MAIN ═══ */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         {/* LEFT — BINGO board */}
         <div
@@ -407,11 +327,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                     key={n}
                     style={{
                       aspectRatio: 1,
-                      background: isLast
-                        ? "#ff9800"
-                        : called
-                        ? info.color
-                        : "#252d44",
+                      background: isLast ? "#ff9800" : called ? info.color : "#252d44",
                       color: "#fff",
                       fontSize: 12,
                       fontWeight: "bold",
@@ -441,28 +357,10 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
               padding: 12,
               textAlign: "center",
               minHeight: 160,
-              position: "relative",
               transition: "border 0.3s, box-shadow 0.3s",
               boxShadow: flashNumber ? "0 0 25px rgba(255,212,59,0.6)" : "none",
             }}
           >
-            <button
-              onClick={() => setSoundOn((s) => !s)}
-              style={{
-                position: "absolute",
-                top: 8,
-                right: 8,
-                background: "transparent",
-                border: "none",
-                color: soundOn ? "#ffd43b" : "#666",
-                fontSize: 18,
-                cursor: "pointer",
-                padding: 0,
-              }}
-            >
-              {soundOn ? "🔊" : "🔇"}
-            </button>
-
             <div style={{ color: "#aaa", fontSize: 10, marginBottom: 6, letterSpacing: 1 }}>
               CURRENT
             </div>
@@ -494,11 +392,8 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                 በመጠበቅ ላይ...
               </div>
             )}
-
-            <LoadingDots />
           </div>
 
-          {/* Status box */}
           <div
             style={{
               background: "#1a1a2e",
@@ -513,24 +408,26 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
               minHeight: 120,
             }}
           >
-            {status === "waiting" ? (
+            {status === "waiting" && (
               <div style={{ color: "#f39c12", fontSize: 13, textAlign: "center", lineHeight: 1.8 }}>
                 🎯 ጨዋታው<br />በቅርቡ ይጀመራል
               </div>
-            ) : status === "active" ? (
+            )}
+            {status === "active" && (
               <div style={{ color: "#2ecc71", fontSize: 14, textAlign: "center", lineHeight: 1.8 }}>
                 🎯 ጨዋታው<br />በሂደት ላይ ነው
               </div>
-            ) : status === "finished" ? (
+            )}
+            {status === "finished" && (
               <div style={{ color: "#f39c12", fontSize: 14, textAlign: "center", lineHeight: 1.8 }}>
                 🏁 ጨዋታው<br />ተጠናቅቋል
               </div>
-            ) : null}
+            )}
           </div>
         </div>
       </div>
 
-      {/* ─── BOTTOM BUTTON ─── */}
+      {/* ═══ BOTTOM ═══ */}
       <div
         style={{
           position: "fixed",
@@ -562,8 +459,10 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
         </button>
       </div>
 
-      {/* ─── WINNER OVERLAY ─── */}
-      {gameOver && (
+      {/* ═══════════════════════════════════════════════
+          BINGO POPUP + WINNERS PANEL
+         ═══════════════════════════════════════════════ */}
+      {bingoPopup && (
         <div
           style={{
             position: "fixed",
@@ -572,25 +471,26 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "flex-start",
             padding: "20px 15px",
-            gap: 12,
+            gap: 14,
             zIndex: 100,
             overflowY: "auto",
           }}
         >
+          {/* Crown */}
           <div
             style={{
-              width: 70,
-              height: 70,
+              width: 80,
+              height: 80,
               borderRadius: "50%",
               background: "linear-gradient(135deg,#f39c12,#e67e22)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 38,
-              boxShadow: "0 0 40px rgba(243,156,18,0.7)",
-              marginTop: 20,
+              fontSize: 44,
+              boxShadow: "0 0 50px rgba(243,156,18,0.8)",
+              marginTop: 10,
+              animation: "popIn 0.5s ease-out",
             }}
           >
             👑
@@ -600,120 +500,177 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
             style={{
               color: "#f39c12",
               margin: 0,
-              fontSize: 36,
-              letterSpacing: 3,
+              fontSize: 42,
+              letterSpacing: 4,
               fontWeight: "bold",
+              textShadow: "0 0 20px rgba(243,156,18,0.6)",
             }}
           >
             BINGO!
           </h2>
 
-          {gameOver.winners?.length ? (
-            <>
-              <p style={{ color: "#fff", fontSize: 20, margin: 0, fontWeight: "bold" }}>
-                🎉 {gameOver.winners.length} player
-                {gameOver.winners.length > 1 ? "s" : ""} won!
-              </p>
+          <p style={{ color: "#fff", fontSize: 18, margin: 0, fontWeight: "bold" }}>
+            🎉 {bingoPopup.winners.length} winner
+            {bingoPopup.winners.length > 1 ? "s" : ""}!
+          </p>
 
+          {/* WINNING PATTERN */}
+          <div
+            style={{
+              background: "#1a1a2e",
+              border: "1px solid #f39c12",
+              borderRadius: 10,
+              padding: "8px 16px",
+              fontSize: 12,
+              color: "#f39c12",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <span style={{ fontSize: 18 }}>{PATTERN_ICONS[bingoPopup.winPattern] || "🎯"}</span>
+            <span>{PATTERN_LABELS[bingoPopup.winPattern] || bingoPopup.winPattern}</span>
+          </div>
+
+          {/* ═══ WINNERS PANEL ═══ */}
+          <div
+            style={{
+              background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
+              border: "2px solid #f39c12",
+              borderRadius: 16,
+              padding: 14,
+              width: "100%",
+              maxWidth: 400,
+            }}
+          >
+            <div
+              style={{
+                color: "#f39c12",
+                fontSize: 13,
+                fontWeight: "bold",
+                textAlign: "center",
+                marginBottom: 12,
+                letterSpacing: 1,
+              }}
+            >
+              🏆 WINNERS PANEL
+            </div>
+
+            {bingoPopup.winners.map((w, i) => (
               <div
+                key={i}
                 style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  justifyContent: "center",
-                  maxWidth: "95%",
+                  background: "#0f1420",
+                  border: "1px solid #2a2a40",
+                  borderRadius: 10,
+                  padding: 10,
+                  marginBottom: i < bingoPopup.winners.length - 1 ? 8 : 0,
                 }}
               >
-                {gameOver.winners.map((w, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      background: "#1a1a2e",
-                      border: "1px solid #f39c12",
-                      borderRadius: 20,
-                      padding: "6px 14px",
-                      fontSize: 12,
-                      color: "#fff",
-                    }}
-                  >
-                    🏆 {w.name}{" "}
-                    <span style={{ color: "#f39c12" }}>#{w.cardId}</span>
-                  </div>
-                ))}
-              </div>
-
-              {gameOver.winners[0].card && (
                 <div
                   style={{
-                    background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
-                    border: "2px solid #f39c12",
-                    borderRadius: 16,
-                    padding: 15,
-                    width: 340,
-                    maxWidth: "95%",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 6,
                   }}
                 >
+                  <div style={{ color: "#fff", fontSize: 14, fontWeight: "bold" }}>
+                    👤 {w.name}
+                  </div>
                   <div
                     style={{
-                      color: "#f39c12",
-                      fontSize: 14,
+                      background: "rgba(46,204,113,0.2)",
+                      color: "#2ecc71",
+                      borderRadius: 20,
+                      padding: "3px 10px",
+                      fontSize: 11,
                       fontWeight: "bold",
-                      marginBottom: 10,
+                    }}
+                  >
+                    +{w.prize} ETB
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: "#aaa", lineHeight: 1.7 }}>
+                  <div>
+                    🆔 Telegram ID:{" "}
+                    <span style={{ color: "#f39c12" }}>{w.telegramId}</span>
+                  </div>
+                  <div>
+                    🎴 Winning Cartela:{" "}
+                    <span style={{ color: "#f39c12", fontWeight: "bold" }}>
+                      {w.cartelas.map((c) => `#${c}`).join(", ")}
+                    </span>
+                  </div>
+                  <div>
+                    💰 New Balance:{" "}
+                    <span style={{ color: "#2ecc71", fontWeight: "bold" }}>
+                      {w.newBalance} ETB
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* ═══ WINNING CARTELA GRIDS ═══ */}
+          {bingoPopup.winningCartelas?.length > 0 && (
+            <div
+              style={{
+                background: "#1a1a2e",
+                border: "1px solid #2a2a40",
+                borderRadius: 12,
+                padding: 12,
+                width: "100%",
+                maxWidth: 400,
+              }}
+            >
+              <div
+                style={{
+                  color: "#f39c12",
+                  fontSize: 12,
+                  fontWeight: "bold",
+                  marginBottom: 8,
+                  textAlign: "center",
+                }}
+              >
+                🎴 WINNING CARTELAS ({bingoPopup.winningCartelas.length})
+              </div>
+
+              {bingoPopup.winningCartelas.slice(0, 2).map((wc, idx) => (
+                <div key={idx} style={{ marginBottom: 12 }}>
+                  <div
+                    style={{
+                      color: "#fff",
+                      fontSize: 12,
+                      marginBottom: 6,
                       textAlign: "center",
                     }}
                   >
-                    🏆 Cartela #{gameOver.winners[0].cardId}
+                    #{wc.cardId} — {wc.name}{" "}
+                    <span style={{ color: "#f39c12" }}>({wc.subPattern})</span>
                   </div>
                   <div
                     style={{
                       display: "grid",
                       gridTemplateColumns: "repeat(5, 1fr)",
-                      gap: 4,
-                      marginBottom: 4,
+                      gap: 3,
                     }}
                   >
-                    {HEADERS.map((h) => (
-                      <div
-                        key={h.letter}
-                        style={{
-                          background: h.color,
-                          color: "#fff",
-                          textAlign: "center",
-                          fontWeight: "bold",
-                          fontSize: 14,
-                          padding: "6px 0",
-                          borderRadius: 6,
-                        }}
-                      >
-                        {h.letter}
-                      </div>
-                    ))}
-                  </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(5, 1fr)",
-                      gap: 4,
-                    }}
-                  >
-                    {gameOver.winners[0].card.map((row, r) =>
+                    {wc.card.map((row, r) =>
                       row.map((v, c) => {
-                        const m = gameOver.winners[0].marked?.[r]?.[c];
+                        const m = wc.marked?.[r]?.[c];
                         const free = r === 2 && c === 2;
                         return (
                           <div
                             key={`${r}-${c}`}
                             style={{
                               aspectRatio: 1,
-                              background: free
-                                ? "#4caf50"
-                                : m
-                                ? "#f39c12"
-                                : "#fff",
+                              background: free ? "#4caf50" : m ? "#f39c12" : "#fff",
                               color: m || free ? "#fff" : "#1b2233",
-                              fontSize: 14,
+                              fontSize: 12,
                               fontWeight: "bold",
-                              borderRadius: 6,
+                              borderRadius: 5,
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
@@ -727,50 +684,39 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                     )}
                   </div>
                 </div>
-              )}
-
-              <p
-                style={{
-                  color: "#2ecc71",
-                  fontSize: 16,
-                  fontWeight: "bold",
-                  margin: 0,
-                }}
-              >
-                💰 Prize Pool: {gameOver.prizePool} ETB
-              </p>
-            </>
-          ) : (
-            <p style={{ color: "#fff", fontSize: 16 }}>No winner this round.</p>
-          )}
-
-          {nextGameCountdown > 0 && (
-            <div
-              style={{
-                background: "#1a1a2e",
-                border: "1px solid #2a2a40",
-                borderRadius: 20,
-                padding: "8px 18px",
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
-              <div
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: "#f39c12",
-                  animation: "pulse 1s infinite",
-                }}
-              />
-              <span style={{ color: "#fff", fontSize: 13 }}>
-                Next game in{" "}
-                <b style={{ color: "#f39c12" }}>{nextGameCountdown}s</b>
-              </span>
+              ))}
             </div>
           )}
+
+          {/* TOTAL PRIZE */}
+          <div
+            style={{
+              background: "linear-gradient(135deg,#2ecc71,#27ae60)",
+              borderRadius: 12,
+              padding: "10px 24px",
+              fontSize: 16,
+              fontWeight: "bold",
+              color: "#fff",
+              textShadow: "0 1px 3px rgba(0,0,0,0.3)",
+            }}
+          >
+            💰 Total Pool: {bingoPopup.prizePool} ETB
+          </div>
+
+          {nextGameCountdown > 0 && (
+            <div style={{ color: "#aaa", fontSize: 13 }}>
+              ቀጣይ ጨዋታ በ{" "}
+              <b style={{ color: "#f39c12" }}>{nextGameCountdown}s</b>
+            </div>
+          )}
+
+          <style>{`
+            @keyframes popIn {
+              0% { transform: scale(0); opacity: 0; }
+              60% { transform: scale(1.15); opacity: 1; }
+              100% { transform: scale(1); }
+            }
+          `}</style>
         </div>
       )}
     </div>
