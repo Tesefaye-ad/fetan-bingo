@@ -4,8 +4,6 @@ import { getSocket } from "./socket";
 const API_BASE_URL =
   process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.onrender.com";
 
-const FALLBACK_TIMER_SECONDS = 50;
-
 export default function CartelaSelection({
   roomCode,
   balance,
@@ -22,7 +20,7 @@ export default function CartelaSelection({
   const [isWeekly, setIsWeekly] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchFailed, setFetchFailed] = useState(false);
-  const [retryKey, setRetryKey] = useState(0); // 👈 አዲስ — retry ለማስቀሰቀስ
+  const [retryKey, setRetryKey] = useState(0);
 
   const triggeredRef = useRef(false);
   const fetchedRef = useRef(false);
@@ -79,9 +77,7 @@ export default function CartelaSelection({
         // Taken cards (players + reserved)
         if (data.takenCards) setTakenCards(data.takenCards);
         if (data.reservedCards) {
-          setTakenCards((prev) => [
-            ...new Set([...prev, ...data.reservedCards]),
-          ]);
+          setTakenCards((prev) => [...new Set([...prev, ...data.reservedCards])]);
         }
 
         // Weekly rooms — no countdown
@@ -154,7 +150,6 @@ export default function CartelaSelection({
     return () => {
       cancelled = true;
     };
-    // 👈 retryKey ተጨምሯል — retry ሲደረግ effect እንደገና ይሮጣል
   }, [roomCode, isWeeklyRoom, retryKey]);
 
   // ═══════════════════════════════════════════════════
@@ -194,11 +189,8 @@ export default function CartelaSelection({
       for (let i = 1; i <= 1000; i++) if (!takenSet.has(i)) free.push(i);
       if (free.length) {
         // 👈 3 ካርዶች ምረጥ — አንዱ ከተያዘ ሌላው ይሞክራል
-        const picks = [];
         const shuffled = [...free].sort(() => Math.random() - 0.5);
-        for (let i = 0; i < Math.min(3, shuffled.length); i++) {
-          picks.push(shuffled[i]);
-        }
+        const picks = shuffled.slice(0, Math.min(3, shuffled.length));
         return onConfirm(picks);
       }
     }
@@ -261,7 +253,6 @@ export default function CartelaSelection({
     onConfirm(selectedCards);
   };
 
-  // 👈 ተስተካክሏል — አሁን በእውነት re-fetch ያደርጋል
   const retryFetch = () => {
     fetchedRef.current = false;
     confirmLockRef.current = false;
@@ -271,7 +262,7 @@ export default function CartelaSelection({
     setError("");
     setSelectedCards([]);
     setTakenCards([]);
-    setRetryKey((k) => k + 1); // 👈 effect እንደገና እንዲሮጥ ያደርጋል
+    setRetryKey((k) => k + 1);
   };
 
   const numbers = Array.from({ length: 1000 }, (_, i) => i + 1);

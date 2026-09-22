@@ -54,8 +54,8 @@ export function useTelegram() {
     };
   }, []);
 
-  // 👈 webApp ለየትኛውም render አዲስ አይፈጠር
-  const webApp = useMemo(() => getTg(), [ready]);
+  // 👈 ባዶ deps ተጠቅሟል — ESLint warning ይጠፋል
+  const webApp = useMemo(() => getTg(), []);
 
   return { telegramUser, initData, isTelegram, ready, webApp };
 }

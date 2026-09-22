@@ -183,7 +183,6 @@ export default function LiveGame({
 }) {
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
-  // 👈 soundOn ን በ ref አስቀምጥ — socket effect እንዳይቀየር
   const soundOnRef = useRef(true);
 
   const [cards, setCards] = useState([]);
@@ -214,7 +213,6 @@ export default function LiveGame({
     const socket = getSocket();
     socketRef.current = socket;
 
-    // ─── ሁሉንም handlers በስም ተለይተው ───
     const onDisconnect = () => {
       setIsConnected(false);
       console.log("[LiveGame] Disconnected");
@@ -294,7 +292,6 @@ export default function LiveGame({
       setCalledNumbers(cn);
       if (wp) setWinPattern(wp);
 
-      // 👈 soundOnRef.current ተጠቀም — soundOn ከ deps ስለሌለ
       if (soundOnRef.current) sound.callNumber();
 
       setFlashNumber(true);
@@ -345,7 +342,6 @@ export default function LiveGame({
 
     const onBalanceUpdate = ({ balance: b }) => setBalance(b);
 
-    // ─── ሁሉንም መዝግብ ───
     socket.on("disconnect", onDisconnect);
     socket.on("connect", onConnect);
     socket.on("state_restore", onStateRestore);
@@ -366,7 +362,6 @@ export default function LiveGame({
     return () => {
       socket.emit("leave_room");
       joinedRef.current = false;
-      // 👈 በስም አስወግድ — ሌሎች handlers አይጎዱም
       socket.off("disconnect", onDisconnect);
       socket.off("connect", onConnect);
       socket.off("state_restore", onStateRestore);
@@ -379,7 +374,6 @@ export default function LiveGame({
       socket.off("next_game_ready", onNextGameReady);
       socket.off("balance_update", onBalanceUpdate);
     };
-    // 👈 soundOn ከ deps ተወግዷል — አሁን socket አይጠፋም
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode, setBalance]);
 
@@ -451,6 +445,67 @@ export default function LiveGame({
         <Stat label="Called" value={calledNumbers.length} />
       </div>
 
+      {/* 👈 አዲስ — Status + Sound toggle ረድፍ */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 8,
+          padding: "6px 10px",
+          background: "#1a1a2e",
+          border: "1px solid #2a2a40",
+          borderRadius: 8,
+          fontSize: 11,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            color:
+              status === "active"
+                ? "#2ecc71"
+                : status === "finished"
+                ? "#e74c3c"
+                : "#f39c12",
+            fontWeight: "bold",
+          }}
+        >
+          <span>
+            {status === "active"
+              ? "🟢"
+              : status === "finished"
+              ? "🔴"
+              : "🟡"}
+          </span>
+          <span>
+            {status === "active"
+              ? "በመጫወት ላይ"
+              : status === "finished"
+              ? "ተጠናቅቋል"
+              : "በመጠበቅ ላይ"}
+          </span>
+        </div>
+
+        <button
+          onClick={() => setSoundOn((s) => !s)}
+          style={{
+            background: soundOn ? "#2ecc71" : "#555",
+            color: "#fff",
+            border: "none",
+            borderRadius: 8,
+            padding: "4px 10px",
+            fontSize: 12,
+            fontWeight: "bold",
+            cursor: "pointer",
+          }}
+        >
+          {soundOn ? "🔊 On" : "🔇 Off"}
+        </button>
+      </div>
+
       {/* ─── MAIN ─── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         {/* LEFT — BINGO board */}
@@ -461,7 +516,7 @@ export default function LiveGame({
             borderRadius: 10,
             padding: 6,
             overflowY: "auto",
-            maxHeight: "calc(100vh - 180px)",
+            maxHeight: "calc(100vh - 220px)",
           }}
         >
           <div
@@ -654,7 +709,7 @@ export default function LiveGame({
             )}
           </div>
 
-          {/* WINNING PATTERN BOX (Visual Preview) */}
+          {/* WINNING PATTERN BOX */}
           <div
             style={{
               background: "linear-gradient(135deg, #1a1a2e 0%, #0f1420 100%)",
