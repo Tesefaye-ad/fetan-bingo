@@ -635,17 +635,21 @@ function initGameSocket(io) {
         console.log(`[caller:${roomCode}] ${letter}-${num} (${g.calledNumbers.length}/75)`);
 
         // Send updated cards per user
-        const grouped = {};
-        for (const p of g.players) {
-          const uid = p.user.toString();
-          if (!grouped[uid]) grouped[uid] = { cards: [], markedCards: [], cardIds: [] };
-          grouped[uid].cards.push(p.card);
-          grouped[uid].markedCards.push(p.marked);
-          grouped[uid].cardIds.push(p.cardId);
-        }
-        for (const s of io.sockets.sockets.values()) {
-          if (s.userId && grouped[s.userId]) s.emit("your_cards", grouped[s.userId]);
-        }
+       const grouped = {};
+for (const p of g.players) {
+  const uid = p.user.toString();
+  if (!grouped[uid]) grouped[uid] = { cards: [], markedCards: [], cardIds: [] };
+  grouped[uid].cards.push(p.card);
+  grouped[uid].markedCards.push(p.marked);
+  grouped[uid].cardIds.push(p.cardId);
+}
+// 👈 በቀጥታ ለተጫዋቾች ብቻ ላክ
+for (const s of io.sockets.sockets.values()) {
+  if (s.userId && grouped[s.userId]) {
+    s.emit("your_cards", grouped[s.userId]);
+  }
+}
+// Watchers ብቻ `number_called` ያገኛሉ (ቀላል ነው)
 
         io.to(roomCode).emit("number_called", {
           number: num,
@@ -671,7 +675,8 @@ function initGameSocket(io) {
       }
     };
 
-    const initial = setTimeout(runCaller, 1500);
+    // 👈 ከ 1.5s ወደ 800ms
+const initial = setTimeout(runCaller, 800);
     activeCallers.set(roomCode, initial);
   }
 

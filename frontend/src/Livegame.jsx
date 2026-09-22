@@ -210,15 +210,22 @@ export default function LiveGame({
       setFlashNumber(true);
       setTimeout(() => setFlashNumber(false), 600);
 
-      setCards((prev) =>
-        prev.map((ci) => {
-          const m = ci.marked.map((r) => [...r]);
-          for (let r = 0; r < 5; r++)
-            for (let c = 0; c < 5; c++)
-              if (ci.card[r][c] === number) m[r][c] = true;
-          return { ...ci, marked: m };
-        })
-      );
+     // 👈 ካርድ ካለው ብቻ አዘምን (Watcher አያስፈልገውም)
+if (cards.length > 0) {
+  setCards((prev) =>
+    prev.map((ci) => {
+      const m = ci.marked.map((r) => [...r]);
+      let changed = false;
+      for (let r = 0; r < 5; r++)
+        for (let c = 0; c < 5; c++)
+          if (ci.card[r][c] === number) {
+            m[r][c] = true;
+            changed = true;
+          }
+      return changed ? { ...ci, marked: m } : ci;  // 👈 ካልተቀየረ አዲስ object አትፍጠር
+    })
+  );
+}
 
       if (window.navigator.vibrate) window.navigator.vibrate(80);
     });
