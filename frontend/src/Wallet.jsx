@@ -15,7 +15,7 @@ function Wallet({ balance, setBalance, showHistory }) {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
-  const [depositInfo, setDepositInfo] = useState(null);
+  // ❌ depositInfo ተሰርዟል (አያስፈልግም)
 
   useEffect(() => {
     if (showHistory) {
@@ -35,7 +35,7 @@ function Wallet({ balance, setBalance, showHistory }) {
     setMessage("");
     try {
       const data = await initiateDeposit(Number(amount));
-      setDepositInfo(data);
+      // ❌ setDepositInfo(data) ተሰርዟል
       setMessage(
         `✅ የዲፖዚት ጥያቄዎ ተልኳል!\n\n📞 ወደ Telebirr ይላኩ: ${data.telebirrPhone}\n💰 መጠን: ${data.amount} ETB\n🔖 Reference: ${data.reference}\n\nከተከፈሉ በኋላ SMS ቅዳ በ Bot ይላኩ።`
       );
@@ -65,7 +65,9 @@ function Wallet({ balance, setBalance, showHistory }) {
         withdrawPhone,
         "telebirr"
       );
-      setMessage("✅ የብር ማውጣት ጥያቄዎ ተልኳል! በ 24 ሰዓት ውስጥ ይስተናገዳል።");
+      setMessage(
+        "✅ የብር ማውጣት ጥያቄዎ ተልኳል! በ 24 ሰዓት ውስጥ ይስተናገዳል።"
+      );
       if (newBalance !== undefined) setBalance(newBalance);
       setWithdrawAmount("");
       setWithdrawPhone("");
@@ -137,7 +139,10 @@ function Wallet({ balance, setBalance, showHistory }) {
                 >
                   <div>
                     <div
-                      style={{ fontWeight: "bold", textTransform: "capitalize" }}
+                      style={{
+                        fontWeight: "bold",
+                        textTransform: "capitalize",
+                      }}
                     >
                       {tx.type.replace("_", " ")}
                     </div>

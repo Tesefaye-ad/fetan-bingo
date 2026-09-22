@@ -19,7 +19,7 @@ export default function AdminPanel() {
     pendingDeposits: 0,
     pendingWithdrawals: 0,
   });
-  const [loading, setLoading] = useState(false);
+  // ❌ loading እና setLoading ተሰርዘዋል (አያስፈልጉም)
   const [toast, setToast] = useState(null);
 
   const showToast = (msg, type = "info") => {
@@ -480,8 +480,7 @@ function UsersTab({ showToast }) {
             }}
           >
             <div style={{ color: "#fff", fontWeight: "bold", fontSize: 13 }}>
-              {u.firstName || u.username || "User"}{" "}
-              {u.isAdmin && "👑"}
+              {u.firstName || u.username || "User"} {u.isAdmin && "👑"}
               {u.isBanned && " 🚫"}
             </div>
             <div
