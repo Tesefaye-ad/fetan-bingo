@@ -52,30 +52,25 @@ function PatternPreview({ pattern }) {
       case "any-row":
         for (let c = 0; c < 5; c++) cells.add(key(2, c));
         break;
-
       case "any-column":
         for (let r = 0; r < 5; r++) cells.add(key(r, 2));
         break;
-
       case "any-diagonal":
         for (let i = 0; i < 5; i++) {
           cells.add(key(i, i));
           cells.add(key(i, 4 - i));
         }
         break;
-
       case "four-corners":
         cells.add(key(0, 0));
         cells.add(key(0, 4));
         cells.add(key(4, 0));
         cells.add(key(4, 4));
         break;
-
       case "full-card":
         for (let r = 0; r < 5; r++)
           for (let c = 0; c < 5; c++) cells.add(key(r, c));
         break;
-
       default:
         break;
     }
@@ -121,9 +116,7 @@ function PatternPreview({ pattern }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════
 // SOUND MANAGER
-// ═══════════════════════════════════════════════════════
 const sound = {
   ctx: null,
   enabled: true,
@@ -186,7 +179,6 @@ export default function LiveGame({
   const soundOnRef = useRef(true);
 
   const [cards, setCards] = useState([]);
-  const [status, setStatus] = useState("waiting");
   const [calledNumbers, setCalledNumbers] = useState([]);
   const [lastNumber, setLastNumber] = useState(null);
   const [lastLetter, setLastLetter] = useState(null);
@@ -200,7 +192,6 @@ export default function LiveGame({
   const [soundOn, setSoundOn] = useState(true);
   const [isConnected, setIsConnected] = useState(true);
 
-  // 👈 soundOn ሲቀየር ref + sound manager አዘምን
   useEffect(() => {
     soundOnRef.current = soundOn;
     sound.enabled = soundOn;
@@ -228,7 +219,6 @@ export default function LiveGame({
 
     const onStateRestore = (data) => {
       console.log("[LiveGame] State restored:", data);
-      setStatus(data.status);
       setCalledNumbers(data.calledNumbers || []);
       setWinPattern(data.winPattern || "any-row");
       setPrizePool(data.prizePool || 0);
@@ -262,7 +252,6 @@ export default function LiveGame({
     };
 
     const onRoomState = (s) => {
-      setStatus(s.status);
       setPlayerCount(s.playerCount);
       setPrizePool(s.prizePool);
       setEntryFee(s.entryFee || 0);
@@ -276,7 +265,6 @@ export default function LiveGame({
     };
 
     const onGameStarted = (data) => {
-      setStatus("active");
       setBingoPopup(null);
       if (data.winPattern) setWinPattern(data.winPattern);
     };
@@ -312,7 +300,6 @@ export default function LiveGame({
 
     const onBingoClaimed = (data) => {
       console.log("[LiveGame] BINGO:", data);
-      setStatus("finished");
       setBingoPopup(data);
       if (data.winPattern) setWinPattern(data.winPattern);
       if (soundOnRef.current) sound.bingo();
@@ -337,7 +324,6 @@ export default function LiveGame({
       setLastLetter(null);
       setCalledNumbers([]);
       setNextGameCountdown(0);
-      setStatus("waiting");
     };
 
     const onBalanceUpdate = ({ balance: b }) => setBalance(b);
@@ -377,7 +363,6 @@ export default function LiveGame({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode, setBalance]);
 
-  // ─── 5 ሰከንድ በኋላ ወደ ካርቴላ መምረጫ ───
   useEffect(() => {
     if (!bingoPopup) return;
     const t = setTimeout(
@@ -387,7 +372,6 @@ export default function LiveGame({
     return () => clearTimeout(t);
   }, [bingoPopup, onGameEnded, onExit]);
 
-  // ─── የቀጣይ ጨዋታ ቆጣሪ ───
   useEffect(() => {
     if (nextGameCountdown <= 0) return;
     const t = setTimeout(() => {
@@ -411,7 +395,6 @@ export default function LiveGame({
         paddingBottom: 80,
       }}
     >
-      {/* ─── Connection status ─── */}
       {!isConnected && (
         <div
           style={{
@@ -445,67 +428,6 @@ export default function LiveGame({
         <Stat label="Called" value={calledNumbers.length} />
       </div>
 
-      {/* 👈 አዲስ — Status + Sound toggle ረድፍ */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 8,
-          padding: "6px 10px",
-          background: "#1a1a2e",
-          border: "1px solid #2a2a40",
-          borderRadius: 8,
-          fontSize: 11,
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            color:
-              status === "active"
-                ? "#2ecc71"
-                : status === "finished"
-                ? "#e74c3c"
-                : "#f39c12",
-            fontWeight: "bold",
-          }}
-        >
-          <span>
-            {status === "active"
-              ? "🟢"
-              : status === "finished"
-              ? "🔴"
-              : "🟡"}
-          </span>
-          <span>
-            {status === "active"
-              ? "በመጫወት ላይ"
-              : status === "finished"
-              ? "ተጠናቅቋል"
-              : "በመጠበቅ ላይ"}
-          </span>
-        </div>
-
-        <button
-          onClick={() => setSoundOn((s) => !s)}
-          style={{
-            background: soundOn ? "#2ecc71" : "#555",
-            color: "#fff",
-            border: "none",
-            borderRadius: 8,
-            padding: "4px 10px",
-            fontSize: 12,
-            fontWeight: "bold",
-            cursor: "pointer",
-          }}
-        >
-          {soundOn ? "🔊 On" : "🔇 Off"}
-        </button>
-      </div>
-
       {/* ─── MAIN ─── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         {/* LEFT — BINGO board */}
@@ -516,7 +438,7 @@ export default function LiveGame({
             borderRadius: 10,
             padding: 6,
             overflowY: "auto",
-            maxHeight: "calc(100vh - 220px)",
+            maxHeight: "calc(100vh - 180px)",
           }}
         >
           <div
@@ -652,7 +574,9 @@ export default function LiveGame({
 
         {/* RIGHT — Current number + Winning Pattern */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {/* Current number */}
+          {/* ═══════════════════════════════════════════════
+              👈 CURRENT BOX with sound button top-right
+             ═══════════════════════════════════════════════ */}
           <div
             style={{
               background: "#1a1a2e",
@@ -663,12 +587,34 @@ export default function LiveGame({
               padding: 12,
               textAlign: "center",
               minHeight: 160,
+              position: "relative", // 👈 for absolute sound button
               transition: "border 0.3s, box-shadow 0.3s",
               boxShadow: flashNumber
                 ? "0 0 25px rgba(255,212,59,0.6)"
                 : "none",
             }}
           >
+            {/* 👈 Sound toggle — top right corner */}
+            <button
+              onClick={() => setSoundOn((s) => !s)}
+              style={{
+                position: "absolute",
+                top: 6,
+                right: 6,
+                background: soundOn ? "#2ecc71" : "#555",
+                color: "#fff",
+                border: "none",
+                borderRadius: 6,
+                padding: "4px 8px",
+                fontSize: 12,
+                fontWeight: "bold",
+                cursor: "pointer",
+                zIndex: 1,
+              }}
+            >
+              {soundOn ? "🔊" : "🔇"}
+            </button>
+
             <div
               style={{
                 color: "#aaa",
@@ -703,9 +649,8 @@ export default function LiveGame({
                 {lastLetter || lastInfo.letter}-{lastNumber}
               </div>
             ) : (
-              <div style={{ color: "#666", fontSize: 13, padding: "30px 0" }}>
-                በመጠበቅ ላይ...
-              </div>
+              // 👈 "በመጠበቅ ላይ..." ተሰርዟል — ባዶ ቦታ
+              <div style={{ height: 90 }} />
             )}
           </div>
 
@@ -804,9 +749,7 @@ export default function LiveGame({
         </button>
       </div>
 
-      {/* ═══════════════════════════════════════════════
-          BINGO POPUP + WINNERS PANEL
-         ═══════════════════════════════════════════════ */}
+      {/* BINGO POPUP */}
       {bingoPopup && (
         <div
           style={{
@@ -886,7 +829,6 @@ export default function LiveGame({
             </span>
           </div>
 
-          {/* WINNERS PANEL */}
           <div
             style={{
               background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
@@ -973,7 +915,6 @@ export default function LiveGame({
             ))}
           </div>
 
-          {/* WINNING CARTELA GRIDS */}
           {bingoPopup.winningCartelas?.length > 0 && (
             <div
               style={{
@@ -1052,7 +993,6 @@ export default function LiveGame({
             </div>
           )}
 
-          {/* PRIZE POOL */}
           <div
             style={{
               background: "linear-gradient(135deg,#2ecc71,#27ae60)",

@@ -8,11 +8,17 @@ import AdminPanel from "./Adminpanel.jsx";
 import { disconnectSocket } from "./socket";
 import { useTelegram } from "./useTelegram";
 
-// 👈 ADMIN_IDS ከ env ይነበባል (fallback ጋር)
-const ADMIN_IDS = (process.env.REACT_APP_ADMIN_IDS || "")
+// ═══════════════════════════════════════════════════════
+// 👈 Admin IDs — ከ env ወይም ከ default
+// በ Vercel: REACT_APP_ADMIN_IDS=494653076,1234567890
+// ═══════════════════════════════════════════════════════
+const DEFAULT_ADMIN_IDS = ["494653076"];
+const ENV_ADMIN_IDS = (process.env.REACT_APP_ADMIN_IDS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+const ADMIN_IDS =
+  ENV_ADMIN_IDS.length > 0 ? ENV_ADMIN_IDS : DEFAULT_ADMIN_IDS;
 
 function App() {
   useTelegram();
@@ -24,16 +30,29 @@ function App() {
   const [showCartela, setShowCartela] = useState(false);
   const [stakeAmount, setStakeAmount] = useState(10);
   const [activeTab, setActiveTab] = useState("Game");
-  const [showWalletHistory, setShowWalletHistory] = useState(false); // 👈 አዲስ
+  const [showWalletHistory, setShowWalletHistory] = useState(false);
   const [adminStats, setAdminStats] = useState({
     activeUsers: 0,
     registeredUsers: 0,
     totalGames: 0,
   });
 
+  // 👈 isAdmin check — ከ backend ወይም ከ ADMIN_IDS list
   const isAdmin =
-    user?.isAdmin ||
+    user?.isAdmin === true ||
     (user?.telegramId && ADMIN_IDS.includes(String(user.telegramId)));
+
+  // 👈 Debug log (Development ላይ ብቻ ይመልከቱ)
+  useEffect(() => {
+    if (user) {
+      console.log("[App] Admin check:", {
+        telegramId: user.telegramId,
+        isAdminFromBackend: user.isAdmin,
+        ADMIN_IDS,
+        isAdminResult: isAdmin,
+      });
+    }
+  }, [user, isAdmin]);
 
   const tabs = [
     { id: "Game", label: "Game", icon: "🎮" },
@@ -137,7 +156,6 @@ function App() {
 
       {activeTab === "Wallet" && (
         <>
-          {/* 👈 History toggle button */}
           <div
             style={{
               padding: "10px 15px",
