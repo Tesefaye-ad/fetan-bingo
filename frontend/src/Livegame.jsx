@@ -9,6 +9,7 @@ const HEADERS = [
   { letter: "O", color: "#ff9800" },
 ];
 
+// 👈 ለ Winners Panel ብቻ ያገለግላሉ
 const PATTERN_LABELS = {
   "any-row": "ማንኛውም ረድፍ (Any Row)",
   "any-column": "ማንኛውም አምድ (Any Column)",
@@ -40,7 +41,7 @@ function buildBoard() {
 }
 
 // ═══════════════════════════════════════════════════════
-// 👈 SOUND MANAGER — የድምጽ ተፅእኖ
+// SOUND MANAGER
 // ═══════════════════════════════════════════════════════
 const sound = {
   ctx: null,
@@ -65,7 +66,10 @@ const sound = {
       osc.frequency.value = freq;
       osc.type = type;
       gain.gain.setValueAtTime(volume, this.ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration / 1000);
+      gain.gain.exponentialRampToValueAtTime(
+        0.01,
+        this.ctx.currentTime + duration / 1000
+      );
       osc.connect(gain);
       gain.connect(this.ctx.destination);
       osc.start();
@@ -79,7 +83,6 @@ const sound = {
   },
 
   bingo() {
-    // 🎉 Win fanfare — 3 tones ascending
     this.play(523, 200, "triangle", 0.25);
     setTimeout(() => this.play(659, 200, "triangle", 0.25), 180);
     setTimeout(() => this.play(784, 400, "triangle", 0.3), 360);
@@ -90,7 +93,13 @@ const sound = {
   },
 };
 
-export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBalance }) {
+export default function LiveGame({
+  roomCode,
+  cardIds,
+  onExit,
+  onGameEnded,
+  setBalance,
+}) {
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
 
@@ -102,13 +111,10 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
   const [playerCount, setPlayerCount] = useState(0);
   const [prizePool, setPrizePool] = useState(0);
   const [entryFee, setEntryFee] = useState(0);
-  const [winPattern, setWinPattern] = useState("any-row");
   const [flashNumber, setFlashNumber] = useState(false);
   const [bingoPopup, setBingoPopup] = useState(null);
   const [nextGameCountdown, setNextGameCountdown] = useState(0);
   const [soundOn, setSoundOn] = useState(true);
-
-  // 👈 Reconnection watcher
   const [isConnected, setIsConnected] = useState(true);
 
   useEffect(() => {
@@ -122,16 +128,14 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
     const socket = getSocket();
     socketRef.current = socket;
 
-    // ─── 👈 ኔትወርክ ሲቋረጥ ይህ ይቃጠራል ───
     socket.on("disconnect", () => {
       setIsConnected(false);
-      console.log("[LiveGame] Disconnected — waiting to reconnect…");
+      console.log("[LiveGame] Disconnected");
     });
 
     socket.on("connect", () => {
       console.log("[LiveGame] Reconnected!");
       setIsConnected(true);
-      // 👈 ኔትወርክ ከተመለሰ በኋላ ስቴትን እንደገና ለመጫን
       if (joinedRef.current && roomCode) {
         socket.emit("join_room", { roomCode, cardIds });
       }
@@ -142,12 +146,11 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
       joinedRef.current = true;
     }
 
-    // ─── State restore after reconnect ───
+    // ─── State restore ───
     socket.on("state_restore", (data) => {
       console.log("[LiveGame] State restored:", data);
       setStatus(data.status);
       setCalledNumbers(data.calledNumbers || []);
-      setWinPattern(data.winPattern || "any-row");
       setPrizePool(data.prizePool || 0);
       setPlayerCount(data.playerCount || 0);
       setEntryFee(data.entryFee || 0);
@@ -184,7 +187,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
       setPrizePool(s.prizePool);
       setEntryFee(s.entryFee || 0);
       setCalledNumbers(s.calledNumbers || []);
-      if (s.winPattern) setWinPattern(s.winPattern);
       if (s.calledNumbers?.length) {
         const last = s.calledNumbers[s.calledNumbers.length - 1];
         setLastNumber(last);
@@ -192,20 +194,17 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
       }
     });
 
-    socket.on("game_started", (data) => {
+    socket.on("game_started", () => {
       setStatus("active");
       setBingoPopup(null);
-      if (data.winPattern) setWinPattern(data.winPattern);
     });
 
-    // ─── NUMBER CALLED — sound + flash ───
-    socket.on("number_called", ({ number, letter, calledNumbers: cn, winPattern: wp }) => {
+    // ─── NUMBER CALLED ───
+    socket.on("number_called", ({ number, letter, calledNumbers: cn }) => {
       setLastNumber(number);
       setLastLetter(letter || getLetter(number).letter);
       setCalledNumbers(cn);
-      if (wp) setWinPattern(wp);
 
-      // 🔊 የድምጽ ተፅእኖ
       if (soundOn) sound.callNumber();
 
       setFlashNumber(true);
@@ -229,15 +228,17 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
       console.log("[LiveGame] BINGO:", data);
       setStatus("finished");
       setBingoPopup(data);
-      // 🔊 የ BINGO ድምጽ
       if (soundOn) sound.bingo();
-      if (window.navigator.vibrate) window.navigator.vibrate([100, 50, 100, 50, 200]);
+      if (window.navigator.vibrate)
+        window.navigator.vibrate([100, 50, 100, 50, 200]);
     });
 
     socket.on("game_over", (r) => {
-      if (r.winPattern) setWinPattern(r.winPattern);
       if (r.nextGameAt) {
-        const rem = Math.max(0, Math.floor((new Date(r.nextGameAt) - Date.now()) / 1000));
+        const rem = Math.max(
+          0,
+          Math.floor((new Date(r.nextGameAt) - Date.now()) / 1000)
+        );
         setNextGameCountdown(rem);
       }
     });
@@ -265,19 +266,21 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode, setBalance, soundOn]);
 
-  // ─── 5 ሰከንድ በኋላ ወደ ካርቴላ መምረጫ ተመለስ ───
+  // ─── 5 ሰከንድ በኋላ ወደ ካርቴላ መምረጫ ───
   useEffect(() => {
     if (!bingoPopup) return;
-    const t = setTimeout(() => (onGameEnded ? onGameEnded() : onExit()), 5000);
+    const t = setTimeout(
+      () => (onGameEnded ? onGameEnded() : onExit()),
+      5000
+    );
     return () => clearTimeout(t);
   }, [bingoPopup, onGameEnded, onExit]);
 
   // ─── የቀጣይ ጨዋታ ቆጣሪ ───
-    useEffect(() => {
+  useEffect(() => {
     if (nextGameCountdown <= 0) return;
     const t = setTimeout(() => {
       setNextGameCountdown((prev) => prev - 1);
-      // 👈 'c' ይልቅ 'nextGameCountdown' ተጠቀም
       if (soundOn && nextGameCountdown <= 3) sound.tick();
     }, 1000);
     return () => clearTimeout(t);
@@ -297,7 +300,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
         paddingBottom: 80,
       }}
     >
-      {/* ─── Connection status banner ─── */}
+      {/* ─── Connection status ─── */}
       {!isConnected && (
         <div
           style={{
@@ -315,7 +318,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
         </div>
       )}
 
-           {/* ─── STATUS BANNER ─── */}
+      {/* ─── STATUS BANNER ─── */}
       <div
         style={{
           background:
@@ -365,6 +368,7 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
           {soundOn ? "🔊" : "🔇"}
         </button>
       </div>
+
       {/* ─── STATS ─── */}
       <div
         style={{
@@ -422,7 +426,10 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
 
           {cards.length > 0 ? (
             cards.map((ci, idx) => (
-              <div key={idx} style={{ marginBottom: cards.length > 1 ? 10 : 0 }}>
+              <div
+                key={idx}
+                style={{ marginBottom: cards.length > 1 ? 10 : 0 }}
+              >
                 <div
                   style={{
                     textAlign: "center",
@@ -434,7 +441,13 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                 >
                   #{ci.cardId}
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 3 }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(5, 1fr)",
+                    gap: 3,
+                  }}
+                >
                   {ci.card.map((row, r) =>
                     row.map((v, c) => {
                       const marked = ci.marked?.[r]?.[c];
@@ -456,7 +469,9 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                             fontSize: 12,
                             fontWeight: "bold",
                             borderRadius: 6,
-                            border: isLast ? "2px solid #ffd43b" : "1px solid #333",
+                            border: isLast
+                              ? "2px solid #ffd43b"
+                              : "1px solid #333",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
@@ -472,7 +487,13 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
               </div>
             ))
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 3 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(5, 1fr)",
+                gap: 3,
+              }}
+            >
               {buildBoard().map((n) => {
                 const info = getLetter(n);
                 const called = calledNumbers.includes(n);
@@ -482,7 +503,11 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                     key={n}
                     style={{
                       aspectRatio: 1,
-                      background: isLast ? "#ff9800" : called ? info.color : "#252d44",
+                      background: isLast
+                        ? "#ff9800"
+                        : called
+                        ? info.color
+                        : "#252d44",
                       color: "#fff",
                       fontSize: 12,
                       fontWeight: "bold",
@@ -490,7 +515,9 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      border: isLast ? "2px solid #ffd43b" : "1px solid #333",
+                      border: isLast
+                        ? "2px solid #ffd43b"
+                        : "1px solid #333",
                       transition: "background 0.2s",
                     }}
                   >
@@ -507,16 +534,27 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
           <div
             style={{
               background: "#1a1a2e",
-              border: flashNumber ? "2px solid #ffd43b" : "1px solid #f39c12",
+              border: flashNumber
+                ? "2px solid #ffd43b"
+                : "1px solid #f39c12",
               borderRadius: 10,
               padding: 12,
               textAlign: "center",
               minHeight: 160,
               transition: "border 0.3s, box-shadow 0.3s",
-              boxShadow: flashNumber ? "0 0 25px rgba(255,212,59,0.6)" : "none",
+              boxShadow: flashNumber
+                ? "0 0 25px rgba(255,212,59,0.6)"
+                : "none",
             }}
           >
-            <div style={{ color: "#aaa", fontSize: 10, marginBottom: 6, letterSpacing: 1 }}>
+            <div
+              style={{
+                color: "#aaa",
+                fontSize: 10,
+                marginBottom: 6,
+                letterSpacing: 1,
+              }}
+            >
               CURRENT
             </div>
 
@@ -543,7 +581,9 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                 {lastLetter || lastInfo.letter}-{lastNumber}
               </div>
             ) : (
-              <div style={{ color: "#666", fontSize: 13, padding: "30px 0" }}>
+              <div
+                style={{ color: "#666", fontSize: 13, padding: "30px 0" }}
+              >
                 በመጠበቅ ላይ...
               </div>
             )}
@@ -564,18 +604,45 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
             }}
           >
             {status === "waiting" && (
-              <div style={{ color: "#f39c12", fontSize: 13, textAlign: "center", lineHeight: 1.8 }}>
-                🎯 ጨዋታው<br />በቅርቡ ይጀመራል
+              <div
+                style={{
+                  color: "#f39c12",
+                  fontSize: 13,
+                  textAlign: "center",
+                  lineHeight: 1.8,
+                }}
+              >
+                🎯 ጨዋታው
+                <br />
+                በቅርቡ ይጀመራል
               </div>
             )}
             {status === "active" && (
-              <div style={{ color: "#2ecc71", fontSize: 14, textAlign: "center", lineHeight: 1.8 }}>
-                🎯 ጨዋታው<br />በሂደት ላይ ነው
+              <div
+                style={{
+                  color: "#2ecc71",
+                  fontSize: 14,
+                  textAlign: "center",
+                  lineHeight: 1.8,
+                }}
+              >
+                🎯 ጨዋታው
+                <br />
+                በሂደት ላይ ነው
               </div>
             )}
             {status === "finished" && (
-              <div style={{ color: "#f39c12", fontSize: 14, textAlign: "center", lineHeight: 1.8 }}>
-                🏁 ጨዋታው<br />ተጠናቅቋል
+              <div
+                style={{
+                  color: "#f39c12",
+                  fontSize: 14,
+                  textAlign: "center",
+                  lineHeight: 1.8,
+                }}
+              >
+                🏁 ጨዋታው
+                <br />
+                ተጠናቅቋል
               </div>
             )}
           </div>
@@ -663,7 +730,14 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
             BINGO!
           </h2>
 
-          <p style={{ color: "#fff", fontSize: 18, margin: 0, fontWeight: "bold" }}>
+          <p
+            style={{
+              color: "#fff",
+              fontSize: 18,
+              margin: 0,
+              fontWeight: "bold",
+            }}
+          >
             🎉 {bingoPopup.winners.length} winner
             {bingoPopup.winners.length > 1 ? "s" : ""}!
           </p>
@@ -681,8 +755,12 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
               gap: 8,
             }}
           >
-            <span style={{ fontSize: 18 }}>{PATTERN_ICONS[bingoPopup.winPattern] || "🎯"}</span>
-            <span>{PATTERN_LABELS[bingoPopup.winPattern] || bingoPopup.winPattern}</span>
+            <span style={{ fontSize: 18 }}>
+              {PATTERN_ICONS[bingoPopup.winPattern] || "🎯"}
+            </span>
+            <span>
+              {PATTERN_LABELS[bingoPopup.winPattern] || bingoPopup.winPattern}
+            </span>
           </div>
 
           {/* WINNERS PANEL */}
@@ -717,7 +795,8 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                   border: "1px solid #2a2a40",
                   borderRadius: 10,
                   padding: 10,
-                  marginBottom: i < bingoPopup.winners.length - 1 ? 8 : 0,
+                  marginBottom:
+                    i < bingoPopup.winners.length - 1 ? 8 : 0,
                 }}
               >
                 <div
@@ -728,7 +807,13 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                     marginBottom: 6,
                   }}
                 >
-                  <div style={{ color: "#fff", fontSize: 14, fontWeight: "bold" }}>
+                  <div
+                    style={{
+                      color: "#fff",
+                      fontSize: 14,
+                      fontWeight: "bold",
+                    }}
+                  >
                     👤 {w.name}
                   </div>
                   <div
@@ -744,9 +829,12 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                     +{w.prize} ETB
                   </div>
                 </div>
-                <div style={{ fontSize: 11, color: "#aaa", lineHeight: 1.7 }}>
+                <div
+                  style={{ fontSize: 11, color: "#aaa", lineHeight: 1.7 }}
+                >
                   <div>
-                    🆔 Telegram ID: <span style={{ color: "#f39c12" }}>{w.telegramId}</span>
+                    🆔 Telegram ID:{" "}
+                    <span style={{ color: "#f39c12" }}>{w.telegramId}</span>
                   </div>
                   <div>
                     🎴 Cartela:{" "}
@@ -800,7 +888,9 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                     }}
                   >
                     #{wc.cardId} — {wc.name}{" "}
-                    <span style={{ color: "#f39c12" }}>({wc.subPattern})</span>
+                    <span style={{ color: "#f39c12" }}>
+                      ({wc.subPattern})
+                    </span>
                   </div>
                   <div
                     style={{
@@ -818,7 +908,11 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
                             key={`${r}-${c}`}
                             style={{
                               aspectRatio: 1,
-                              background: free ? "#4caf50" : m ? "#f39c12" : "#fff",
+                              background: free
+                                ? "#4caf50"
+                                : m
+                                ? "#f39c12"
+                                : "#fff",
                               color: m || free ? "#fff" : "#1b2233",
                               fontSize: 12,
                               fontWeight: "bold",
@@ -886,7 +980,9 @@ function Stat({ label, value, color = "#fff" }) {
         textAlign: "center",
       }}
     >
-      <div style={{ color: "#aaa", fontSize: 9, marginBottom: 2 }}>{label}</div>
+      <div style={{ color: "#aaa", fontSize: 9, marginBottom: 2 }}>
+        {label}
+      </div>
       <div style={{ color, fontSize: 12, fontWeight: "bold" }}>{value}</div>
     </div>
   );
