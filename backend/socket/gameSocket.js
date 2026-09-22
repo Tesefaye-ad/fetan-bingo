@@ -245,11 +245,14 @@ function initGameSocket(io) {
 
         if (!game) {
           const weekly = isWeeklyRoom(roomCode);
-          const fee = weekly ? getWeeklyFee(roomCode) : 10;
+          // 👈 ትክክለኛ የዋጋ ስሌት — weekly ክፍሎች የራሳቸውን ዋጋ ይጠቀማሉ
+          const fee = weekly
+            ? getWeeklyFee(roomCode)
+            : Number(process.env.ENTRY_FEE || 10);
 
           const newGame = {
             roomCode,
-            entryFee: Number(process.env.ENTRY_FEE || fee),
+            entryFee: fee, // 👈 በትክክል የተሰላው
             maxNumber: Number(process.env.BINGO_MAX_NUMBER || 75),
             allCards: generate1000Cards(),
             isWeeklyGame: weekly,
@@ -522,7 +525,7 @@ function initGameSocket(io) {
       `[processWinners] ${game.roomCode} — ${totalCartelas} cartela(s), ${winnersPanelData.length} user(s)`
     );
 
-    // ─── 👈 ዋናው ማሻሻያ: 5s ቆይቶ በቀጥታ reset ───
+    // ─── 5s ቆይቶ በቀጥታ reset ───
     setTimeout(async () => {
       const fresh = await Game.findOne({ roomCode: game.roomCode });
       if (!fresh) return;
@@ -574,7 +577,9 @@ function initGameSocket(io) {
 
       io.to(game.roomCode).emit("next_game_ready", { roomCode: game.roomCode });
       io.to(game.roomCode).emit("room_state", buildRoomState(fresh));
-      console.log(`[processWinners] ${game.roomCode} reset done — new timer ${SELECTION_TIMER_MS / 1000}s`);
+      console.log(
+        `[processWinners] ${game.roomCode} reset done — new timer ${SELECTION_TIMER_MS / 1000}s`
+      );
     }, WINNER_DISPLAY_MS);
   }
 
@@ -632,25 +637,28 @@ function initGameSocket(io) {
         const letter =
           num <= 15 ? "B" : num <= 30 ? "I" : num <= 45 ? "N" : num <= 60 ? "G" : "O";
 
-        console.log(`[caller:${roomCode}] ${letter}-${num} (${g.calledNumbers.length}/75)`);
+        console.log(
+          `[caller:${roomCode}] ${letter}-${num} (${g.calledNumbers.length}/75)`
+        );
 
-        // Send updated cards per user
-       const grouped = {};
-for (const p of g.players) {
-  const uid = p.user.toString();
-  if (!grouped[uid]) grouped[uid] = { cards: [], markedCards: [], cardIds: [] };
-  grouped[uid].cards.push(p.card);
-  grouped[uid].markedCards.push(p.marked);
-  grouped[uid].cardIds.push(p.cardId);
-}
-// 👈 በቀጥታ ለተጫዋቾች ብቻ ላክ
-for (const s of io.sockets.sockets.values()) {
-  if (s.userId && grouped[s.userId]) {
-    s.emit("your_cards", grouped[s.userId]);
-  }
-}
-// Watchers ብቻ `number_called` ያገኛሉ (ቀላል ነው)
+        // ─── Send updated cards per user (በተጠቃሚ ተቧድነው) ───
+        const grouped = {};
+        for (const p of g.players) {
+          const uid = p.user.toString();
+          if (!grouped[uid])
+            grouped[uid] = { cards: [], markedCards: [], cardIds: [] };
+          grouped[uid].cards.push(p.card);
+          grouped[uid].markedCards.push(p.marked);
+          grouped[uid].cardIds.push(p.cardId);
+        }
+        // 👈 ለተጫዋቾች ብቻ `your_cards` ላክ
+        for (const s of io.sockets.sockets.values()) {
+          if (s.userId && grouped[s.userId]) {
+            s.emit("your_cards", grouped[s.userId]);
+          }
+        }
 
+        // 👈 ለሁሉም (watchers + players) `number_called` ላክ
         io.to(roomCode).emit("number_called", {
           number: num,
           letter,
@@ -675,8 +683,7 @@ for (const s of io.sockets.sockets.values()) {
       }
     };
 
-    // 👈 ከ 1.5s ወደ 800ms
-const initial = setTimeout(runCaller, 800);
+    const initial = setTimeout(runCaller, 800);
     activeCallers.set(roomCode, initial);
   }
 

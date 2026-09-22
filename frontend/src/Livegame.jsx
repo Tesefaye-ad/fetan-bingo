@@ -9,7 +9,6 @@ const HEADERS = [
   { letter: "O", color: "#ff9800" },
 ];
 
-// 👈 ለ Winners Panel ብቻ ያገለግላሉ
 const PATTERN_LABELS = {
   "any-row": "ማንኛውም ረድፍ (Any Row)",
   "any-column": "ማንኛውም አምድ (Any Column)",
@@ -36,8 +35,90 @@ function getLetter(num) {
 
 function buildBoard() {
   const out = [];
-  for (let r = 0; r < 15; r++) for (let c = 0; c < 5; c++) out.push(c * 15 + r + 1);
+  for (let r = 0; r < 15; r++)
+    for (let c = 0; c < 5; c++) out.push(c * 15 + r + 1);
   return out;
+}
+
+// ═══════════════════════════════════════════════════════
+// VISUAL PATTERN PREVIEW — 5x5 grid
+// ═══════════════════════════════════════════════════════
+function PatternPreview({ pattern }) {
+  const getHighlightedCells = () => {
+    const cells = new Set();
+    const key = (r, c) => `${r}-${c}`;
+
+    switch (pattern) {
+      case "any-row":
+        for (let c = 0; c < 5; c++) cells.add(key(2, c));
+        break;
+
+      case "any-column":
+        for (let r = 0; r < 5; r++) cells.add(key(r, 2));
+        break;
+
+      case "any-diagonal":
+        for (let i = 0; i < 5; i++) {
+          cells.add(key(i, i));
+          cells.add(key(i, 4 - i));
+        }
+        break;
+
+      case "four-corners":
+        cells.add(key(0, 0));
+        cells.add(key(0, 4));
+        cells.add(key(4, 0));
+        cells.add(key(4, 4));
+        break;
+
+      case "full-card":
+        for (let r = 0; r < 5; r++)
+          for (let c = 0; c < 5; c++) cells.add(key(r, c));
+        break;
+
+      default:
+        break;
+    }
+    return cells;
+  };
+
+  const highlighted = getHighlightedCells();
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(5, 1fr)",
+        gap: 2,
+        width: "100%",
+        maxWidth: 140,
+        margin: "0 auto",
+      }}
+    >
+      {Array.from({ length: 25 }, (_, i) => {
+        const r = Math.floor(i / 5);
+        const c = i % 5;
+        const isHighlighted = highlighted.has(`${r}-${c}`);
+        return (
+          <div
+            key={i}
+            style={{
+              aspectRatio: 1,
+              borderRadius: 3,
+              background: isHighlighted ? "#f39c12" : "#252d44",
+              border: isHighlighted
+                ? "1px solid #ffd43b"
+                : "1px solid #2a2a40",
+              boxShadow: isHighlighted
+                ? "0 0 6px rgba(243,156,18,0.8)"
+                : "none",
+              transition: "all 0.2s",
+            }}
+          />
+        );
+      })}
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════════════════
@@ -102,6 +183,8 @@ export default function LiveGame({
 }) {
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
+  // 👈 soundOn ን በ ref አስቀምጥ — socket effect እንዳይቀየር
+  const soundOnRef = useRef(true);
 
   const [cards, setCards] = useState([]);
   const [status, setStatus] = useState("waiting");
@@ -111,13 +194,16 @@ export default function LiveGame({
   const [playerCount, setPlayerCount] = useState(0);
   const [prizePool, setPrizePool] = useState(0);
   const [entryFee, setEntryFee] = useState(0);
+  const [winPattern, setWinPattern] = useState("any-row");
   const [flashNumber, setFlashNumber] = useState(false);
   const [bingoPopup, setBingoPopup] = useState(null);
   const [nextGameCountdown, setNextGameCountdown] = useState(0);
   const [soundOn, setSoundOn] = useState(true);
   const [isConnected, setIsConnected] = useState(true);
 
+  // 👈 soundOn ሲቀየር ref + sound manager አዘምን
   useEffect(() => {
+    soundOnRef.current = soundOn;
     sound.enabled = soundOn;
   }, [soundOn]);
 
@@ -128,29 +214,25 @@ export default function LiveGame({
     const socket = getSocket();
     socketRef.current = socket;
 
-    socket.on("disconnect", () => {
+    // ─── ሁሉንም handlers በስም ተለይተው ───
+    const onDisconnect = () => {
       setIsConnected(false);
       console.log("[LiveGame] Disconnected");
-    });
+    };
 
-    socket.on("connect", () => {
+    const onConnect = () => {
       console.log("[LiveGame] Reconnected!");
       setIsConnected(true);
       if (joinedRef.current && roomCode) {
         socket.emit("join_room", { roomCode, cardIds });
       }
-    });
+    };
 
-    if (!joinedRef.current) {
-      socket.emit("join_room", { roomCode, cardIds });
-      joinedRef.current = true;
-    }
-
-    // ─── State restore ───
-    socket.on("state_restore", (data) => {
+    const onStateRestore = (data) => {
       console.log("[LiveGame] State restored:", data);
       setStatus(data.status);
       setCalledNumbers(data.calledNumbers || []);
+      setWinPattern(data.winPattern || "any-row");
       setPrizePool(data.prizePool || 0);
       setPlayerCount(data.playerCount || 0);
       setEntryFee(data.entryFee || 0);
@@ -168,9 +250,9 @@ export default function LiveGame({
         setLastNumber(last);
         setLastLetter(getLetter(last).letter);
       }
-    });
+    };
 
-    socket.on("your_cards", (d) => {
+    const onYourCards = (d) => {
       if (!d.cards) return;
       setCards(
         d.cards.map((card, i) => ({
@@ -179,68 +261,70 @@ export default function LiveGame({
           marked: d.markedCards[i],
         }))
       );
-    });
+    };
 
-    socket.on("room_state", (s) => {
+    const onRoomState = (s) => {
       setStatus(s.status);
       setPlayerCount(s.playerCount);
       setPrizePool(s.prizePool);
       setEntryFee(s.entryFee || 0);
       setCalledNumbers(s.calledNumbers || []);
+      if (s.winPattern) setWinPattern(s.winPattern);
       if (s.calledNumbers?.length) {
         const last = s.calledNumbers[s.calledNumbers.length - 1];
         setLastNumber(last);
         setLastLetter(getLetter(last).letter);
       }
-    });
+    };
 
-    socket.on("game_started", () => {
+    const onGameStarted = (data) => {
       setStatus("active");
       setBingoPopup(null);
-    });
+      if (data.winPattern) setWinPattern(data.winPattern);
+    };
 
-    // ─── NUMBER CALLED ───
-    socket.on("number_called", ({ number, letter, calledNumbers: cn }) => {
+    const onNumberCalled = ({
+      number,
+      letter,
+      calledNumbers: cn,
+      winPattern: wp,
+    }) => {
       setLastNumber(number);
       setLastLetter(letter || getLetter(number).letter);
       setCalledNumbers(cn);
+      if (wp) setWinPattern(wp);
 
-      if (soundOn) sound.callNumber();
+      // 👈 soundOnRef.current ተጠቀም — soundOn ከ deps ስለሌለ
+      if (soundOnRef.current) sound.callNumber();
 
       setFlashNumber(true);
       setTimeout(() => setFlashNumber(false), 600);
 
-     // 👈 ካርድ ካለው ብቻ አዘምን (Watcher አያስፈልገውም)
-if (cards.length > 0) {
-  setCards((prev) =>
-    prev.map((ci) => {
-      const m = ci.marked.map((r) => [...r]);
-      let changed = false;
-      for (let r = 0; r < 5; r++)
-        for (let c = 0; c < 5; c++)
-          if (ci.card[r][c] === number) {
-            m[r][c] = true;
-            changed = true;
-          }
-      return changed ? { ...ci, marked: m } : ci;  // 👈 ካልተቀየረ አዲስ object አትፍጠር
-    })
-  );
-}
+      setCards((prev) =>
+        prev.map((ci) => {
+          const m = ci.marked.map((r) => [...r]);
+          for (let r = 0; r < 5; r++)
+            for (let c = 0; c < 5; c++)
+              if (ci.card[r][c] === number) m[r][c] = true;
+          return { ...ci, marked: m };
+        })
+      );
 
       if (window.navigator.vibrate) window.navigator.vibrate(80);
-    });
+    };
 
-    // ─── BINGO POPUP ───
-    socket.on("bingo_claimed", (data) => {
+    const onBingoClaimed = (data) => {
       console.log("[LiveGame] BINGO:", data);
       setStatus("finished");
       setBingoPopup(data);
-      if (soundOn) sound.bingo();
+      if (data.winPattern) setWinPattern(data.winPattern);
+      if (soundOnRef.current) sound.bingo();
       if (window.navigator.vibrate)
         window.navigator.vibrate([100, 50, 100, 50, 200]);
-    });
+    };
 
-    socket.on("game_over", (r) => {
+    const onGameOver = (r) => {
+      if (r.winPattern) setWinPattern(r.winPattern);
       if (r.nextGameAt) {
         const rem = Math.max(
           0,
@@ -248,30 +332,56 @@ if (cards.length > 0) {
         );
         setNextGameCountdown(rem);
       }
-    });
+    };
 
-    socket.on("next_game_ready", () => {
+    const onNextGameReady = () => {
       setBingoPopup(null);
       setLastNumber(null);
       setLastLetter(null);
       setCalledNumbers([]);
       setNextGameCountdown(0);
       setStatus("waiting");
-    });
+    };
 
-    socket.on("balance_update", ({ balance: b }) => setBalance(b));
+    const onBalanceUpdate = ({ balance: b }) => setBalance(b);
+
+    // ─── ሁሉንም መዝግብ ───
+    socket.on("disconnect", onDisconnect);
+    socket.on("connect", onConnect);
+    socket.on("state_restore", onStateRestore);
+    socket.on("your_cards", onYourCards);
+    socket.on("room_state", onRoomState);
+    socket.on("game_started", onGameStarted);
+    socket.on("number_called", onNumberCalled);
+    socket.on("bingo_claimed", onBingoClaimed);
+    socket.on("game_over", onGameOver);
+    socket.on("next_game_ready", onNextGameReady);
+    socket.on("balance_update", onBalanceUpdate);
+
+    if (!joinedRef.current) {
+      socket.emit("join_room", { roomCode, cardIds });
+      joinedRef.current = true;
+    }
 
     return () => {
       socket.emit("leave_room");
       joinedRef.current = false;
-      [
-        "disconnect", "connect", "state_restore", "your_cards", "room_state",
-        "game_started", "number_called", "bingo_claimed", "game_over",
-        "next_game_ready", "balance_update",
-      ].forEach((e) => socket.off(e));
+      // 👈 በስም አስወግድ — ሌሎች handlers አይጎዱም
+      socket.off("disconnect", onDisconnect);
+      socket.off("connect", onConnect);
+      socket.off("state_restore", onStateRestore);
+      socket.off("your_cards", onYourCards);
+      socket.off("room_state", onRoomState);
+      socket.off("game_started", onGameStarted);
+      socket.off("number_called", onNumberCalled);
+      socket.off("bingo_claimed", onBingoClaimed);
+      socket.off("game_over", onGameOver);
+      socket.off("next_game_ready", onNextGameReady);
+      socket.off("balance_update", onBalanceUpdate);
     };
+    // 👈 soundOn ከ deps ተወግዷል — አሁን socket አይጠፋም
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode, setBalance, soundOn]);
+  }, [roomCode, setBalance]);
 
   // ─── 5 ሰከንድ በኋላ ወደ ካርቴላ መምረጫ ───
   useEffect(() => {
@@ -288,10 +398,10 @@ if (cards.length > 0) {
     if (nextGameCountdown <= 0) return;
     const t = setTimeout(() => {
       setNextGameCountdown((prev) => prev - 1);
-      if (soundOn && nextGameCountdown <= 3) sound.tick();
+      if (soundOnRef.current && nextGameCountdown <= 3) sound.tick();
     }, 1000);
     return () => clearTimeout(t);
-  }, [nextGameCountdown, soundOn]);
+  }, [nextGameCountdown]);
 
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
 
@@ -325,57 +435,6 @@ if (cards.length > 0) {
         </div>
       )}
 
-      {/* ─── STATUS BANNER ─── */}
-      <div
-        style={{
-          background:
-            status === "active"
-              ? "linear-gradient(135deg,#2ecc71,#27ae60)"
-              : "linear-gradient(135deg,#f39c12,#e67e22)",
-          padding: "14px",
-          borderRadius: 12,
-          marginBottom: 10,
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          boxShadow: "0 4px 15px rgba(243,156,18,0.4)",
-        }}
-      >
-        <div style={{ fontSize: 32 }}>
-          {status === "active" ? "🎯" : "⏳"}
-        </div>
-        <div style={{ flex: 1 }}>
-          <div
-            style={{
-              fontSize: 16,
-              fontWeight: "bold",
-              color: "#fff",
-              textAlign: "center",
-            }}
-          >
-            {status === "waiting"
-              ? "🎮 ጨዋታው በቅርቡ ይጀመራል"
-              : status === "active"
-              ? "🎯 ጨዋታው በሂደት ላይ ነው"
-              : "🏁 ጨዋታው ተጠናቅቋል"}
-          </div>
-        </div>
-        <button
-          onClick={() => setSoundOn((s) => !s)}
-          style={{
-            background: "rgba(0,0,0,0.2)",
-            border: "none",
-            color: "#fff",
-            fontSize: 22,
-            borderRadius: 8,
-            padding: "6px 10px",
-            cursor: "pointer",
-          }}
-        >
-          {soundOn ? "🔊" : "🔇"}
-        </button>
-      </div>
-
       {/* ─── STATS ─── */}
       <div
         style={{
@@ -402,7 +461,7 @@ if (cards.length > 0) {
             borderRadius: 10,
             padding: 6,
             overflowY: "auto",
-            maxHeight: "calc(100vh - 260px)",
+            maxHeight: "calc(100vh - 180px)",
           }}
         >
           <div
@@ -536,8 +595,9 @@ if (cards.length > 0) {
           )}
         </div>
 
-        {/* RIGHT — Current number */}
+        {/* RIGHT — Current number + Winning Pattern */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {/* Current number */}
           <div
             style={{
               background: "#1a1a2e",
@@ -588,70 +648,71 @@ if (cards.length > 0) {
                 {lastLetter || lastInfo.letter}-{lastNumber}
               </div>
             ) : (
-              <div
-                style={{ color: "#666", fontSize: 13, padding: "30px 0" }}
-              >
+              <div style={{ color: "#666", fontSize: 13, padding: "30px 0" }}>
                 በመጠበቅ ላይ...
               </div>
             )}
           </div>
 
+          {/* WINNING PATTERN BOX (Visual Preview) */}
           <div
             style={{
-              background: "#1a1a2e",
-              border: "1px solid #2a2a40",
+              background: "linear-gradient(135deg, #1a1a2e 0%, #0f1420 100%)",
+              border: "2px solid #f39c12",
               borderRadius: 10,
-              padding: 14,
+              padding: "12px",
               flex: 1,
               display: "flex",
               flexDirection: "column",
               justifyContent: "center",
               alignItems: "center",
-              minHeight: 120,
+              minHeight: 200,
+              boxShadow: "0 0 20px rgba(243,156,18,0.25)",
             }}
           >
-            {status === "waiting" && (
-              <div
-                style={{
-                  color: "#f39c12",
-                  fontSize: 13,
-                  textAlign: "center",
-                  lineHeight: 1.8,
-                }}
-              >
-                🎯 ጨዋታው
-                <br />
-                በቅርቡ ይጀመራል
-              </div>
-            )}
-            {status === "active" && (
-              <div
-                style={{
-                  color: "#2ecc71",
-                  fontSize: 14,
-                  textAlign: "center",
-                  lineHeight: 1.8,
-                }}
-              >
-                🎯 ጨዋታው
-                <br />
-                በሂደት ላይ ነው
-              </div>
-            )}
-            {status === "finished" && (
-              <div
-                style={{
-                  color: "#f39c12",
-                  fontSize: 14,
-                  textAlign: "center",
-                  lineHeight: 1.8,
-                }}
-              >
-                🏁 ጨዋታው
-                <br />
-                ተጠናቅቋል
-              </div>
-            )}
+            <div
+              style={{
+                color: "#f39c12",
+                fontSize: 11,
+                fontWeight: "bold",
+                letterSpacing: 1,
+                marginBottom: 8,
+                textAlign: "center",
+              }}
+            >
+              🏆 የማሸነፊያ ፓተርን
+            </div>
+
+            <PatternPreview pattern={winPattern} />
+
+            <div
+              style={{
+                color: "#fff",
+                fontSize: 11,
+                fontWeight: "bold",
+                textAlign: "center",
+                lineHeight: 1.4,
+                marginTop: 10,
+              }}
+            >
+              {PATTERN_LABELS[winPattern] || winPattern}
+            </div>
+
+            <div
+              style={{
+                color: "#888",
+                fontSize: 9,
+                marginTop: 6,
+                textAlign: "center",
+                fontStyle: "italic",
+              }}
+            >
+              {winPattern === "any-row" && "1 ሙሉ ረድፍ ይሙሉ"}
+              {winPattern === "any-column" && "1 ሙሉ አምድ ይሙሉ"}
+              {winPattern === "any-diagonal" && "ሰያፍ መስመር ይሙሉ"}
+              {winPattern === "four-corners" && "4 ማዕዘኖች ይሙሉ"}
+              {winPattern === "full-card" && "ሙሉ ካርድ ይሙሉ"}
+            </div>
           </div>
         </div>
       </div>
@@ -802,8 +863,7 @@ if (cards.length > 0) {
                   border: "1px solid #2a2a40",
                   borderRadius: 10,
                   padding: 10,
-                  marginBottom:
-                    i < bingoPopup.winners.length - 1 ? 8 : 0,
+                  marginBottom: i < bingoPopup.winners.length - 1 ? 8 : 0,
                 }}
               >
                 <div
@@ -836,9 +896,7 @@ if (cards.length > 0) {
                     +{w.prize} ETB
                   </div>
                 </div>
-                <div
-                  style={{ fontSize: 11, color: "#aaa", lineHeight: 1.7 }}
-                >
+                <div style={{ fontSize: 11, color: "#aaa", lineHeight: 1.7 }}>
                   <div>
                     🆔 Telegram ID:{" "}
                     <span style={{ color: "#f39c12" }}>{w.telegramId}</span>
@@ -895,9 +953,7 @@ if (cards.length > 0) {
                     }}
                   >
                     #{wc.cardId} — {wc.name}{" "}
-                    <span style={{ color: "#f39c12" }}>
-                      ({wc.subPattern})
-                    </span>
+                    <span style={{ color: "#f39c12" }}>({wc.subPattern})</span>
                   </div>
                   <div
                     style={{

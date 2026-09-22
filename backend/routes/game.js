@@ -28,8 +28,18 @@ function getNextWeeklyStart(fee) {
   return new Date(next.getTime() - ETHIOPIA_OFFSET_MS);
 }
 
+// 👈 የWeekly ክፍል የትኛው እንደሆነ + ዋጋውን አንድ ቦታ ያሰላል
+function getRoomFeeConfig(roomCode, fallbackFee) {
+  if (roomCode === "ROOM50") return { isWeekly: true, fee: 50 };
+  if (roomCode === "ROOM100") return { isWeekly: true, fee: 100 };
+  return {
+    isWeekly: false,
+    fee: Number(fallbackFee ?? process.env.ENTRY_FEE ?? 10),
+  };
+}
+
 // ═══════════════════════════════════════════════════════
-// 👈 GET /rooms/:roomCode — ሰዓቱን ፈጽሞ አይቀይር
+// GET /rooms/:roomCode — ሰዓቱን ፈጽሞ አይቀይር
 // ═══════════════════════════════════════════════════════
 router.get("/rooms/:roomCode", async (req, res) => {
   try {
@@ -37,7 +47,6 @@ router.get("/rooms/:roomCode", async (req, res) => {
     const game = await Game.findOne({ roomCode });
     if (!game) return res.status(404).json({ error: "Room not found" });
 
-    // 👈 remainingSeconds = selectionEndsAt - serverNow
     let remainingSeconds = 0;
     if (!game.isWeeklyGame && game.selectionEndsAt) {
       remainingSeconds = Math.max(
@@ -47,10 +56,6 @@ router.get("/rooms/:roomCode", async (req, res) => {
         )
       );
     }
-
-    console.log(
-      `[GET /rooms/${roomCode}] status=${game.status} selectionEndsAt=${game.selectionEndsAt?.toISOString()} remaining=${remainingSeconds}s`
-    );
 
     res.json({
       roomCode: game.roomCode,
@@ -62,7 +67,6 @@ router.get("/rooms/:roomCode", async (req, res) => {
       maxNumber: game.maxNumber,
       takenCards: game.players.map((p) => p.cardId),
       reservedCards: (game.reservedCards || []).map((r) => r.cardId),
-      // 👈 ሁለቱንም ላክ — absolute + relative
       selectionEndsAt: game.selectionEndsAt,
       serverTime: new Date().toISOString(),
       remainingSeconds,
@@ -87,43 +91,40 @@ router.get("/stats", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// 👈 POST /rooms — ክፍሉ ካለ ሰዓቱን ፈጽሞ አትቀይር
+// POST /rooms — ክፍሉ ካለ ሰዓቱን ፈጽሞ አትቀይር
 // ═══════════════════════════════════════════════════════
 router.post("/rooms", async (req, res) => {
   try {
     let { roomCode, entryFee } = req.body;
     roomCode = (roomCode || generateRoomCode()).trim().toUpperCase();
-    entryFee = Number(entryFee ?? process.env.ENTRY_FEE ?? 10);
+
+    // 👈 የዋጋ ስሌት በአንድ ቦታ
+    const { isWeekly, fee } = getRoomFeeConfig(roomCode, entryFee);
 
     let game = await Game.findOne({ roomCode });
 
     if (!game) {
-      const weekly = roomCode === "ROOM50" || roomCode === "ROOM100";
-      const fee = roomCode === "ROOM50" ? 50 : roomCode === "ROOM100" ? 100 : entryFee;
-
       const data = {
         roomCode,
-        entryFee: Number(process.env.ENTRY_FEE || fee),
+        entryFee: fee,
         maxNumber: Number(process.env.BINGO_MAX_NUMBER || 75),
         allCards: generate1000Cards(),
-        isWeeklyGame: weekly,
+        isWeeklyGame: isWeekly,
       };
 
-      if (weekly) {
+      if (isWeekly) {
         data.scheduledStart = getNextWeeklyStart(fee);
       } else {
-        // 👈 ሰዓቱ የሚቀመጠው አዲስ ክፍል ሲፈጠር ብቻ ነው
         data.selectionEndsAt = new Date(Date.now() + TIMER_MS);
       }
 
       game = await Game.create(data);
       console.log(
-        `[POST /rooms] CREATE ${roomCode} selectionEndsAt=${game.selectionEndsAt?.toISOString()}`
+        `[POST /rooms] CREATE ${roomCode} fee=${fee} weekly=${isWeekly}`
       );
     } else {
-      // 👈 ክፍሉ ካለ — ፈጽሞ አትቀይር
       console.log(
-        `[POST /rooms] EXISTS ${roomCode} selectionEndsAt=${game.selectionEndsAt?.toISOString()} (unchanged)`
+        `[POST /rooms] EXISTS ${roomCode} (unchanged) fee=${game.entryFee}`
       );
     }
 
@@ -158,7 +159,8 @@ router.post("/rooms", async (req, res) => {
 function generateRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
-  for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 0; i < 5; i++)
+    code += chars[Math.floor(Math.random() * chars.length)];
   return code;
 }
 

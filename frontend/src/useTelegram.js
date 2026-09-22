@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 
 export function useTelegram() {
   const getTg = () => window.Telegram?.WebApp;
@@ -12,7 +12,6 @@ export function useTelegram() {
   useEffect(() => {
     let cancelled = false;
 
-    // ስክሪፕቱ እስኪጫን በየ 100ms እንፈትሻለን (ከፍተኛ 3 ሰከንድ)
     function tryInit() {
       if (cancelled) return;
 
@@ -30,7 +29,6 @@ export function useTelegram() {
         const data = tg.initData || "";
         const user = tg.initDataUnsafe?.user || null;
 
-        // initData ወይም user ካለ - ተሳክቷል
         if (data || user) {
           setInitData(data);
           setTelegramUser(user);
@@ -40,7 +38,6 @@ export function useTelegram() {
         }
       }
 
-      // ከ 3 ሰከንድ በኋላ ካልተጫነ ተወው
       pollCount.current += 1;
       if (pollCount.current < 30) {
         setTimeout(tryInit, 100);
@@ -57,5 +54,8 @@ export function useTelegram() {
     };
   }, []);
 
-  return { telegramUser, initData, isTelegram, ready, webApp: getTg() };
+  // 👈 webApp ለየትኛውም render አዲስ አይፈጠር
+  const webApp = useMemo(() => getTg(), [ready]);
+
+  return { telegramUser, initData, isTelegram, ready, webApp };
 }

@@ -7,20 +7,21 @@ let socket = null;
 
 export function getSocket() {
   if (socket && socket.connected) return socket;
+  // ከተገናኘ በኋላ socket.connected === false ሊሆን ይችላል
+  // ነገር ግን socket instance ካለ እንደገና አትፍጠር — እራሱ ይገናኛል
+  if (socket) return socket;
 
   const token = localStorage.getItem("bingo_token");
   socket = io(API_BASE_URL, {
     auth: { token },
-    // 👈 WebSocket ብቻ — Polling አጥፋ
-    transports: ["websocket"],
-    upgrade: false,
-    // 👈 ፈጣን reconnection
+    // 👈 WebSocket ቀዳሚ፣ polling fallback (firewall-friendly)
+    transports: ["websocket", "polling"],
+    upgrade: true,
     reconnection: true,
     reconnectionDelay: 500,
-    reconnectionDelayMax: 2000,
+    reconnectionDelayMax: 3000,
     reconnectionAttempts: Infinity,
-    timeout: 5000,
-    // 👈 ፈጣን ምላሽ
+    timeout: 8000,
     forceNew: false,
     multiplex: true,
   });

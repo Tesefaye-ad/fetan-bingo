@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useTelegram } from "./useTelegram";
 import { loginWithTelegram } from "./api";
 
-const LOGIN_TIMEOUT_MS = 8000;
+const LOGIN_TIMEOUT_MS = 10000;
 
 export default function Login({ onLoggedIn }) {
   const { initData, ready, telegramUser } = useTelegram();
@@ -13,35 +13,45 @@ export default function Login({ onLoggedIn }) {
     let cancelled = false;
 
     // ═══════════════════════════════════════════════════
-    // ከቴሌግራም ውጭ ከሆነ ብቻ mock user
+    // 👈 ከቴሌግራም ውጭ — DEVELOPMENT ውስጥ ብቻ mock
     // ═══════════════════════════════════════════════════
     if (!initData) {
+      const isDev = process.env.NODE_ENV === "development";
+
+      if (!isDev) {
+        // Production ላይ — ምንም mock የለም
+        console.warn(
+          "[Login] No Telegram initData. Please open this app inside Telegram."
+        );
+        onLoggedIn(null);
+        return;
+      }
+
+      // 👈 Development mock — isAdmin: false (ደህንነት)
       const mockUser = {
-        id: "local_admin",
-        telegramId: telegramUser?.id ? String(telegramUser.id) : "494653076",
-        firstName: telegramUser?.first_name || "Player",
-        username: telegramUser?.username || "player",
+        id: "local_dev_user",
+        telegramId: telegramUser?.id ? String(telegramUser.id) : "000000000",
+        firstName: telegramUser?.first_name || "Dev",
+        lastName: telegramUser?.last_name || "",
+        username: telegramUser?.username || "dev_user",
         balance: 1000,
         bonusBalance: 200,
         gamesWon: 0,
         referralCount: 0,
-        isAdmin: true,
-        token: "mock-local-token",
+        isAdmin: false, // 👈 ወሳኝ ማስተካከያ
+        token: null,
       };
       onLoggedIn(mockUser);
       return;
     }
 
     // ═══════════════════════════════════════════════════
-    // በቴሌግራም ውስጥ ከሆነ — ከ Backend ጋር ተገናኝ
+    // በቴሌግራም ውስጥ — ከ Backend ጋር ተገናኝ
     // ═══════════════════════════════════════════════════
     async function handleLogin() {
       try {
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Login timeout")),
-            LOGIN_TIMEOUT_MS
-          )
+          setTimeout(() => reject(new Error("Login timeout")), LOGIN_TIMEOUT_MS)
         );
 
         const user = await Promise.race([
@@ -58,7 +68,6 @@ export default function Login({ onLoggedIn }) {
 
         console.error("[Login] Failed:", err.message);
 
-        // Backend ካልሰራ — የቴሌግራም መረጃ ብቻ ተጠቅም
         if (telegramUser?.id) {
           const fallbackUser = {
             id: String(telegramUser.id),
@@ -71,7 +80,7 @@ export default function Login({ onLoggedIn }) {
             bonusBalance: 0,
             gamesWon: 0,
             referralCount: 0,
-            isAdmin: false, // 👈 ደህንነት
+            isAdmin: false,
             token: null,
           };
           onLoggedIn(fallbackUser);

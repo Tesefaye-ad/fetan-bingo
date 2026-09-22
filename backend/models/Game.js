@@ -55,7 +55,14 @@ const GameSchema = new mongoose.Schema(
     ],
     winPattern: {
       type: String,
-      enum: ["any-row", "any-column", "any-diagonal", "full-card"],
+      // 👈 "four-corners" ተጨምሯል — ከ bingoCard.js WIN_PATTERNS ጋር ይመሳሰላል
+      enum: [
+        "any-row",
+        "any-column",
+        "any-diagonal",
+        "four-corners",
+        "full-card",
+      ],
       default: "any-row",
     },
     selectionEndsAt: { type: Date },

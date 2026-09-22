@@ -8,6 +8,12 @@ import AdminPanel from "./Adminpanel.jsx";
 import { disconnectSocket } from "./socket";
 import { useTelegram } from "./useTelegram";
 
+// 👈 ADMIN_IDS ከ env ይነበባል (fallback ጋር)
+const ADMIN_IDS = (process.env.REACT_APP_ADMIN_IDS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 function App() {
   useTelegram();
 
@@ -18,13 +24,13 @@ function App() {
   const [showCartela, setShowCartela] = useState(false);
   const [stakeAmount, setStakeAmount] = useState(10);
   const [activeTab, setActiveTab] = useState("Game");
+  const [showWalletHistory, setShowWalletHistory] = useState(false); // 👈 አዲስ
   const [adminStats, setAdminStats] = useState({
     activeUsers: 0,
     registeredUsers: 0,
     totalGames: 0,
   });
 
-  const ADMIN_IDS = ["494653076"];
   const isAdmin =
     user?.isAdmin ||
     (user?.telegramId && ADMIN_IDS.includes(String(user.telegramId)));
@@ -61,20 +67,17 @@ function App() {
     );
   }
 
-  // Play stake → open cartela selection
   function handlePlayStake(fee, code) {
     setStakeAmount(fee);
     setRoomCode(code);
     setShowCartela(true);
   }
 
-  // Cartela chosen → open live game
   function handleCartelaConfirm(ids) {
     setCardIds(ids);
     setShowCartela(false);
   }
 
-  // Leave → back to lobby
   function handleLeave() {
     disconnectSocket();
     setRoomCode(null);
@@ -84,14 +87,15 @@ function App() {
     setActiveTab("Game");
   }
 
-  // Game ended → 5s → back to cartela selection
   function handleGameEnded() {
     disconnectSocket();
     setCardIds([]);
     setShowCartela(true);
   }
 
-  const userInitial = (user.firstName || user.username || "U").charAt(0).toUpperCase();
+  const userInitial = (user.firstName || user.username || "U")
+    .charAt(0)
+    .toUpperCase();
 
   return (
     <div className="app" style={{ paddingBottom: 80 }}>
@@ -131,7 +135,56 @@ function App() {
         </>
       )}
 
-      {activeTab === "Wallet" && <Wallet balance={balance} setBalance={setBalance} />}
+      {activeTab === "Wallet" && (
+        <>
+          {/* 👈 History toggle button */}
+          <div
+            style={{
+              padding: "10px 15px",
+              maxWidth: "450px",
+              margin: "0 auto",
+              display: "flex",
+              gap: 8,
+            }}
+          >
+            <button
+              onClick={() => setShowWalletHistory(false)}
+              style={{
+                flex: 1,
+                background: !showWalletHistory ? "#f39c12" : "#1a1a2e",
+                color: !showWalletHistory ? "#111" : "#fff",
+                border: "1px solid #f39c12",
+                borderRadius: 10,
+                padding: "10px",
+                fontWeight: "bold",
+                cursor: "pointer",
+              }}
+            >
+              💳 Wallet
+            </button>
+            <button
+              onClick={() => setShowWalletHistory(true)}
+              style={{
+                flex: 1,
+                background: showWalletHistory ? "#f39c12" : "#1a1a2e",
+                color: showWalletHistory ? "#111" : "#fff",
+                border: "1px solid #f39c12",
+                borderRadius: 10,
+                padding: "10px",
+                fontWeight: "bold",
+                cursor: "pointer",
+              }}
+            >
+              📜 History
+            </button>
+          </div>
+          <Wallet
+            balance={balance}
+            setBalance={setBalance}
+            showHistory={showWalletHistory}
+          />
+        </>
+      )}
 
       {activeTab === "Profile" && (
         <div style={{ padding: 15, textAlign: "center", color: "#fff" }}>
@@ -160,13 +213,37 @@ function App() {
             {user.username ? `@${user.username}` : `@id_${user.telegramId}`}
           </p>
           <div style={{ display: "flex", gap: 10, marginBottom: 15 }}>
-            <div style={{ flex: 1, background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: 12, padding: 15 }}>
-              <div style={{ color: "#f39c12", fontSize: 12 }}>💳 Main Wallet</div>
-              <div style={{ color: "#fff", fontSize: 18, fontWeight: "bold" }}>{balance} ETB</div>
+            <div
+              style={{
+                flex: 1,
+                background: "#1a1a2e",
+                border: "1px solid #f39c12",
+                borderRadius: 12,
+                padding: 15,
+              }}
+            >
+              <div style={{ color: "#f39c12", fontSize: 12 }}>
+                💳 Main Wallet
+              </div>
+              <div style={{ color: "#fff", fontSize: 18, fontWeight: "bold" }}>
+                {balance} ETB
+              </div>
             </div>
-            <div style={{ flex: 1, background: "#1a1a2e", border: "1px solid #f39c12", borderRadius: 12, padding: 15 }}>
-              <div style={{ color: "#f39c12", fontSize: 12 }}>🏆 Games Won</div>
-              <div style={{ color: "#fff", fontSize: 18, fontWeight: "bold" }}>{user.gamesWon || 0}</div>
+            <div
+              style={{
+                flex: 1,
+                background: "#1a1a2e",
+                border: "1px solid #f39c12",
+                borderRadius: 12,
+                padding: 15,
+              }}
+            >
+              <div style={{ color: "#f39c12", fontSize: 12 }}>
+                🏆 Games Won
+              </div>
+              <div style={{ color: "#fff", fontSize: 18, fontWeight: "bold" }}>
+                {user.gamesWon || 0}
+              </div>
             </div>
           </div>
         </div>
