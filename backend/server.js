@@ -1,7 +1,6 @@
 require("dotenv").config();
 
 const express = require("express");
-const mongoose = require("mongoose");
 const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
@@ -12,6 +11,7 @@ const authRoutes = require("./routes/auth");
 const walletRoutes = require("./routes/wallet");
 const gameRoutes = require("./routes/game");
 const adminRoutes = require("./routes/admin");
+const userRoutes = require("./routes/user"); // 👈 አዲስ
 const { initGameSocket } = require("./socket/gameSocket");
 
 const app = express();
@@ -26,15 +26,18 @@ const io = new Server(server, {
 });
 
 app.use(cors({ origin: allowedOrigins }));
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
-app.get("/", (req, res) => res.json({ name: "Fetan Bingo API", status: "running" }));
+app.get("/", (req, res) =>
+  res.json({ name: "Fetan Bingo API", status: "running" })
+);
 app.get("/health", (req, res) => res.json({ ok: true, ts: Date.now() }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/game", gameRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/user", userRoutes); // 👈 አዲስ
 
 app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
 app.use((err, req, res, next) => {
@@ -51,23 +54,17 @@ server.listen(PORT, "0.0.0.0", () => {
 
 connectDB();
 
-// ═══════════════════════════════════════════════════════
-// 👈 ራስ-ጥበቃ (Self Keep-Alive) — ሰርቨሩ እንዳይተኛ
-// ═══════════════════════════════════════════════════════
+// Self keep-alive
 const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
-
 setInterval(async () => {
   try {
     const res = await fetch(`${SELF_URL}/health`);
-    if (res.ok) {
-      console.log(`[keep-alive] pinged at ${new Date().toISOString()}`);
-    }
+    if (res.ok) console.log(`[keep-alive] pinged at ${new Date().toISOString()}`);
   } catch (err) {
     console.error("[keep-alive] ping failed:", err.message);
   }
-}, 4 * 60 * 1000); // 👈 በየ 4 ደቂቃው
+}, 4 * 60 * 1000);
 
-// ሲጀመር ወዲያውኑ አንድ ጊዜ ጥቃ
 setTimeout(async () => {
   try {
     await fetch(`${SELF_URL}/health`);
@@ -75,15 +72,13 @@ setTimeout(async () => {
   } catch (err) {}
 }, 10000);
 
-// ═══════════════════════════════════════════════════════
-// 👈 ቦቱን ከ server.js ያለው Express app ጋር አገናኝ + Webhook አዘጋጅ
-// ═══════════════════════════════════════════════════════
+// Telegram bot webhook
 try {
   const { startBot, bot } = require("./bot");
   startBot(app).then(() => {
-    // 👈 Webhook ን ከ server.listen በኋላ በእርግጠኝነት አዘጋጅ
     const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
-    const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-he4x.onrender.com`;
+    const RENDER_URL =
+      process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-he4x.onrender.com`;
 
     setTimeout(async () => {
       try {

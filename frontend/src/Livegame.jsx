@@ -116,7 +116,51 @@ function PatternPreview({ pattern }) {
   );
 }
 
-// SOUND MANAGER
+// ═══════════════════════════════════════════════════════
+// CONFETTI — ለድል ማሳያ
+// ═══════════════════════════════════════════════════════
+function Confetti() {
+  const pieces = Array.from({ length: 40 }, (_, i) => i);
+  const colors = ["#f39c12", "#2ecc71", "#3498db", "#e74c3c", "#9c27b0"];
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        pointerEvents: "none",
+        zIndex: 999,
+        overflow: "hidden",
+      }}
+    >
+      {pieces.map((i) => {
+        const left = Math.random() * 100;
+        const delay = Math.random() * 2;
+        const duration = 2 + Math.random() * 2;
+        const color = colors[i % colors.length];
+        const size = 6 + Math.random() * 8;
+        return (
+          <div
+            key={i}
+            style={{
+              position: "absolute",
+              top: "-20px",
+              left: `${left}%`,
+              width: size,
+              height: size,
+              background: color,
+              borderRadius: Math.random() > 0.5 ? "50%" : "2px",
+              animation: `confettiFall ${duration}s linear ${delay}s infinite`,
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// SOUND MANAGER — የ B/I/N/G/O ልዩ ድምጽ
+// ═══════════════════════════════════════════════════════
 const sound = {
   ctx: null,
   enabled: true,
@@ -135,6 +179,9 @@ const sound = {
     this.init();
     if (!this.ctx) return;
     try {
+      // Resume if suspended (browser autoplay policy)
+      if (this.ctx.state === "suspended") this.ctx.resume();
+
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
       osc.frequency.value = freq;
@@ -151,19 +198,39 @@ const sound = {
     } catch (e) {}
   },
 
-  callNumber() {
-    this.play(880, 120, "sine", 0.2);
-    setTimeout(() => this.play(1100, 120, "sine", 0.15), 130);
+  // 👈 ለየ B/I/N/G/O ልዩ ድምጽ
+  callNumber(num) {
+    if (!num) {
+      this.play(880, 120, "sine", 0.2);
+      return;
+    }
+    const { letter } = getLetter(num);
+    const frequencies = {
+      B: [400, 500], // deep
+      I: [550, 650], // mid-low
+      N: [700, 800], // mid
+      G: [850, 950], // mid-high
+      O: [1000, 1100], // high
+    };
+    const [f1, f2] = frequencies[letter] || [880, 1100];
+    this.play(f1, 130, "sine", 0.22);
+    setTimeout(() => this.play(f2, 130, "sine", 0.18), 140);
   },
 
   bingo() {
-    this.play(523, 200, "triangle", 0.25);
-    setTimeout(() => this.play(659, 200, "triangle", 0.25), 180);
-    setTimeout(() => this.play(784, 400, "triangle", 0.3), 360);
+    // 🎉 የድል ዜማ (major chord arpeggio)
+    this.play(523, 200, "triangle", 0.28); // C5
+    setTimeout(() => this.play(659, 200, "triangle", 0.28), 180); // E5
+    setTimeout(() => this.play(784, 200, "triangle", 0.28), 360); // G5
+    setTimeout(() => this.play(1046, 500, "triangle", 0.32), 540); // C6
   },
 
   tick() {
     this.play(600, 60, "square", 0.08);
+  },
+
+  error() {
+    this.play(200, 250, "sawtooth", 0.2);
   },
 };
 
@@ -191,6 +258,8 @@ export default function LiveGame({
   const [nextGameCountdown, setNextGameCountdown] = useState(0);
   const [soundOn, setSoundOn] = useState(true);
   const [isConnected, setIsConnected] = useState(true);
+  // 👈 አዲስ — የተጠራው ቁጥር animation key
+  const [numberAnimKey, setNumberAnimKey] = useState(0);
 
   useEffect(() => {
     soundOnRef.current = soundOn;
@@ -279,8 +348,10 @@ export default function LiveGame({
       setLastLetter(letter || getLetter(number).letter);
       setCalledNumbers(cn);
       if (wp) setWinPattern(wp);
+      setNumberAnimKey((k) => k + 1); // 👈 animation ለማስነሳት
 
-      if (soundOnRef.current) sound.callNumber();
+      // 👈 ልዩ ድምጽ ለቁጥሩ
+      if (soundOnRef.current) sound.callNumber(number);
 
       setFlashNumber(true);
       setTimeout(() => setFlashNumber(false), 600);
@@ -383,573 +454,145 @@ export default function LiveGame({
 
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
 
-  return (
-    <div
-      style={{
-        padding: 8,
-        maxWidth: 480,
-        margin: "0 auto",
-        color: "#fff",
-        minHeight: "100vh",
-        background: "#0f1420",
-        paddingBottom: 80,
-      }}
-    >
-      {!isConnected && (
-        <div
-          style={{
-            background: "#e74c3c",
-            color: "#fff",
-            padding: "8px",
-            borderRadius: 8,
-            marginBottom: 8,
-            textAlign: "center",
-            fontSize: 12,
-            fontWeight: "bold",
-          }}
-        >
-          ⚠️ ኔትወርክ ተቋርጧል — በመገናኘት ላይ...
-        </div>
-      )}
+  // 👈 Animation styles
+  const animationStyles = `
+    @keyframes popIn {
+      0% { transform: scale(0); opacity: 0; }
+      60% { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(1); }
+    }
+    @keyframes numberPop {
+      0% { transform: scale(0.3) rotate(-180deg); opacity: 0; }
+      50% { transform: scale(1.3) rotate(0deg); opacity: 1; }
+      100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    }
+    @keyframes bingoGlow {
+      0%, 100% { text-shadow: 0 0 20px rgba(243,156,18,0.6); transform: scale(1); }
+      50% { text-shadow: 0 0 40px rgba(243,156,18,1), 0 0 80px rgba(243,156,18,0.8); transform: scale(1.05); }
+    }
+    @keyframes confettiFall {
+      0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+      100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+    }
+    @keyframes cellFlash {
+      0% { box-shadow: 0 0 0 0 rgba(255,152,0,0.9); }
+      100% { box-shadow: 0 0 0 12px rgba(255,152,0,0); }
+    }
+    @keyframes currentPulse {
+      0%, 100% { box-shadow: 0 0 30px rgba(243,156,18,0.7); }
+      50% { box-shadow: 0 0 60px rgba(243,156,18,1), 0 0 90px rgba(243,156,18,0.6); }
+    }
+    @keyframes slideInLeft {
+      from { opacity: 0; transform: translateX(-20px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+  `;
 
-      {/* ─── STATS ─── */}
+  return (
+    <>
+      <style>{animationStyles}</style>
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(5, 1fr)",
-          gap: 4,
-          marginBottom: 8,
+          padding: 8,
+          maxWidth: 480,
+          margin: "0 auto",
+          color: "#fff",
+          minHeight: "100vh",
+          background: "#0f1420",
+          paddingBottom: 80,
         }}
       >
-        <Stat label="Game ID" value={roomCode} color="#f39c12" />
-        <Stat label="Players" value={playerCount} />
-        <Stat label="Bet" value={entryFee} />
-        <Stat label="Derash" value={prizePool} color="#2ecc71" />
-        <Stat label="Called" value={calledNumbers.length} />
-      </div>
-
-      {/* ─── MAIN ─── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        {/* LEFT — BINGO board */}
-        <div
-          style={{
-            background: "#1a1a2e",
-            border: "1px solid #2a2a40",
-            borderRadius: 10,
-            padding: 6,
-            overflowY: "auto",
-            maxHeight: "calc(100vh - 180px)",
-          }}
-        >
+        {!isConnected && (
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(5, 1fr)",
-              gap: 3,
-              marginBottom: 3,
+              background: "#e74c3c",
+              color: "#fff",
+              padding: "8px",
+              borderRadius: 8,
+              marginBottom: 8,
+              textAlign: "center",
+              fontSize: 12,
+              fontWeight: "bold",
+              animation: "slideInLeft 0.3s ease-out",
             }}
           >
-            {HEADERS.map((h) => (
-              <div
-                key={h.letter}
-                style={{
-                  background: h.color,
-                  color: "#fff",
-                  textAlign: "center",
-                  fontWeight: "bold",
-                  fontSize: 14,
-                  padding: "6px 0",
-                  borderRadius: 6,
-                }}
-              >
-                {h.letter}
-              </div>
-            ))}
+            ⚠️ ኔትወርክ ተቋርጧል — በመገናኘት ላይ...
           </div>
+        )}
 
-          {cards.length > 0 ? (
-            cards.map((ci, idx) => (
-              <div
-                key={idx}
-                style={{ marginBottom: cards.length > 1 ? 10 : 0 }}
-              >
-                <div
-                  style={{
-                    textAlign: "center",
-                    color: "#f39c12",
-                    fontSize: 10,
-                    fontWeight: "bold",
-                    marginBottom: 4,
-                  }}
-                >
-                  #{ci.cardId}
-                </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(5, 1fr)",
-                    gap: 3,
-                  }}
-                >
-                  {ci.card.map((row, r) =>
-                    row.map((v, c) => {
-                      const marked = ci.marked?.[r]?.[c];
-                      const free = r === 2 && c === 2;
-                      const isLast = !free && lastNumber === v;
-                      return (
-                        <div
-                          key={`${r}-${c}`}
-                          style={{
-                            aspectRatio: 1,
-                            background: free
-                              ? "#ffd43b"
-                              : isLast
-                              ? "#ff9800"
-                              : marked
-                              ? "#4caf50"
-                              : "#252d44",
-                            color: free ? "#1b2233" : "#fff",
-                            fontSize: 12,
-                            fontWeight: "bold",
-                            borderRadius: 6,
-                            border: isLast
-                              ? "2px solid #ffd43b"
-                              : "1px solid #333",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            transition: "background 0.2s",
-                          }}
-                        >
-                          {free ? "★" : v}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            ))
-          ) : (
+        {/* ─── STATS ─── */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(5, 1fr)",
+            gap: 4,
+            marginBottom: 8,
+          }}
+        >
+          <Stat label="Game ID" value={roomCode} color="#f39c12" />
+          <Stat label="Players" value={playerCount} />
+          <Stat label="Bet" value={entryFee} />
+          <Stat label="Derash" value={prizePool} color="#2ecc71" />
+          <Stat label="Called" value={calledNumbers.length} />
+        </div>
+
+        {/* ─── MAIN ─── */}
+        <div
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
+        >
+          {/* LEFT — BINGO board */}
+          <div
+            style={{
+              background: "#1a1a2e",
+              border: "1px solid #2a2a40",
+              borderRadius: 10,
+              padding: 6,
+              overflowY: "auto",
+              maxHeight: "calc(100vh - 180px)",
+            }}
+          >
             <div
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(5, 1fr)",
                 gap: 3,
+                marginBottom: 3,
               }}
             >
-              {buildBoard().map((n) => {
-                const info = getLetter(n);
-                const called = calledNumbers.includes(n);
-                const isLast = lastNumber === n;
-                return (
-                  <div
-                    key={n}
-                    style={{
-                      aspectRatio: 1,
-                      background: isLast
-                        ? "#ff9800"
-                        : called
-                        ? info.color
-                        : "#252d44",
-                      color: "#fff",
-                      fontSize: 12,
-                      fontWeight: "bold",
-                      borderRadius: 6,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      border: isLast
-                        ? "2px solid #ffd43b"
-                        : "1px solid #333",
-                      transition: "background 0.2s",
-                    }}
-                  >
-                    {n}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* RIGHT — Current number + Winning Pattern */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {/* ═══════════════════════════════════════════════
-              👈 CURRENT BOX with sound button top-right
-             ═══════════════════════════════════════════════ */}
-          <div
-            style={{
-              background: "#1a1a2e",
-              border: flashNumber
-                ? "2px solid #ffd43b"
-                : "1px solid #f39c12",
-              borderRadius: 10,
-              padding: 12,
-              textAlign: "center",
-              minHeight: 160,
-              position: "relative", // 👈 for absolute sound button
-              transition: "border 0.3s, box-shadow 0.3s",
-              boxShadow: flashNumber
-                ? "0 0 25px rgba(255,212,59,0.6)"
-                : "none",
-            }}
-          >
-            {/* 👈 Sound toggle — top right corner */}
-            <button
-              onClick={() => setSoundOn((s) => !s)}
-              style={{
-                position: "absolute",
-                top: 6,
-                right: 6,
-                background: soundOn ? "#2ecc71" : "#555",
-                color: "#fff",
-                border: "none",
-                borderRadius: 6,
-                padding: "4px 8px",
-                fontSize: 12,
-                fontWeight: "bold",
-                cursor: "pointer",
-                zIndex: 1,
-              }}
-            >
-              {soundOn ? "🔊" : "🔇"}
-            </button>
-
-            <div
-              style={{
-                color: "#aaa",
-                fontSize: 10,
-                marginBottom: 6,
-                letterSpacing: 1,
-              }}
-            >
-              CURRENT
-            </div>
-
-            {lastInfo ? (
-              <div
-                style={{
-                  background: "#fff",
-                  color: lastInfo.color,
-                  borderRadius: "50%",
-                  width: 90,
-                  height: 90,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: "bold",
-                  fontSize: 24,
-                  margin: "0 auto",
-                  border: "4px solid #f39c12",
-                  boxShadow: "0 0 30px rgba(243,156,18,0.7)",
-                  transform: flashNumber ? "scale(1.15)" : "scale(1)",
-                  transition: "transform 0.3s ease-out",
-                }}
-              >
-                {lastLetter || lastInfo.letter}-{lastNumber}
-              </div>
-            ) : (
-              // 👈 "በመጠበቅ ላይ..." ተሰርዟል — ባዶ ቦታ
-              <div style={{ height: 90 }} />
-            )}
-          </div>
-
-          {/* WINNING PATTERN BOX */}
-          <div
-            style={{
-              background: "linear-gradient(135deg, #1a1a2e 0%, #0f1420 100%)",
-              border: "2px solid #f39c12",
-              borderRadius: 10,
-              padding: "12px",
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "center",
-              alignItems: "center",
-              minHeight: 200,
-              boxShadow: "0 0 20px rgba(243,156,18,0.25)",
-            }}
-          >
-            <div
-              style={{
-                color: "#f39c12",
-                fontSize: 11,
-                fontWeight: "bold",
-                letterSpacing: 1,
-                marginBottom: 8,
-                textAlign: "center",
-              }}
-            >
-              🏆 የማሸነፊያ ፓተርን
-            </div>
-
-            <PatternPreview pattern={winPattern} />
-
-            <div
-              style={{
-                color: "#fff",
-                fontSize: 11,
-                fontWeight: "bold",
-                textAlign: "center",
-                lineHeight: 1.4,
-                marginTop: 10,
-              }}
-            >
-              {PATTERN_LABELS[winPattern] || winPattern}
-            </div>
-
-            <div
-              style={{
-                color: "#888",
-                fontSize: 9,
-                marginTop: 6,
-                textAlign: "center",
-                fontStyle: "italic",
-              }}
-            >
-              {winPattern === "any-row" && "1 ሙሉ ረድፍ ይሙሉ"}
-              {winPattern === "any-column" && "1 ሙሉ አምድ ይሙሉ"}
-              {winPattern === "any-diagonal" && "ሰያፍ መስመር ይሙሉ"}
-              {winPattern === "four-corners" && "4 ማዕዘኖች ይሙሉ"}
-              {winPattern === "full-card" && "ሙሉ ካርድ ይሙሉ"}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ─── BOTTOM ─── */}
-      <div
-        style={{
-          position: "fixed",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          maxWidth: 480,
-          margin: "0 auto",
-          padding: "10px 12px",
-          background: "#0f1420",
-          borderTop: "1px solid #2a2a40",
-        }}
-      >
-        <button
-          onClick={onExit}
-          style={{
-            width: "100%",
-            background: "linear-gradient(135deg,#e74c3c,#c0392b)",
-            color: "#fff",
-            border: "none",
-            borderRadius: 12,
-            padding: "14px 0",
-            fontSize: 14,
-            fontWeight: "bold",
-            cursor: "pointer",
-          }}
-        >
-          Leave
-        </button>
-      </div>
-
-      {/* BINGO POPUP */}
-      {bingoPopup && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(15,20,32,0.97)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            padding: "20px 15px",
-            gap: 14,
-            zIndex: 100,
-            overflowY: "auto",
-          }}
-        >
-          <div
-            style={{
-              width: 80,
-              height: 80,
-              borderRadius: "50%",
-              background: "linear-gradient(135deg,#f39c12,#e67e22)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 44,
-              boxShadow: "0 0 50px rgba(243,156,18,0.8)",
-              marginTop: 10,
-              animation: "popIn 0.5s ease-out",
-            }}
-          >
-            👑
-          </div>
-
-          <h2
-            style={{
-              color: "#f39c12",
-              margin: 0,
-              fontSize: 42,
-              letterSpacing: 4,
-              fontWeight: "bold",
-              textShadow: "0 0 20px rgba(243,156,18,0.6)",
-            }}
-          >
-            BINGO!
-          </h2>
-
-          <p
-            style={{
-              color: "#fff",
-              fontSize: 18,
-              margin: 0,
-              fontWeight: "bold",
-            }}
-          >
-            🎉 {bingoPopup.winners.length} winner
-            {bingoPopup.winners.length > 1 ? "s" : ""}!
-          </p>
-
-          <div
-            style={{
-              background: "#1a1a2e",
-              border: "1px solid #f39c12",
-              borderRadius: 10,
-              padding: "8px 16px",
-              fontSize: 12,
-              color: "#f39c12",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <span style={{ fontSize: 18 }}>
-              {PATTERN_ICONS[bingoPopup.winPattern] || "🎯"}
-            </span>
-            <span>
-              {PATTERN_LABELS[bingoPopup.winPattern] || bingoPopup.winPattern}
-            </span>
-          </div>
-
-          <div
-            style={{
-              background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
-              border: "2px solid #f39c12",
-              borderRadius: 16,
-              padding: 14,
-              width: "100%",
-              maxWidth: 400,
-            }}
-          >
-            <div
-              style={{
-                color: "#f39c12",
-                fontSize: 13,
-                fontWeight: "bold",
-                textAlign: "center",
-                marginBottom: 12,
-                letterSpacing: 1,
-              }}
-            >
-              🏆 WINNERS PANEL
-            </div>
-
-            {bingoPopup.winners.map((w, i) => (
-              <div
-                key={i}
-                style={{
-                  background: "#0f1420",
-                  border: "1px solid #2a2a40",
-                  borderRadius: 10,
-                  padding: 10,
-                  marginBottom: i < bingoPopup.winners.length - 1 ? 8 : 0,
-                }}
-              >
+              {HEADERS.map((h) => (
                 <div
+                  key={h.letter}
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: 6,
+                    background: h.color,
+                    color: "#fff",
+                    textAlign: "center",
+                    fontWeight: "bold",
+                    fontSize: 14,
+                    padding: "6px 0",
+                    borderRadius: 6,
                   }}
+                >
+                  {h.letter}
+                </div>
+              ))}
+            </div>
+
+            {cards.length > 0 ? (
+              cards.map((ci, idx) => (
+                <div
+                  key={idx}
+                  style={{ marginBottom: cards.length > 1 ? 10 : 0 }}
                 >
                   <div
                     style={{
-                      color: "#fff",
-                      fontSize: 14,
-                      fontWeight: "bold",
-                    }}
-                  >
-                    👤 {w.name}
-                  </div>
-                  <div
-                    style={{
-                      background: "rgba(46,204,113,0.2)",
-                      color: "#2ecc71",
-                      borderRadius: 20,
-                      padding: "3px 10px",
-                      fontSize: 11,
-                      fontWeight: "bold",
-                    }}
-                  >
-                    +{w.prize} ETB
-                  </div>
-                </div>
-                <div style={{ fontSize: 11, color: "#aaa", lineHeight: 1.7 }}>
-                  <div>
-                    🆔 Telegram ID:{" "}
-                    <span style={{ color: "#f39c12" }}>{w.telegramId}</span>
-                  </div>
-                  <div>
-                    🎴 Cartela:{" "}
-                    <span style={{ color: "#f39c12", fontWeight: "bold" }}>
-                      {w.cartelas.map((c) => `#${c}`).join(", ")}
-                    </span>
-                  </div>
-                  <div>
-                    💰 New Balance:{" "}
-                    <span style={{ color: "#2ecc71", fontWeight: "bold" }}>
-                      {w.newBalance} ETB
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {bingoPopup.winningCartelas?.length > 0 && (
-            <div
-              style={{
-                background: "#1a1a2e",
-                border: "1px solid #2a2a40",
-                borderRadius: 12,
-                padding: 12,
-                width: "100%",
-                maxWidth: 400,
-              }}
-            >
-              <div
-                style={{
-                  color: "#f39c12",
-                  fontSize: 12,
-                  fontWeight: "bold",
-                  marginBottom: 8,
-                  textAlign: "center",
-                }}
-              >
-                🎴 WINNING CARTELAS ({bingoPopup.winningCartelas.length})
-              </div>
-
-              {bingoPopup.winningCartelas.slice(0, 2).map((wc, idx) => (
-                <div key={idx} style={{ marginBottom: 12 }}>
-                  <div
-                    style={{
-                      color: "#fff",
-                      fontSize: 12,
-                      marginBottom: 6,
                       textAlign: "center",
+                      color: "#f39c12",
+                      fontSize: 10,
+                      fontWeight: "bold",
+                      marginBottom: 4,
                     }}
                   >
-                    #{wc.cardId} — {wc.name}{" "}
-                    <span style={{ color: "#f39c12" }}>({wc.subPattern})</span>
+                    #{ci.cardId}
                   </div>
                   <div
                     style={{
@@ -958,28 +601,39 @@ export default function LiveGame({
                       gap: 3,
                     }}
                   >
-                    {wc.card.map((row, r) =>
+                    {ci.card.map((row, r) =>
                       row.map((v, c) => {
-                        const m = wc.marked?.[r]?.[c];
+                        const marked = ci.marked?.[r]?.[c];
                         const free = r === 2 && c === 2;
+                        const isLast = !free && lastNumber === v;
                         return (
                           <div
                             key={`${r}-${c}`}
                             style={{
                               aspectRatio: 1,
                               background: free
+                                ? "#ffd43b"
+                                : isLast
+                                ? "#ff9800"
+                                : marked
                                 ? "#4caf50"
-                                : m
-                                ? "#f39c12"
-                                : "#fff",
-                              color: m || free ? "#fff" : "#1b2233",
+                                : "#252d44",
+                              color: free ? "#1b2233" : "#fff",
                               fontSize: 12,
                               fontWeight: "bold",
-                              borderRadius: 5,
+                              borderRadius: 6,
+                              border: isLast
+                                ? "2px solid #ffd43b"
+                                : "1px solid #333",
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
-                              border: "1px solid #ddd",
+                              transition: "background 0.3s ease",
+                              // 👈 Cell flash animation ለተጠራ ቁጥር
+                              animation: isLast
+                                ? "cellFlash 0.6s ease-out"
+                                : "none",
+                              transform: isLast ? "scale(1.08)" : "scale(1)",
                             }}
                           >
                             {free ? "★" : v}
@@ -989,41 +643,509 @@ export default function LiveGame({
                     )}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-
-          <div
-            style={{
-              background: "linear-gradient(135deg,#2ecc71,#27ae60)",
-              borderRadius: 12,
-              padding: "10px 24px",
-              fontSize: 16,
-              fontWeight: "bold",
-              color: "#fff",
-              textShadow: "0 1px 3px rgba(0,0,0,0.3)",
-            }}
-          >
-            💰 Total Pool: {bingoPopup.prizePool} ETB
+              ))
+            ) : (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(5, 1fr)",
+                  gap: 3,
+                }}
+              >
+                {buildBoard().map((n) => {
+                  const info = getLetter(n);
+                  const called = calledNumbers.includes(n);
+                  const isLast = lastNumber === n;
+                  return (
+                    <div
+                      key={n}
+                      style={{
+                        aspectRatio: 1,
+                        background: isLast
+                          ? "#ff9800"
+                          : called
+                          ? info.color
+                          : "#252d44",
+                        color: "#fff",
+                        fontSize: 12,
+                        fontWeight: "bold",
+                        borderRadius: 6,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        border: isLast
+                          ? "2px solid #ffd43b"
+                          : "1px solid #333",
+                        transition: "background 0.3s ease",
+                        animation: isLast
+                          ? "cellFlash 0.6s ease-out"
+                          : "none",
+                        transform: isLast ? "scale(1.08)" : "scale(1)",
+                      }}
+                    >
+                      {n}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {nextGameCountdown > 0 && (
-            <div style={{ color: "#aaa", fontSize: 13 }}>
-              ቀጣይ ጨዋታ በ{" "}
-              <b style={{ color: "#f39c12" }}>{nextGameCountdown}s</b>
-            </div>
-          )}
+          {/* RIGHT — Current number + Winning Pattern */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {/* CURRENT BOX */}
+            <div
+              style={{
+                background: "#1a1a2e",
+                border: flashNumber
+                  ? "2px solid #ffd43b"
+                  : "1px solid #f39c12",
+                borderRadius: 10,
+                padding: 12,
+                textAlign: "center",
+                minHeight: 160,
+                position: "relative",
+                transition: "border 0.3s",
+                boxShadow: flashNumber
+                  ? "0 0 25px rgba(255,212,59,0.6)"
+                  : "0 0 12px rgba(243,156,18,0.2)",
+              }}
+            >
+              {/* Sound toggle */}
+              <button
+                onClick={() => setSoundOn((s) => !s)}
+                style={{
+                  position: "absolute",
+                  top: 6,
+                  right: 6,
+                  background: soundOn ? "#2ecc71" : "#555",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 6,
+                  padding: "4px 8px",
+                  fontSize: 12,
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                  zIndex: 1,
+                }}
+              >
+                {soundOn ? "🔊" : "🔇"}
+              </button>
 
-          <style>{`
-            @keyframes popIn {
-              0% { transform: scale(0); opacity: 0; }
-              60% { transform: scale(1.15); opacity: 1; }
-              100% { transform: scale(1); }
-            }
-          `}</style>
+              <div
+                style={{
+                  color: "#aaa",
+                  fontSize: 10,
+                  marginBottom: 6,
+                  letterSpacing: 1,
+                }}
+              >
+                CURRENT
+              </div>
+
+              {lastInfo ? (
+                <div
+                  key={numberAnimKey} // 👈 animation ለማስነሳት
+                  style={{
+                    background: "#fff",
+                    color: lastInfo.color,
+                    borderRadius: "50%",
+                    width: 90,
+                    height: 90,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: "bold",
+                    fontSize: 24,
+                    margin: "0 auto",
+                    border: "4px solid #f39c12",
+                    animation: "numberPop 0.5s ease-out, currentPulse 1.5s ease-in-out infinite",
+                  }}
+                >
+                  {lastLetter || lastInfo.letter}-{lastNumber}
+                </div>
+              ) : (
+                <div style={{ height: 90 }} />
+              )}
+            </div>
+
+            {/* WINNING PATTERN BOX */}
+            <div
+              style={{
+                background:
+                  "linear-gradient(135deg, #1a1a2e 0%, #0f1420 100%)",
+                border: "2px solid #f39c12",
+                borderRadius: 10,
+                padding: "12px",
+                flex: 1,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                alignItems: "center",
+                minHeight: 200,
+                boxShadow: "0 0 20px rgba(243,156,18,0.25)",
+              }}
+            >
+              <div
+                style={{
+                  color: "#f39c12",
+                  fontSize: 11,
+                  fontWeight: "bold",
+                  letterSpacing: 1,
+                  marginBottom: 8,
+                  textAlign: "center",
+                }}
+              >
+                🏆 የማሸነፊያ ፓተርን
+              </div>
+
+              <PatternPreview pattern={winPattern} />
+
+              <div
+                style={{
+                  color: "#fff",
+                  fontSize: 11,
+                  fontWeight: "bold",
+                  textAlign: "center",
+                  lineHeight: 1.4,
+                  marginTop: 10,
+                }}
+              >
+                {PATTERN_LABELS[winPattern] || winPattern}
+              </div>
+
+              <div
+                style={{
+                  color: "#888",
+                  fontSize: 9,
+                  marginTop: 6,
+                  textAlign: "center",
+                  fontStyle: "italic",
+                }}
+              >
+                {winPattern === "any-row" && "1 ሙሉ ረድፍ ይሙሉ"}
+                {winPattern === "any-column" && "1 ሙሉ አምድ ይሙሉ"}
+                {winPattern === "any-diagonal" && "ሰያፍ መስመር ይሙሉ"}
+                {winPattern === "four-corners" && "4 ማዕዘኖች ይሙሉ"}
+                {winPattern === "full-card" && "ሙሉ ካርድ ይሙሉ"}
+              </div>
+            </div>
+          </div>
         </div>
-      )}
-    </div>
+
+        {/* ─── BOTTOM ─── */}
+        <div
+          style={{
+            position: "fixed",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            maxWidth: 480,
+            margin: "0 auto",
+            padding: "10px 12px",
+            background: "#0f1420",
+            borderTop: "1px solid #2a2a40",
+          }}
+        >
+          <button
+            onClick={onExit}
+            style={{
+              width: "100%",
+              background: "linear-gradient(135deg,#e74c3c,#c0392b)",
+              color: "#fff",
+              border: "none",
+              borderRadius: 12,
+              padding: "14px 0",
+              fontSize: 14,
+              fontWeight: "bold",
+              cursor: "pointer",
+            }}
+          >
+            Leave
+          </button>
+        </div>
+
+        {/* BINGO POPUP */}
+        {bingoPopup && (
+          <>
+            <Confetti />
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(15,20,32,0.97)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                padding: "20px 15px",
+                gap: 14,
+                zIndex: 100,
+                overflowY: "auto",
+              }}
+            >
+              <div
+                style={{
+                  width: 80,
+                  height: 80,
+                  borderRadius: "50%",
+                  background: "linear-gradient(135deg,#f39c12,#e67e22)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 44,
+                  boxShadow: "0 0 50px rgba(243,156,18,0.8)",
+                  marginTop: 10,
+                  animation: "popIn 0.5s ease-out",
+                }}
+              >
+                👑
+              </div>
+
+              <h2
+                style={{
+                  color: "#f39c12",
+                  margin: 0,
+                  fontSize: 42,
+                  letterSpacing: 4,
+                  fontWeight: "bold",
+                  animation:
+                    "bingoGlow 1.5s ease-in-out infinite, popIn 0.5s ease-out",
+                }}
+              >
+                BINGO!
+              </h2>
+
+              <p
+                style={{
+                  color: "#fff",
+                  fontSize: 18,
+                  margin: 0,
+                  fontWeight: "bold",
+                }}
+              >
+                🎉 {bingoPopup.winners.length} winner
+                {bingoPopup.winners.length > 1 ? "s" : ""}!
+              </p>
+
+              <div
+                style={{
+                  background: "#1a1a2e",
+                  border: "1px solid #f39c12",
+                  borderRadius: 10,
+                  padding: "8px 16px",
+                  fontSize: 12,
+                  color: "#f39c12",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span style={{ fontSize: 18 }}>
+                  {PATTERN_ICONS[bingoPopup.winPattern] || "🎯"}
+                </span>
+                <span>
+                  {PATTERN_LABELS[bingoPopup.winPattern] ||
+                    bingoPopup.winPattern}
+                </span>
+              </div>
+
+              <div
+                style={{
+                  background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
+                  border: "2px solid #f39c12",
+                  borderRadius: 16,
+                  padding: 14,
+                  width: "100%",
+                  maxWidth: 400,
+                }}
+              >
+                <div
+                  style={{
+                    color: "#f39c12",
+                    fontSize: 13,
+                    fontWeight: "bold",
+                    textAlign: "center",
+                    marginBottom: 12,
+                    letterSpacing: 1,
+                  }}
+                >
+                  🏆 WINNERS PANEL
+                </div>
+
+                {bingoPopup.winners.map((w, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      background: "#0f1420",
+                      border: "1px solid #2a2a40",
+                      borderRadius: 10,
+                      padding: 10,
+                      marginBottom:
+                        i < bingoPopup.winners.length - 1 ? 8 : 0,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: 6,
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: "#fff",
+                          fontSize: 14,
+                          fontWeight: "bold",
+                        }}
+                      >
+                        👤 {w.name}
+                      </div>
+                      <div
+                        style={{
+                          background: "rgba(46,204,113,0.2)",
+                          color: "#2ecc71",
+                          borderRadius: 20,
+                          padding: "3px 10px",
+                          fontSize: 11,
+                          fontWeight: "bold",
+                        }}
+                      >
+                        +{w.prize} ETB
+                      </div>
+                    </div>
+                    <div
+                      style={{ fontSize: 11, color: "#aaa", lineHeight: 1.7 }}
+                    >
+                      <div>
+                        🆔 Telegram ID:{" "}
+                        <span style={{ color: "#f39c12" }}>{w.telegramId}</span>
+                      </div>
+                      <div>
+                        🎴 Cartela:{" "}
+                        <span
+                          style={{ color: "#f39c12", fontWeight: "bold" }}
+                        >
+                          {w.cartelas.map((c) => `#${c}`).join(", ")}
+                        </span>
+                      </div>
+                      <div>
+                        💰 New Balance:{" "}
+                        <span style={{ color: "#2ecc71", fontWeight: "bold" }}>
+                          {w.newBalance} ETB
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {bingoPopup.winningCartelas?.length > 0 && (
+                <div
+                  style={{
+                    background: "#1a1a2e",
+                    border: "1px solid #2a2a40",
+                    borderRadius: 12,
+                    padding: 12,
+                    width: "100%",
+                    maxWidth: 400,
+                  }}
+                >
+                  <div
+                    style={{
+                      color: "#f39c12",
+                      fontSize: 12,
+                      fontWeight: "bold",
+                      marginBottom: 8,
+                      textAlign: "center",
+                    }}
+                  >
+                    🎴 WINNING CARTELAS (
+                    {bingoPopup.winningCartelas.length})
+                  </div>
+
+                  {bingoPopup.winningCartelas.slice(0, 2).map((wc, idx) => (
+                    <div key={idx} style={{ marginBottom: 12 }}>
+                      <div
+                        style={{
+                          color: "#fff",
+                          fontSize: 12,
+                          marginBottom: 6,
+                          textAlign: "center",
+                        }}
+                      >
+                        #{wc.cardId} — {wc.name}{" "}
+                        <span style={{ color: "#f39c12" }}>
+                          ({wc.subPattern})
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(5, 1fr)",
+                          gap: 3,
+                        }}
+                      >
+                        {wc.card.map((row, r) =>
+                          row.map((v, c) => {
+                            const m = wc.marked?.[r]?.[c];
+                            const free = r === 2 && c === 2;
+                            return (
+                              <div
+                                key={`${r}-${c}`}
+                                style={{
+                                  aspectRatio: 1,
+                                  background: free
+                                    ? "#4caf50"
+                                    : m
+                                    ? "#f39c12"
+                                    : "#fff",
+                                  color: m || free ? "#fff" : "#1b2233",
+                                  fontSize: 12,
+                                  fontWeight: "bold",
+                                  borderRadius: 5,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  border: "1px solid #ddd",
+                                }}
+                              >
+                                {free ? "★" : v}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div
+                style={{
+                  background: "linear-gradient(135deg,#2ecc71,#27ae60)",
+                  borderRadius: 12,
+                  padding: "10px 24px",
+                  fontSize: 16,
+                  fontWeight: "bold",
+                  color: "#fff",
+                  textShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                }}
+              >
+                💰 Total Pool: {bingoPopup.prizePool} ETB
+              </div>
+
+              {nextGameCountdown > 0 && (
+                <div style={{ color: "#aaa", fontSize: 13 }}>
+                  ቀጣይ ጨዋታ በ{" "}
+                  <b style={{ color: "#f39c12" }}>{nextGameCountdown}s</b>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 

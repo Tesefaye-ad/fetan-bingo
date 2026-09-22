@@ -5,13 +5,11 @@ import GameLobby from "./Gamelobby.jsx";
 import LiveGame from "./Livegame.jsx";
 import CartelaSelection from "./Cartelaselection.jsx";
 import AdminPanel from "./Adminpanel.jsx";
+import Profile from "./Profile.jsx";
 import { disconnectSocket } from "./socket";
 import { useTelegram } from "./useTelegram";
+import { getNotifications } from "./api";
 
-// ═══════════════════════════════════════════════════════
-// 👈 Admin IDs — ከ env ወይም ከ default
-// በ Vercel: REACT_APP_ADMIN_IDS=494653076,1234567890
-// ═══════════════════════════════════════════════════════
 const DEFAULT_ADMIN_IDS = ["494653076"];
 const ENV_ADMIN_IDS = (process.env.REACT_APP_ADMIN_IDS || "")
   .split(",")
@@ -31,28 +29,11 @@ function App() {
   const [stakeAmount, setStakeAmount] = useState(10);
   const [activeTab, setActiveTab] = useState("Game");
   const [showWalletHistory, setShowWalletHistory] = useState(false);
-  const [adminStats, setAdminStats] = useState({
-    activeUsers: 0,
-    registeredUsers: 0,
-    totalGames: 0,
-  });
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  // 👈 isAdmin check — ከ backend ወይም ከ ADMIN_IDS list
   const isAdmin =
     user?.isAdmin === true ||
     (user?.telegramId && ADMIN_IDS.includes(String(user.telegramId)));
-
-  // 👈 Debug log (Development ላይ ብቻ ይመልከቱ)
-  useEffect(() => {
-    if (user) {
-      console.log("[App] Admin check:", {
-        telegramId: user.telegramId,
-        isAdminFromBackend: user.isAdmin,
-        ADMIN_IDS,
-        isAdminResult: isAdmin,
-      });
-    }
-  }, [user, isAdmin]);
 
   const tabs = [
     { id: "Game", label: "Game", icon: "🎮" },
@@ -61,19 +42,18 @@ function App() {
   ];
   if (isAdmin) tabs.push({ id: "Admin", label: "Admin", icon: "⚙️" });
 
+  // Poll notifications unread count
   useEffect(() => {
-    if (!isAdmin) return;
-    const base = process.env.REACT_APP_API_URL || "";
-    const token = localStorage.getItem("bingo_token") || "";
-    fetch(`${base}/api/admin/stats`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d && !d.error) setAdminStats(d);
-      })
-      .catch(() => {});
-  }, [isAdmin, activeTab]);
+    if (!user) return;
+    const load = () => {
+      getNotifications(1)
+        .then((d) => setUnreadCount(d.unreadCount || 0))
+        .catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
+  }, [user]);
 
   if (!user) {
     return (
@@ -86,35 +66,31 @@ function App() {
     );
   }
 
-  function handlePlayStake(fee, code) {
+  const handlePlayStake = (fee, code) => {
     setStakeAmount(fee);
     setRoomCode(code);
     setShowCartela(true);
-  }
+  };
 
-  function handleCartelaConfirm(ids) {
+  const handleCartelaConfirm = (ids) => {
     setCardIds(ids);
     setShowCartela(false);
-  }
+  };
 
-  function handleLeave() {
+  const handleLeave = () => {
     disconnectSocket();
     setRoomCode(null);
     setCardIds([]);
     setShowCartela(false);
     setStakeAmount(10);
     setActiveTab("Game");
-  }
+  };
 
-  function handleGameEnded() {
+  const handleGameEnded = () => {
     disconnectSocket();
     setCardIds([]);
     setShowCartela(true);
-  }
-
-  const userInitial = (user.firstName || user.username || "U")
-    .charAt(0)
-    .toUpperCase();
+  };
 
   return (
     <div className="app" style={{ paddingBottom: 80 }}>
@@ -145,11 +121,7 @@ function App() {
               onGameEnded={handleGameEnded}
             />
           ) : (
-            <GameLobby
-              onPlayStake={handlePlayStake}
-              isAdmin={isAdmin}
-              adminStats={adminStats}
-            />
+            <GameLobby onPlayStake={handlePlayStake} isAdmin={isAdmin} />
           )}
         </>
       )}
@@ -205,69 +177,14 @@ function App() {
       )}
 
       {activeTab === "Profile" && (
-        <div style={{ padding: 15, textAlign: "center", color: "#fff" }}>
-          <div
-            style={{
-              width: 80,
-              height: 80,
-              borderRadius: "50%",
-              background: "linear-gradient(135deg,#3498db,#2980b9)",
-              color: "#fff",
-              fontSize: 36,
-              fontWeight: "bold",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              margin: "0 auto 10px",
-              border: "2px solid #f39c12",
-            }}
-          >
-            {userInitial}
-          </div>
-          <h2 style={{ color: "#fff", margin: "5px 0" }}>
-            {user.firstName || "User"} {user.lastName || ""}
-          </h2>
-          <p style={{ color: "#f39c12", marginBottom: 20 }}>
-            {user.username ? `@${user.username}` : `@id_${user.telegramId}`}
-          </p>
-          <div style={{ display: "flex", gap: 10, marginBottom: 15 }}>
-            <div
-              style={{
-                flex: 1,
-                background: "#1a1a2e",
-                border: "1px solid #f39c12",
-                borderRadius: 12,
-                padding: 15,
-              }}
-            >
-              <div style={{ color: "#f39c12", fontSize: 12 }}>
-                💳 Main Wallet
-              </div>
-              <div style={{ color: "#fff", fontSize: 18, fontWeight: "bold" }}>
-                {balance} ETB
-              </div>
-            </div>
-            <div
-              style={{
-                flex: 1,
-                background: "#1a1a2e",
-                border: "1px solid #f39c12",
-                borderRadius: 12,
-                padding: 15,
-              }}
-            >
-              <div style={{ color: "#f39c12", fontSize: 12 }}>
-                🏆 Games Won
-              </div>
-              <div style={{ color: "#fff", fontSize: 18, fontWeight: "bold" }}>
-                {user.gamesWon || 0}
-              </div>
-            </div>
-          </div>
-        </div>
+        <Profile
+          user={user}
+          balance={balance}
+          onUserUpdate={(u) => setUser((prev) => ({ ...prev, ...u }))}
+        />
       )}
 
-      {activeTab === "Admin" && <AdminPanel adminStats={adminStats} />}
+      {activeTab === "Admin" && <AdminPanel />}
 
       {!showCartela && !roomCode && (
         <nav className="bottom-nav">
@@ -276,9 +193,31 @@ function App() {
               key={t.id}
               className={activeTab === t.id ? "nav-item active" : "nav-item"}
               onClick={() => setActiveTab(t.id)}
+              style={{ position: "relative" }}
             >
               <span>{t.icon}</span>
               <span>{t.label}</span>
+              {t.id === "Profile" && unreadCount > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: 2,
+                    right: "25%",
+                    background: "#e74c3c",
+                    color: "#fff",
+                    borderRadius: "50%",
+                    width: 16,
+                    height: 16,
+                    fontSize: 9,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: "bold",
+                  }}
+                >
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
             </button>
           ))}
         </nav>

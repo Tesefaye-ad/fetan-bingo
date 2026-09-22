@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { createRoom } from "./api";
+import { useState, useEffect } from "react";
+import { createRoom, getLeaderboard } from "./api";
 
 const STAKES = [
   { fee: 10, color: "#2ecc71" },
@@ -13,9 +13,19 @@ const WEEKLY_GAMES = [
 
 const SHARED_ROOMS = { 10: "ROOM10", 20: "ROOM20", 50: "ROOM50", 100: "ROOM100" };
 
-export default function GameLobby({ onPlayStake, isAdmin, adminStats }) {
+export default function GameLobby({ onPlayStake, isAdmin }) {
   const [loading, setLoading] = useState(null);
   const [error, setError] = useState("");
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [leaderboard, setLeaderboard] = useState(null);
+
+  useEffect(() => {
+    if (showLeaderboard && !leaderboard) {
+      getLeaderboard()
+        .then(setLeaderboard)
+        .catch(() => {});
+    }
+  }, [showLeaderboard, leaderboard]);
 
   async function play(fee) {
     setLoading(fee);
@@ -46,7 +56,17 @@ export default function GameLobby({ onPlayStake, isAdmin, adminStats }) {
   return (
     <div style={{ padding: 15, maxWidth: 450, margin: "0 auto" }}>
       {error && (
-        <div style={{ background: "#e74c3c", color: "#fff", padding: 10, borderRadius: 8, marginBottom: 15, fontSize: 13, textAlign: "center" }}>
+        <div
+          style={{
+            background: "#e74c3c",
+            color: "#fff",
+            padding: 10,
+            borderRadius: 8,
+            marginBottom: 15,
+            fontSize: 13,
+            textAlign: "center",
+          }}
+        >
           {error}
         </div>
       )}
@@ -55,39 +75,166 @@ export default function GameLobby({ onPlayStake, isAdmin, adminStats }) {
         Welcome to <span style={{ color: "#f39c12" }}>Fetan Bingo</span>
       </h2>
 
-      <div style={{ border: "1px solid #f39c12", borderRadius: 14, padding: 16, marginBottom: 16 }}>
-        <div style={{ color: "#f39c12", fontWeight: "bold", textAlign: "center", marginBottom: 12 }}>Choose Stake</div>
+      {/* Choose Stake */}
+      <div
+        style={{
+          border: "1px solid #f39c12",
+          borderRadius: 14,
+          padding: 16,
+          marginBottom: 16,
+        }}
+      >
+        <div
+          style={{
+            color: "#f39c12",
+            fontWeight: "bold",
+            textAlign: "center",
+            marginBottom: 12,
+          }}
+        >
+          Choose Stake
+        </div>
         {STAKES.map((s) => (
-          <button key={s.fee} disabled={loading !== null} onClick={() => play(s.fee)} style={btn(s.color)}>
+          <button
+            key={s.fee}
+            disabled={loading !== null}
+            onClick={() => play(s.fee)}
+            style={btn(s.color)}
+          >
             {loading === s.fee ? "Starting…" : `▶ Play ${s.fee} ETB`}
           </button>
         ))}
       </div>
 
-      <div style={{ border: "1px solid #f39c12", borderRadius: 14, padding: 16, marginBottom: 16 }}>
-        <div style={{ color: "#f39c12", fontWeight: "bold", textAlign: "center", marginBottom: 12 }}>Weekly Game</div>
+      {/* Weekly Game */}
+      <div
+        style={{
+          border: "1px solid #f39c12",
+          borderRadius: 14,
+          padding: 16,
+          marginBottom: 16,
+        }}
+      >
+        <div
+          style={{
+            color: "#f39c12",
+            fontWeight: "bold",
+            textAlign: "center",
+            marginBottom: 12,
+          }}
+        >
+          Weekly Game
+        </div>
         {WEEKLY_GAMES.map((g) => (
           <div key={g.fee} style={{ marginBottom: 10 }}>
-            <button disabled={loading !== null} onClick={() => play(g.fee)} style={{ ...btn(g.color), marginBottom: 4 }}>
+            <button
+              disabled={loading !== null}
+              onClick={() => play(g.fee)}
+              style={{ ...btn(g.color), marginBottom: 4 }}
+            >
               {loading === g.fee ? "Starting…" : `▶ Play ${g.fee} ETB`}
             </button>
-            <div style={{ color: "#f39c12", fontSize: 12, textAlign: "center" }}>{g.schedule}</div>
+            <div
+              style={{
+                color: "#f39c12",
+                fontSize: 12,
+                textAlign: "center",
+              }}
+            >
+              {g.schedule}
+            </div>
           </div>
         ))}
       </div>
 
-      {isAdmin && adminStats && (
-        <div style={{ background: "#12121e", border: "1px solid #2a2a40", borderRadius: 14, padding: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-around", textAlign: "center" }}>
-            <div>
-              <div style={{ color: "#fff", fontSize: 22, fontWeight: "bold" }}>{adminStats.activeUsers || 0}</div>
-              <div style={{ color: "#aaa", fontSize: 11 }}>Active Users</div>
+      {/* Leaderboard toggle */}
+      <button
+        onClick={() => setShowLeaderboard((s) => !s)}
+        style={{
+          width: "100%",
+          background: showLeaderboard ? "#f39c12" : "#1a1a2e",
+          color: showLeaderboard ? "#111" : "#f39c12",
+          border: "1px solid #f39c12",
+          borderRadius: 12,
+          padding: 12,
+          fontWeight: "bold",
+          fontSize: 13,
+          cursor: "pointer",
+          marginBottom: 12,
+        }}
+      >
+        🏆 {showLeaderboard ? "Hide" : "Show"} Leaderboard
+      </button>
+
+      {showLeaderboard && (
+        <div
+          style={{
+            background: "#1a1a2e",
+            border: "1px solid #2a2a40",
+            borderRadius: 14,
+            padding: 14,
+          }}
+        >
+          {!leaderboard ? (
+            <div
+              style={{ color: "#888", textAlign: "center", padding: 20 }}
+            >
+              Loading...
             </div>
-            <div>
-              <div style={{ color: "#fff", fontSize: 22, fontWeight: "bold" }}>{adminStats.registeredUsers || 0}</div>
-              <div style={{ color: "#aaa", fontSize: 11 }}>Registered</div>
-            </div>
-          </div>
+          ) : (
+            <>
+              <div
+                style={{
+                  color: "#f39c12",
+                  fontWeight: "bold",
+                  fontSize: 13,
+                  marginBottom: 10,
+                }}
+              >
+                💰 Top Winners
+              </div>
+              {(leaderboard.byWinnings || []).slice(0, 10).map((u, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "8px 6px",
+                    borderBottom: "1px solid #2a2a40",
+                    fontSize: 12,
+                  }}
+                >
+                  <span style={{ color: "#fff" }}>
+                    {i === 0
+                      ? "🥇"
+                      : i === 1
+                      ? "🥈"
+                      : i === 2
+                      ? "🥉"
+                      : `${i + 1}.`}{" "}
+                    {u.firstName || u.username || "Player"}
+                  </span>
+                  <span style={{ color: "#2ecc71", fontWeight: "bold" }}>
+                    {u.totalWinnings} ETB
+                  </span>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
+      {isAdmin && (
+        <div
+          style={{
+            marginTop: 12,
+            textAlign: "center",
+            color: "#f39c12",
+            fontSize: 11,
+          }}
+        >
+          👑 Admin access enabled
         </div>
       )}
     </div>
