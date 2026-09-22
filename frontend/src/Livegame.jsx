@@ -315,11 +315,14 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
         </div>
       )}
 
-      {/* ─── WIN PATTERN BANNER ─── */}
+           {/* ─── STATUS BANNER ─── */}
       <div
         style={{
-          background: "linear-gradient(135deg,#f39c12,#e67e22)",
-          padding: "12px 14px",
+          background:
+            status === "active"
+              ? "linear-gradient(135deg,#2ecc71,#27ae60)"
+              : "linear-gradient(135deg,#f39c12,#e67e22)",
+          padding: "14px",
           borderRadius: 12,
           marginBottom: 10,
           display: "flex",
@@ -328,23 +331,32 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
           boxShadow: "0 4px 15px rgba(243,156,18,0.4)",
         }}
       >
-        <div style={{ fontSize: 32 }}>{PATTERN_ICONS[winPattern] || "🎯"}</div>
+        <div style={{ fontSize: 32 }}>
+          {status === "active" ? "🎯" : "⏳"}
+        </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.85)", letterSpacing: 1, marginBottom: 2 }}>
-            🏆 የማሸነፊያ ፓተርን (Winning Pattern)
-          </div>
-          <div style={{ fontSize: 15, fontWeight: "bold", color: "#fff" }}>
-            {PATTERN_LABELS[winPattern] || winPattern}
+          <div
+            style={{
+              fontSize: 16,
+              fontWeight: "bold",
+              color: "#fff",
+              textAlign: "center",
+            }}
+          >
+            {status === "waiting"
+              ? "🎮 ጨዋታው በቅርቡ ይጀመራል"
+              : status === "active"
+              ? "🎯 ጨዋታው በሂደት ላይ ነው"
+              : "🏁 ጨዋታው ተጠናቅቋል"}
           </div>
         </div>
-        {/* 🔊 Sound toggle */}
         <button
           onClick={() => setSoundOn((s) => !s)}
           style={{
             background: "rgba(0,0,0,0.2)",
             border: "none",
             color: "#fff",
-            fontSize: 20,
+            fontSize: 22,
             borderRadius: 8,
             padding: "6px 10px",
             cursor: "pointer",
@@ -353,7 +365,6 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
           {soundOn ? "🔊" : "🔇"}
         </button>
       </div>
-
       {/* ─── STATS ─── */}
       <div
         style={{
