@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { useTelegram } from "./useTelegram";
 import { loginWithTelegram } from "./api";
 
-// 👈 የ Backend ጥሪ timeout (cold start + network)
 const LOGIN_TIMEOUT_MS = 8000;
 
 export default function Login({ onLoggedIn }) {
@@ -14,7 +13,7 @@ export default function Login({ onLoggedIn }) {
     let cancelled = false;
 
     // ═══════════════════════════════════════════════════
-    // 👈 ከቴሌግራም ውጭ ከሆነ ብቻ mock user ተጠቀም
+    // ከቴሌግራም ውጭ ከሆነ ብቻ mock user
     // ═══════════════════════════════════════════════════
     if (!initData) {
       const mockUser = {
@@ -26,7 +25,6 @@ export default function Login({ onLoggedIn }) {
         bonusBalance: 200,
         gamesWon: 0,
         referralCount: 0,
-        // 👈 ከቴሌግራም ውጭ ብቻ admin ነው
         isAdmin: true,
         token: "mock-local-token",
       };
@@ -35,11 +33,10 @@ export default function Login({ onLoggedIn }) {
     }
 
     // ═══════════════════════════════════════════════════
-    // 👈 በቴሌግራም ውስጥ ከሆነ — ከ Backend ጋር ተገናኝ
+    // በቴሌግራም ውስጥ ከሆነ — ከ Backend ጋር ተገናኝ
     // ═══════════════════════════════════════════════════
     async function handleLogin() {
       try {
-        // 👈 Timeout ጨምር — 8s በላይ ከወሰደ ወዲያውኑ fail አድርግ
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(
             () => reject(new Error("Login timeout")),
@@ -61,9 +58,7 @@ export default function Login({ onLoggedIn }) {
 
         console.error("[Login] Failed:", err.message);
 
-        // ═══════════════════════════════════════════════
-        // 👈 Backend ካልሰራ — የቴሌግራም መረጃ ብቻ ተጠቅም
-        // ═══════════════════════════════════════════════
+        // Backend ካልሰራ — የቴሌግራም መረጃ ብቻ ተጠቅም
         if (telegramUser?.id) {
           const fallbackUser = {
             id: String(telegramUser.id),
@@ -72,17 +67,15 @@ export default function Login({ onLoggedIn }) {
             lastName: telegramUser.last_name || "",
             username: telegramUser.username || `user_${telegramUser.id}`,
             photoUrl: telegramUser.photo_url || "",
-            balance: 0,        // 👈 ከ DB ስላልመጣ 0 ነው
+            balance: 0,
             bonusBalance: 0,
             gamesWon: 0,
             referralCount: 0,
-            // 👈 እውነተኛ ተጠቃሚ ነው — admin አይደለም
-            isAdmin: false,
+            isAdmin: false, // 👈 ደህንነት
             token: null,
           };
           onLoggedIn(fallbackUser);
         } else {
-          // የቴሌግራም መረጃም የለም — ወደ ስህተት ገጽ
           onLoggedIn(null);
         }
       }
@@ -93,7 +86,8 @@ export default function Login({ onLoggedIn }) {
     return () => {
       cancelled = true;
     };
-  }, [ready, initData, telegramUser?.id, onLoggedIn]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, initData, onLoggedIn]);
 
   return null;
 }
