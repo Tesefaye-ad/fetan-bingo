@@ -1,11 +1,28 @@
 require("dotenv").config();
 const { Telegraf, Markup } = require("telegraf");
-const mongoose = require("mongoose");
+const fs = require("fs");
+const path = require("path");
 
-const connectDB = require("./config/db");
+// ═══════════════════════════════════════════════════════
+// 👈 DB ከ server.js ይመጣል (connectDB ተሰርዟል)
+// ═══════════════════════════════════════════════════════
 const User = require("./models/User");
 const Transaction = require("./models/Transaction");
-const { getBannerSource } = require("./utils/bannerSource");
+
+// ═══════════════════════════════════════════════════════
+// 👈 BANNER SOURCE (ከ utils/bannerSource.js የተዋሃደ)
+// ═══════════════════════════════════════════════════════
+const LOCAL_BANNER_PATH = path.join(__dirname, "assets", "banner.png");
+
+function getBannerSource() {
+  const url = process.env.BOT_BANNER_URL;
+  if (url) return url;
+  // 👈 fs.constants.F_OK ተጠቅሟል (deprecation warning ለማስወገድ)
+  if (fs.existsSync(LOCAL_BANNER_PATH, fs.constants.F_OK)) {
+    return { source: fs.createReadStream(LOCAL_BANNER_PATH) };
+  }
+  return null;
+}
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WEBAPP_URL = process.env.BOT_WEBAPP_URL;
@@ -35,15 +52,24 @@ function mainKeyboard() {
 
   return Markup.inlineKeyboard([
     [playButton, Markup.button.callback("Register 📝", "action_register")],
-    [Markup.button.callback("Check Balance 💵", "action_balance"), Markup.button.callback("Deposit 💵", "action_deposit")],
-    [Markup.button.callback("Withdraw 💵", "action_withdraw"), Markup.button.callback("Invite 🔗", "action_invite")],
-    [Markup.button.callback("Instruction 📖", "action_instruction"), Markup.button.callback("Contact Support ☎️", "action_support")],
+    [
+      Markup.button.callback("Check Balance 💵", "action_balance"),
+      Markup.button.callback("Deposit 💵", "action_deposit"),
+    ],
+    [
+      Markup.button.callback("Withdraw 💵", "action_withdraw"),
+      Markup.button.callback("Invite 🔗", "action_invite"),
+    ],
+    [
+      Markup.button.callback("Instruction 📖", "action_instruction"),
+      Markup.button.callback("Contact Support ☎️", "action_support"),
+    ],
     [Markup.button.callback("Convert Bonus 💱", "action_convert")],
   ]);
 }
 
 // ═══════════════════════════════════════════════════════
-// 👈 ፈጣን የተጠቃሚ ፍለጋ/ፍጠር (lean በመጠቀም)
+// ፈጣን የተጠቃሚ ፍለጋ/ፍጠር
 // ═══════════════════════════════════════════════════════
 async function getOrCreateUser(ctx, referredBy) {
   try {
@@ -68,11 +94,12 @@ async function getOrCreateUser(ctx, referredBy) {
           isBanned: false,
           isAdmin: false,
           phone: null,
-          referredBy: referredBy && referredBy !== telegramId ? referredBy : undefined,
+          referredBy:
+            referredBy && referredBy !== telegramId ? referredBy : undefined,
         },
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
-    ).lean(); // 👈 ፈጣን ያደርገዋል
+    ).lean();
 
     return user;
   } catch (err) {
@@ -82,13 +109,12 @@ async function getOrCreateUser(ctx, referredBy) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 👈 የ referral ቦነስ ከበስተጀርባ
+// የ referral ቦነስ
 // ═══════════════════════════════════════════════════════
 async function processReferralBonus(telegramId, referredBy) {
   try {
     const user = await User.findOne({ telegramId });
     if (!user || !user.referredBy) return;
-    // አስቀድሞ bonus ከተሰጠ እንደገና አይስጥ
     if (user.referralCount > 0) return;
 
     const inviter = await User.findOneAndUpdate(
@@ -111,7 +137,7 @@ async function processReferralBonus(telegramId, referredBy) {
 }
 
 // ---------------------------------------------------------------------
-// /start — ULTRA FAST (Non-blocking DB query)
+// /start
 // ---------------------------------------------------------------------
 bot.start(async (ctx) => {
   try {
@@ -119,28 +145,24 @@ bot.start(async (ctx) => {
     const referredBy = payload.startsWith("ref_") ? payload.slice(4) : null;
     const telegramId = String(ctx.from.id);
 
-    // ═══════════════════════════════════════════════
-    // 👈 ደረጃ 1: ምናሌውን ወዲያውኑ ላክ (DB ሳይጠብቅ)
-    // ═══════════════════════════════════════════════
     const banner = getBannerSource();
     if (banner) {
       ctx
-        .replyWithPhoto(banner, { caption: MAIN_MENU_TEXT, ...mainKeyboard() })
-        .catch(() => ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {}));
+        .replyWithPhoto(banner, {
+          caption: MAIN_MENU_TEXT,
+          ...mainKeyboard(),
+        })
+        .catch(() =>
+          ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {})
+        );
     } else {
       ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {});
     }
 
-    // ═══════════════════════════════════════════════
-    // 👈 ደረጃ 2: ተጠቃሚውን ከበስተጀርባ ፍጠር/አዘምን
-    // ═══════════════════════════════════════════════
     getOrCreateUser(ctx, referredBy).catch((err) =>
       console.error("[/start] background error:", err.message)
     );
 
-    // ═══════════════════════════════════════════════
-    // 👈 ደረጃ 3: Referral bonus ካለ ከበስተጀርባ ስጥ
-    // ═══════════════════════════════════════════════
     if (referredBy) {
       processReferralBonus(telegramId, referredBy).catch((err) =>
         console.error("[/start] referral error:", err.message)
@@ -157,7 +179,7 @@ bot.action("play_not_configured", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// REGISTER — Share Contact
+// REGISTER
 // ---------------------------------------------------------------------
 const handleRegister = async (ctx) => {
   const user = await getOrCreateUser(ctx);
@@ -165,7 +187,9 @@ const handleRegister = async (ctx) => {
 
   if (user.phone) {
     return ctx.reply(
-      `✅ አስቀድመው ተመዝግበዋል!\n\nName: ${user.firstName || "User"}\nPhone: ${user.phone}`,
+      `✅ አስቀድመው ተመዝግበዋል!\n\nName: ${
+        user.firstName || "User"
+      }\nPhone: ${user.phone}`,
       mainKeyboard()
     );
   }
@@ -223,7 +247,10 @@ const handleBalance = async (ctx) => {
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback("📋 COPY CODE", "copy_code")],
-    [Markup.button.callback("💵 Deposit", "action_deposit"), Markup.button.callback("🤑 Withdraw", "action_withdraw")],
+    [
+      Markup.button.callback("💵 Deposit", "action_deposit"),
+      Markup.button.callback("🤑 Withdraw", "action_withdraw"),
+    ],
   ]);
 
   await ctx.reply(text, keyboard);
@@ -280,9 +307,9 @@ bot.action("telebirr_pay", async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.reply(
     `የሚያጋጥማቹ ችግር ካለ: ${SUPPORT_CONTACT} ላይ ያግኙን::\n\n` +
-    `1. ከታች ባለው የ Telebirr አካውንት 50 ብር ያስገቡ\n` +
-    `Phone: ${DEPOSIT_PHONE}\n\n` +
-    `2. የከፈሉበትን አጭር የ SMS መልእክት (message) copy በማድረግ እዚህ ላይ Paste አድርገው ይላኩን 👇👇👇`
+      `1. ከታች ባለው የ Telebirr አካውንት 50 ብር ያስገቡ\n` +
+      `Phone: ${DEPOSIT_PHONE}\n\n` +
+      `2. የከፈሉበትን አጭር የ SMS መልእክት (message) copy በማድረግ እዚህ ላይ Paste አድርገው ይላኩን 👇👇👇`
   );
 });
 
@@ -320,9 +347,9 @@ bot.action("action_withdraw", async (ctx) => {
 const handleInstruction = async (ctx) => {
   const text =
     "📖 የጨዋታው መመሪያ:\n\n" +
-    "1. \"Register 📝\" የሚለውን ተጭነው ይመዝገቡ።\n" +
-    "2. \"Deposit 💵\" የሚለውን ተጭነው ወደ ዋሌት ብር ያስቀምጡ።\n" +
-    "3. \"Play 🎮\" የሚለውን ተጭነው WebApp ይክፈቱ።\n" +
+    '1. "Register 📝" የሚለውን ተጭነው ይመዝገቡ።\n' +
+    '2. "Deposit 💵" የሚለውን ተጭነው ወደ ዋሌት ብር ያስቀምጡ።\n' +
+    '3. "Play 🎮" የሚለውን ተጭነው WebApp ይክፈቱ።\n' +
     "4. የሚወዱትን እስቴክ (Stake 10 ወይም Stake 20) እና የሎተሪ ቁጥር ይምረጡ።\n" +
     "5. ሰዓቱ ሲያልቅ እጣው በቀጥታ ይወጣል፤ ካሸነፉ ገንዘቡ ወዲያውኑ ወደ Main Walletዎ ገቢ ይሆናል!";
 
@@ -357,7 +384,12 @@ const handleInvite = async (ctx) => {
     "👇 አሁን በመመዝገብ ናፍ ቦነስዎን ይሰብስቡ!";
 
   const keyboard = Markup.inlineKeyboard([
-    [Markup.button.switchToChat("📤 ለጓደኛ Share አድርግ", "🎉 ወደ Fetan Lottery ተቀላቀል!")],
+    [
+      Markup.button.switchToChat(
+        "📤 ለጓደኛ Share አድርግ",
+        "🎉 ወደ Fetan Lottery ተቀላቀል!"
+      ),
+    ],
   ]);
 
   await ctx.reply(text, keyboard);
@@ -402,7 +434,9 @@ const handleConvert = async (ctx) => {
   });
 
   await ctx.reply(
-    `✅ Converted ${converted} ETB. New balance: ${user.balance + converted} ETB.`,
+    `✅ Converted ${converted} ETB. New balance: ${
+      user.balance + converted
+    } ETB.`,
     mainKeyboard()
   );
 };
@@ -431,7 +465,10 @@ bot.on("text", async (ctx) => {
 
     if (step.type === "deposit") {
       if (amount < MIN_DEPOSIT)
-        return ctx.reply(`Minimum deposit is ${MIN_DEPOSIT} ETB.`, mainKeyboard());
+        return ctx.reply(
+          `Minimum deposit is ${MIN_DEPOSIT} ETB.`,
+          mainKeyboard()
+        );
       const reference = `DEP-${Date.now()}`;
       await Transaction.create({
         user: user._id,
@@ -468,7 +505,7 @@ bot.catch((err, ctx) => {
 // Main — Webhook Mode
 // ---------------------------------------------------------------------
 async function main(app) {
-  await connectDB();
+  // ❌ connectDB() ተሰርዟል — server.js ያስተዳድረዋል
 
   try {
     await bot.telegram.setMyCommands([
@@ -493,12 +530,11 @@ async function main(app) {
         web_app: { url: WEBAPP_URL },
       })
       .then(() => console.log("[bot] Chat menu button set successfully."))
-      .catch((err) => console.error("[bot] Failed to set chat menu button:", err.message));
+      .catch((err) =>
+        console.error("[bot] Failed to set chat menu button:", err.message)
+      );
   }
 
-  // ═══════════════════════════════════════════════════════
-  // 👈 Webhook መንገድ ወደ server.js app ጨምር
-  // ═══════════════════════════════════════════════════════
   const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
   app.use(bot.webhookCallback(webhookPath));
 
@@ -513,7 +549,6 @@ function startBot(app) {
 
 module.exports = { startBot, bot };
 
-// 👈 በ Webhook mode ላይ bot.stop() ስህተት ስለሚሰጥ በ try/catch አጥረነዋል
 process.once("SIGINT", () => {
   try {
     bot.stop("SIGINT");

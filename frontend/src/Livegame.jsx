@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getSocket } from "./socket";
+import { getSocket } from "./api";
 
 const HEADERS = [
   { letter: "B", color: "#4c6ef5" },
@@ -41,13 +41,12 @@ function buildBoard() {
 }
 
 // ═══════════════════════════════════════════════════════
-// VISUAL PATTERN PREVIEW — 5x5 grid
+// VISUAL PATTERN PREVIEW
 // ═══════════════════════════════════════════════════════
 function PatternPreview({ pattern }) {
   const getHighlightedCells = () => {
     const cells = new Set();
     const key = (r, c) => `${r}-${c}`;
-
     switch (pattern) {
       case "any-row":
         for (let c = 0; c < 5; c++) cells.add(key(2, c));
@@ -117,7 +116,7 @@ function PatternPreview({ pattern }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// CONFETTI — ለድል ማሳያ
+// CONFETTI
 // ═══════════════════════════════════════════════════════
 function Confetti() {
   const pieces = Array.from({ length: 40 }, (_, i) => i);
@@ -159,7 +158,7 @@ function Confetti() {
 }
 
 // ═══════════════════════════════════════════════════════
-// SOUND MANAGER — የ B/I/N/G/O ልዩ ድምጽ
+// SOUND MANAGER
 // ═══════════════════════════════════════════════════════
 const sound = {
   ctx: null,
@@ -179,9 +178,7 @@ const sound = {
     this.init();
     if (!this.ctx) return;
     try {
-      // Resume if suspended (browser autoplay policy)
       if (this.ctx.state === "suspended") this.ctx.resume();
-
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
       osc.frequency.value = freq;
@@ -198,7 +195,6 @@ const sound = {
     } catch (e) {}
   },
 
-  // 👈 ለየ B/I/N/G/O ልዩ ድምጽ
   callNumber(num) {
     if (!num) {
       this.play(880, 120, "sine", 0.2);
@@ -206,11 +202,11 @@ const sound = {
     }
     const { letter } = getLetter(num);
     const frequencies = {
-      B: [400, 500], // deep
-      I: [550, 650], // mid-low
-      N: [700, 800], // mid
-      G: [850, 950], // mid-high
-      O: [1000, 1100], // high
+      B: [400, 500],
+      I: [550, 650],
+      N: [700, 800],
+      G: [850, 950],
+      O: [1000, 1100],
     };
     const [f1, f2] = frequencies[letter] || [880, 1100];
     this.play(f1, 130, "sine", 0.22);
@@ -218,11 +214,10 @@ const sound = {
   },
 
   bingo() {
-    // 🎉 የድል ዜማ (major chord arpeggio)
-    this.play(523, 200, "triangle", 0.28); // C5
-    setTimeout(() => this.play(659, 200, "triangle", 0.28), 180); // E5
-    setTimeout(() => this.play(784, 200, "triangle", 0.28), 360); // G5
-    setTimeout(() => this.play(1046, 500, "triangle", 0.32), 540); // C6
+    this.play(523, 200, "triangle", 0.28);
+    setTimeout(() => this.play(659, 200, "triangle", 0.28), 180);
+    setTimeout(() => this.play(784, 200, "triangle", 0.28), 360);
+    setTimeout(() => this.play(1046, 500, "triangle", 0.32), 540);
   },
 
   tick() {
@@ -258,7 +253,6 @@ export default function LiveGame({
   const [nextGameCountdown, setNextGameCountdown] = useState(0);
   const [soundOn, setSoundOn] = useState(true);
   const [isConnected, setIsConnected] = useState(true);
-  // 👈 አዲስ — የተጠራው ቁጥር animation key
   const [numberAnimKey, setNumberAnimKey] = useState(0);
 
   useEffect(() => {
@@ -348,9 +342,8 @@ export default function LiveGame({
       setLastLetter(letter || getLetter(number).letter);
       setCalledNumbers(cn);
       if (wp) setWinPattern(wp);
-      setNumberAnimKey((k) => k + 1); // 👈 animation ለማስነሳት
+      setNumberAnimKey((k) => k + 1);
 
-      // 👈 ልዩ ድምጽ ለቁጥሩ
       if (soundOnRef.current) sound.callNumber(number);
 
       setFlashNumber(true);
@@ -454,7 +447,6 @@ export default function LiveGame({
 
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
 
-  // 👈 Animation styles
   const animationStyles = `
     @keyframes popIn {
       0% { transform: scale(0); opacity: 0; }
@@ -520,7 +512,6 @@ export default function LiveGame({
           </div>
         )}
 
-        {/* ─── STATS ─── */}
         <div
           style={{
             display: "grid",
@@ -536,11 +527,9 @@ export default function LiveGame({
           <Stat label="Called" value={calledNumbers.length} />
         </div>
 
-        {/* ─── MAIN ─── */}
         <div
           style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
         >
-          {/* LEFT — BINGO board */}
           <div
             style={{
               background: "#1a1a2e",
@@ -629,7 +618,6 @@ export default function LiveGame({
                               alignItems: "center",
                               justifyContent: "center",
                               transition: "background 0.3s ease",
-                              // 👈 Cell flash animation ለተጠራ ቁጥር
                               animation: isLast
                                 ? "cellFlash 0.6s ease-out"
                                 : "none",
@@ -691,9 +679,7 @@ export default function LiveGame({
             )}
           </div>
 
-          {/* RIGHT — Current number + Winning Pattern */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {/* CURRENT BOX */}
             <div
               style={{
                 background: "#1a1a2e",
@@ -711,7 +697,6 @@ export default function LiveGame({
                   : "0 0 12px rgba(243,156,18,0.2)",
               }}
             >
-              {/* Sound toggle */}
               <button
                 onClick={() => setSoundOn((s) => !s)}
                 style={{
@@ -745,7 +730,7 @@ export default function LiveGame({
 
               {lastInfo ? (
                 <div
-                  key={numberAnimKey} // 👈 animation ለማስነሳት
+                  key={numberAnimKey}
                   style={{
                     background: "#fff",
                     color: lastInfo.color,
@@ -759,7 +744,8 @@ export default function LiveGame({
                     fontSize: 24,
                     margin: "0 auto",
                     border: "4px solid #f39c12",
-                    animation: "numberPop 0.5s ease-out, currentPulse 1.5s ease-in-out infinite",
+                    animation:
+                      "numberPop 0.5s ease-out, currentPulse 1.5s ease-in-out infinite",
                   }}
                 >
                   {lastLetter || lastInfo.letter}-{lastNumber}
@@ -769,7 +755,6 @@ export default function LiveGame({
               )}
             </div>
 
-            {/* WINNING PATTERN BOX */}
             <div
               style={{
                 background:
@@ -833,7 +818,6 @@ export default function LiveGame({
           </div>
         </div>
 
-        {/* ─── BOTTOM ─── */}
         <div
           style={{
             position: "fixed",
@@ -865,7 +849,6 @@ export default function LiveGame({
           </button>
         </div>
 
-        {/* BINGO POPUP */}
         {bingoPopup && (
           <>
             <Confetti />
