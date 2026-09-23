@@ -1,7 +1,8 @@
 const express = require("express");
 const Game = require("../models/Game");
 const User = require("../models/User");
-const { requireAuth } = require("../middleware/auth");
+const auth = require("./auth");
+const { requireAuth } = auth;
 const { generate1000Cards } = require("../utils/bingoCard");
 
 const router = express.Router();
@@ -28,7 +29,6 @@ function getNextWeeklyStart(fee) {
   return new Date(next.getTime() - ETHIOPIA_OFFSET_MS);
 }
 
-// 👈 የWeekly ክፍል የትኛው እንደሆነ + ዋጋውን አንድ ቦታ ያሰላል
 function getRoomFeeConfig(roomCode, fallbackFee) {
   if (roomCode === "ROOM50") return { isWeekly: true, fee: 50 };
   if (roomCode === "ROOM100") return { isWeekly: true, fee: 100 };
@@ -38,9 +38,6 @@ function getRoomFeeConfig(roomCode, fallbackFee) {
   };
 }
 
-// ═══════════════════════════════════════════════════════
-// GET /rooms/:roomCode — ሰዓቱን ፈጽሞ አይቀይር
-// ═══════════════════════════════════════════════════════
 router.get("/rooms/:roomCode", async (req, res) => {
   try {
     const roomCode = req.params.roomCode.trim().toUpperCase();
@@ -51,9 +48,7 @@ router.get("/rooms/:roomCode", async (req, res) => {
     if (!game.isWeeklyGame && game.selectionEndsAt) {
       remainingSeconds = Math.max(
         0,
-        Math.floor(
-          (new Date(game.selectionEndsAt).getTime() - Date.now()) / 1000
-        )
+        Math.floor((new Date(game.selectionEndsAt) - Date.now()) / 1000)
       );
     }
 
@@ -75,7 +70,6 @@ router.get("/rooms/:roomCode", async (req, res) => {
       winnersCount: game.winners?.length || 0,
     });
   } catch (err) {
-    console.error("[GET /rooms/:roomCode]", err);
     res.status(500).json({ error: "Could not load room" });
   }
 });
@@ -90,17 +84,11 @@ router.get("/stats", async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// POST /rooms — ክፍሉ ካለ ሰዓቱን ፈጽሞ አትቀይር
-// ═══════════════════════════════════════════════════════
 router.post("/rooms", async (req, res) => {
   try {
     let { roomCode, entryFee } = req.body;
     roomCode = (roomCode || generateRoomCode()).trim().toUpperCase();
-
-    // 👈 የዋጋ ስሌት በአንድ ቦታ
     const { isWeekly, fee } = getRoomFeeConfig(roomCode, entryFee);
-
     let game = await Game.findOne({ roomCode });
 
     if (!game) {
@@ -111,30 +99,19 @@ router.post("/rooms", async (req, res) => {
         allCards: generate1000Cards(),
         isWeeklyGame: isWeekly,
       };
-
       if (isWeekly) {
         data.scheduledStart = getNextWeeklyStart(fee);
       } else {
         data.selectionEndsAt = new Date(Date.now() + TIMER_MS);
       }
-
       game = await Game.create(data);
-      console.log(
-        `[POST /rooms] CREATE ${roomCode} fee=${fee} weekly=${isWeekly}`
-      );
-    } else {
-      console.log(
-        `[POST /rooms] EXISTS ${roomCode} (unchanged) fee=${game.entryFee}`
-      );
     }
 
     let remainingSeconds = 0;
     if (!game.isWeeklyGame && game.selectionEndsAt) {
       remainingSeconds = Math.max(
         0,
-        Math.floor(
-          (new Date(game.selectionEndsAt).getTime() - Date.now()) / 1000
-        )
+        Math.floor((new Date(game.selectionEndsAt) - Date.now()) / 1000)
       );
     }
 
@@ -151,7 +128,6 @@ router.post("/rooms", async (req, res) => {
       isWeeklyGame: game.isWeeklyGame || false,
     });
   } catch (err) {
-    console.error("[POST /rooms]", err);
     res.status(500).json({ error: "Could not create room" });
   }
 });

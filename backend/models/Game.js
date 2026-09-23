@@ -55,7 +55,6 @@ const GameSchema = new mongoose.Schema(
     ],
     winPattern: {
       type: String,
-      // 👈 "four-corners" ተጨምሯል — ከ bingoCard.js WIN_PATTERNS ጋር ይመሳሰላል
       enum: [
         "any-row",
         "any-column",

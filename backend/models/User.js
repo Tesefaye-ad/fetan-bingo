@@ -1,5 +1,8 @@
 const mongoose = require("mongoose");
 
+// ═══════════════════════════════════════════════════════
+// USER SCHEMA
+// ═══════════════════════════════════════════════════════
 const UserSchema = new mongoose.Schema(
   {
     telegramId: { type: String, required: true, unique: true, index: true },
@@ -19,7 +22,6 @@ const UserSchema = new mongoose.Schema(
     totalWithdrawals: { type: Number, default: 0 },
     referredBy: { type: String },
     referralCount: { type: Number, default: 0 },
-    // 👈 አዲስ
     achievements: { type: [String], default: [] },
     lastActiveAt: { type: Date, default: Date.now },
     notificationReadAt: { type: Date, default: Date.now },
@@ -27,4 +29,30 @@ const UserSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-module.exports = mongoose.model("User", UserSchema);
+const User = mongoose.model("User", UserSchema);
+
+// ═══════════════════════════════════════════════════════
+// NOTIFICATION SCHEMA (ከ models/Notification.js የተዋሃደ)
+// ═══════════════════════════════════════════════════════
+const NotificationSchema = new mongoose.Schema(
+  {
+    user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    title: { type: String, required: true },
+    body: { type: String, required: true },
+    type: {
+      type: String,
+      enum: ["info", "success", "warning", "prize", "deposit", "withdraw"],
+      default: "info",
+    },
+    isRead: { type: Boolean, default: false },
+    meta: { type: mongoose.Schema.Types.Mixed },
+  },
+  { timestamps: true }
+);
+
+NotificationSchema.index({ user: 1, createdAt: -1 });
+const Notification = mongoose.model("Notification", NotificationSchema);
+
+module.exports = User;
+module.exports.User = User;
+module.exports.Notification = Notification;

@@ -1,4 +1,6 @@
 import axios from "axios";
+import { io } from "socket.io-client";
+import { useState, useEffect, useRef, useMemo } from "react";
 
 const API_BASE_URL =
   process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.onrender.com";
@@ -12,7 +14,88 @@ api.interceptors.request.use((config) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// AUTH
+// SOCKET (ከ socket.js የተዋሃደ)
+// ═══════════════════════════════════════════════════════
+let socket = null;
+
+export function getSocket() {
+  if (socket && socket.connected) return socket;
+  if (socket) return socket;
+
+  const token = localStorage.getItem("bingo_token");
+  socket = io(API_BASE_URL, {
+    auth: { token },
+    transports: ["websocket", "polling"],
+    upgrade: true,
+    reconnection: true,
+    reconnectionDelay: 500,
+    reconnectionDelayMax: 3000,
+    reconnectionAttempts: Infinity,
+    timeout: 8000,
+    forceNew: false,
+    multiplex: true,
+  });
+  return socket;
+}
+
+export function disconnectSocket() {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// useTelegram HOOK (ከ useTelegram.js የተዋሃደ)
+// ═══════════════════════════════════════════════════════
+export function useTelegram() {
+  const getTg = () => window.Telegram?.WebApp;
+  const [telegramUser, setTelegramUser] = useState(null);
+  const [initData, setInitData] = useState("");
+  const [isTelegram, setIsTelegram] = useState(false);
+  const [ready, setReady] = useState(false);
+  const pollCount = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    function tryInit() {
+      if (cancelled) return;
+      const tg = getTg();
+      if (tg) {
+        try {
+          tg.ready();
+          tg.expand();
+          if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+        } catch (e) {}
+        const data = tg.initData || "";
+        const user = tg.initDataUnsafe?.user || null;
+        if (data || user) {
+          setInitData(data);
+          setTelegramUser(user);
+          setIsTelegram(true);
+          setReady(true);
+          return;
+        }
+      }
+      pollCount.current += 1;
+      if (pollCount.current < 30) setTimeout(tryInit, 100);
+      else {
+        setIsTelegram(false);
+        setReady(true);
+      }
+    }
+    tryInit();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const webApp = useMemo(() => getTg(), []);
+  return { telegramUser, initData, isTelegram, ready, webApp };
+}
+
+// ═══════════════════════════════════════════════════════
+// API FUNCTIONS
 // ═══════════════════════════════════════════════════════
 export async function loginWithTelegram(initData) {
   if (!initData) throw new Error("Telegram initData is missing.");
@@ -22,9 +105,6 @@ export async function loginWithTelegram(initData) {
   return data.user;
 }
 
-// ═══════════════════════════════════════════════════════
-// GAME
-// ═══════════════════════════════════════════════════════
 export async function createRoom(entryFee, roomCode) {
   const body = { entryFee };
   if (roomCode) body.roomCode = roomCode;
@@ -32,14 +112,6 @@ export async function createRoom(entryFee, roomCode) {
   return data;
 }
 
-export async function getGameStats() {
-  const { data } = await api.get("/api/game/stats");
-  return data;
-}
-
-// ═══════════════════════════════════════════════════════
-// WALLET
-// ═══════════════════════════════════════════════════════
 export async function getWalletHistory() {
   const { data } = await api.get("/api/wallet/history");
   return data.transactions;
@@ -72,9 +144,6 @@ export async function transfer(toTelegramId, amount) {
   return data.balance;
 }
 
-// ═══════════════════════════════════════════════════════
-// USER
-// ═══════════════════════════════════════════════════════
 export async function getMe() {
   const { data } = await api.get("/api/user/me");
   return data.user;
@@ -110,15 +179,17 @@ export async function markNotificationsRead() {
   return data;
 }
 
-// ═══════════════════════════════════════════════════════
-// ADMIN
-// ═══════════════════════════════════════════════════════
 export async function adminGetStats() {
   const { data } = await api.get("/api/admin/stats");
   return data;
 }
 
-export async function adminGetTransactions({ type, status, limit = 50, skip = 0 } = {}) {
+export async function adminGetTransactions({
+  type,
+  status,
+  limit = 50,
+  skip = 0,
+} = {}) {
   const params = new URLSearchParams();
   if (type) params.set("type", type);
   if (status) params.set("status", status);

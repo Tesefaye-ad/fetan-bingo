@@ -2,10 +2,22 @@ const mongoose = require("mongoose");
 
 const TransactionSchema = new mongoose.Schema(
   {
-    user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
     type: {
       type: String,
-      enum: ["deposit", "withdrawal", "entry_fee", "prize", "refund", "transfer_in", "transfer_out"],
+      enum: [
+        "deposit",
+        "withdrawal",
+        "entry_fee",
+        "prize",
+        "refund",
+        "transfer_in",
+        "transfer_out",
+      ],
       required: true,
     },
     amount: { type: Number, required: true },

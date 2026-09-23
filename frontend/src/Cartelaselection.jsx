@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getSocket } from "./socket";
+import { getSocket } from "./api";
 
 const API_BASE_URL =
   process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.onrender.com";
@@ -20,6 +20,7 @@ export default function CartelaSelection({
   const [isWeekly, setIsWeekly] = useState(false);
   const [fetchFailed, setFetchFailed] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   const triggeredRef = useRef(false);
   const fetchedRef = useRef(false);
@@ -27,7 +28,9 @@ export default function CartelaSelection({
 
   const isWeeklyRoom = roomCode === "ROOM50" || roomCode === "ROOM100";
 
-  // ክፍል ሲቀየር ሁሉንም አጽዳ
+  // ═══════════════════════════════════════════════════
+  // Reset on room change
+  // ═══════════════════════════════════════════════════
   useEffect(() => {
     triggeredRef.current = false;
     fetchedRef.current = false;
@@ -38,10 +41,11 @@ export default function CartelaSelection({
     setTakenCards([]);
     setError("");
     setFetchFailed(false);
+    setLoading(true);
   }, [roomCode]);
 
   // ═══════════════════════════════════════════════════
-  // Fetch — ONCE per room
+  // Fetch room state
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (fetchedRef.current) return;
@@ -55,9 +59,7 @@ export default function CartelaSelection({
         const res = await fetch(`${API_BASE_URL}/api/game/rooms/${roomCode}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
-
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
         const data = await res.json();
         if (cancelled) return;
 
@@ -68,22 +70,22 @@ export default function CartelaSelection({
           ]);
         }
 
-        // Weekly rooms — no countdown
+        // Weekly — no countdown
         if (data.isWeeklyGame || isWeeklyRoom) {
           setIsWeekly(true);
           setCountdown(null);
           setDeadlineAt(null);
+          setLoading(false);
           return;
         }
 
-        // የሰዓት ስሌት
+        // Calculate server-side timer
         let remaining = 0;
         let localDeadline = null;
 
         if (data.selectionEndsAt && data.serverTime) {
           const serverDeadline = new Date(data.selectionEndsAt).getTime();
           const serverNow = new Date(data.serverTime).getTime();
-
           if (Number.isFinite(serverDeadline) && Number.isFinite(serverNow)) {
             const clockOffset = serverNow - Date.now();
             localDeadline = serverDeadline - clockOffset;
@@ -96,9 +98,7 @@ export default function CartelaSelection({
 
         if (localDeadline === null && typeof data.remainingSeconds === "number") {
           remaining = Math.max(0, data.remainingSeconds);
-          if (remaining > 0) {
-            localDeadline = Date.now() + remaining * 1000;
-          }
+          if (remaining > 0) localDeadline = Date.now() + remaining * 1000;
         }
 
         if (localDeadline !== null) {
@@ -107,14 +107,17 @@ export default function CartelaSelection({
         } else if (remaining === 0) {
           setCountdown(0);
         }
+
+        setLoading(false);
       } catch (e) {
         if (cancelled) return;
         console.error("[Cartela] fetch error:", e);
         setFetchFailed(true);
+        setLoading(false);
       }
     })();
 
-    // Fetch balance
+    // Fetch fresh balance
     (async () => {
       try {
         const token = localStorage.getItem("bingo_token");
@@ -123,9 +126,7 @@ export default function CartelaSelection({
         });
         const d = await r.json();
         if (!cancelled && d.balance !== undefined) setCurrentBalance(d.balance);
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     })();
 
     return () => {
@@ -133,22 +134,23 @@ export default function CartelaSelection({
     };
   }, [roomCode, isWeeklyRoom, retryKey]);
 
-  // ቆጣሪ
+  // ═══════════════════════════════════════════════════
+  // Countdown tick
+  // ═══════════════════════════════════════════════════
   useEffect(() => {
-    if (isWeekly) return;
-    if (!deadlineAt) return;
-
+    if (isWeekly || !deadlineAt) return;
     const tick = () => {
       const rem = Math.max(0, Math.floor((deadlineAt - Date.now()) / 1000));
       setCountdown(rem);
     };
-
     tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, [deadlineAt, isWeekly]);
 
-  // ሰዓቱ 0 ሲሆን → ወደ ጨዋታ
+  // ═══════════════════════════════════════════════════
+  // 🔥 Timer = 0 → Go to game (FIXED: pick 1 affordable card)
+  // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (isWeekly) return;
     if (countdown === null || countdown > 0) return;
@@ -157,46 +159,74 @@ export default function CartelaSelection({
     triggeredRef.current = true;
     confirmLockRef.current = true;
 
-    if (selectedCards.length === 0) {
-      const takenSet = new Set(takenCards);
-      const free = [];
-      for (let i = 1; i <= 1000; i++) if (!takenSet.has(i)) free.push(i);
-      if (free.length) {
-        const shuffled = [...free].sort(() => Math.random() - 0.5);
-        const picks = shuffled.slice(0, Math.min(3, shuffled.length));
-        return onConfirm(picks);
-      }
+    // If user selected cards → use them
+    if (selectedCards.length > 0) {
+      return onConfirm(selectedCards);
     }
-    onConfirm(selectedCards);
-  }, [countdown, selectedCards, takenCards, onConfirm, isWeekly]);
 
+    // 🔥 FIXED: pick only 1 affordable card (minimal charge)
+    const takenSet = new Set(takenCards);
+    const free = [];
+    for (let i = 1; i <= 1000; i++) if (!takenSet.has(i)) free.push(i);
+
+    if (free.length === 0) {
+      setError("❌ ምንም ነፃ ካርድ የለም");
+      return onCancel();
+    }
+
+    if (currentBalance < stake) {
+      setError(`❌ በቂ ባላንስ የለዎትም!`);
+      return onCancel();
+    }
+
+    // Pick 1 random free card
+    const pick = free[Math.floor(Math.random() * free.length)];
+    onConfirm([pick]);
+  }, [
+    countdown,
+    selectedCards,
+    takenCards,
+    currentBalance,
+    stake,
+    onConfirm,
+    onCancel,
+    isWeekly,
+  ]);
+
+  // ═══════════════════════════════════════════════════
   // Socket events
+  // ═══════════════════════════════════════════════════
   useEffect(() => {
     const s = getSocket();
 
     const onSel = ({ cardId }) =>
       setTakenCards((p) => [...new Set([...p, cardId])]);
-
     const onDesel = ({ cardId }) =>
       setTakenCards((p) => p.filter((x) => x !== cardId));
-
     const onBal = ({ balance: b }) => setCurrentBalance(b);
+    const onErr = ({ message }) => setError(message);
 
     s.on("card_selected", onSel);
     s.on("card_deselected", onDesel);
     s.on("balance_update", onBal);
+    s.on("error_message", onErr);
 
     return () => {
       s.off("card_selected", onSel);
       s.off("card_deselected", onDesel);
       s.off("balance_update", onBal);
+      s.off("error_message", onErr);
     };
   }, []);
 
+  // ═══════════════════════════════════════════════════
   // Handlers
+  // ═══════════════════════════════════════════════════
   const handleSelect = (id) => {
+    if (confirmLockRef.current) return;
+
     if (takenCards.includes(id) && !selectedCards.includes(id)) {
-      return setError(`ካርድ #${id} አስቀድሞ ተይዟል!`);
+      return setError(`❌ ካርድ #${id} ተይዟል!`);
     }
 
     if (selectedCards.includes(id)) {
@@ -236,7 +266,33 @@ export default function CartelaSelection({
   const numbers = Array.from({ length: 1000 }, (_, i) => i + 1);
   const total = selectedCards.length * stake;
 
-  // Fetch failed state
+  // ═══════════════════════════════════════════════════
+  // Loading
+  // ═══════════════════════════════════════════════════
+  if (loading) {
+    return (
+      <div
+        style={{
+          padding: 20,
+          maxWidth: 480,
+          margin: "0 auto",
+          color: "#fff",
+          minHeight: "100vh",
+          background: "#0f1420",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <div style={{ fontSize: 40, marginBottom: 15 }}>🎴</div>
+        <div style={{ color: "#f39c12", fontSize: 14 }}>
+          ካርቴላዎችን በመጫን ላይ...
+        </div>
+      </div>
+    );
+  }
+
   if (fetchFailed) {
     return (
       <div
@@ -292,9 +348,6 @@ export default function CartelaSelection({
     );
   }
 
-  // ═══════════════════════════════════════════════════
-  // Main render — 👈 Loading screen ሳይጠብቅ ቀጥታ ያሳያል
-  // ═══════════════════════════════════════════════════
   return (
     <div
       style={{
@@ -383,7 +436,6 @@ export default function CartelaSelection({
         </span>
       </div>
 
-      {/* Error */}
       {error && (
         <div
           style={{
@@ -411,6 +463,7 @@ export default function CartelaSelection({
           marginBottom: 10,
           paddingRight: 5,
           alignContent: "start",
+          maxHeight: "calc(100vh - 350px)",
         }}
       >
         {numbers.map((n) => {
@@ -443,7 +496,6 @@ export default function CartelaSelection({
         })}
       </div>
 
-      {/* Weekly — Confirm button */}
       {isWeekly ? (
         <>
           <div
@@ -491,7 +543,7 @@ export default function CartelaSelection({
             paddingBottom: 10,
           }}
         >
-          ሰዓቱ ሲያልቅ በራስ-ሰር ወደ ጨዋታው ይገባል
+          ⏱ ሰዓቱ ሲያልቅ በራስ-ሰር ወደ ጨዋታው ይገባል
         </div>
       )}
     </div>
