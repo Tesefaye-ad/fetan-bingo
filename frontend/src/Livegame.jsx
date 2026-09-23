@@ -99,12 +99,14 @@ function PatternPreview({ pattern }) {
             style={{
               aspectRatio: 1,
               borderRadius: 3,
-              background: isHighlighted ? "#f39c12" : "#252d44",
+              background: isHighlighted
+                ? "linear-gradient(135deg, #f39c12, #ffd43b)"
+                : "#252d44",
               border: isHighlighted
                 ? "1px solid #ffd43b"
                 : "1px solid #2a2a40",
               boxShadow: isHighlighted
-                ? "0 0 6px rgba(243,156,18,0.8)"
+                ? "0 0 8px rgba(243,156,18,0.9)"
                 : "none",
               transition: "all 0.2s",
             }}
@@ -119,7 +121,7 @@ function PatternPreview({ pattern }) {
 // CONFETTI
 // ═══════════════════════════════════════════════════════
 function Confetti() {
-  const pieces = Array.from({ length: 40 }, (_, i) => i);
+  const pieces = Array.from({ length: 50 }, (_, i) => i);
   const colors = ["#f39c12", "#2ecc71", "#3498db", "#e74c3c", "#9c27b0"];
   return (
     <div
@@ -158,7 +160,7 @@ function Confetti() {
 }
 
 // ═══════════════════════════════════════════════════════
-// SOUND MANAGER
+// SOUND
 // ═══════════════════════════════════════════════════════
 const sound = {
   ctx: null,
@@ -232,6 +234,7 @@ const sound = {
 export default function LiveGame({
   roomCode,
   cardIds,
+  spectate, // 👈 አዲስ
   onExit,
   onGameEnded,
   setBalance,
@@ -254,6 +257,7 @@ export default function LiveGame({
   const [soundOn, setSoundOn] = useState(true);
   const [isConnected, setIsConnected] = useState(true);
   const [numberAnimKey, setNumberAnimKey] = useState(0);
+  const [isSpectator, setIsSpectator] = useState(spectate === true); // 👈
 
   useEffect(() => {
     soundOnRef.current = soundOn;
@@ -276,12 +280,32 @@ export default function LiveGame({
       console.log("[LiveGame] Reconnected!");
       setIsConnected(true);
       if (joinedRef.current && roomCode) {
-        socket.emit("join_room", { roomCode, cardIds });
+        socket.emit("join_room", {
+          roomCode,
+          cardIds,
+          spectate: spectate === true,
+        });
+      }
+    };
+
+    const onSpectatorMode = (data) => {
+      console.log("[LiveGame] Spectator mode:", data);
+      setIsSpectator(true);
+      setCalledNumbers(data.calledNumbers || []);
+      if (data.winPattern) setWinPattern(data.winPattern);
+      if (data.prizePool) setPrizePool(data.prizePool);
+      if (data.playerCount) setPlayerCount(data.playerCount);
+      if (data.entryFee) setEntryFee(data.entryFee);
+      if (data.calledNumbers?.length) {
+        const last = data.calledNumbers[data.calledNumbers.length - 1];
+        setLastNumber(last);
+        setLastLetter(getLetter(last).letter);
       }
     };
 
     const onStateRestore = (data) => {
       console.log("[LiveGame] State restored:", data);
+      setIsSpectator(false);
       setCalledNumbers(data.calledNumbers || []);
       setWinPattern(data.winPattern || "any-row");
       setPrizePool(data.prizePool || 0);
@@ -394,6 +418,7 @@ export default function LiveGame({
 
     socket.on("disconnect", onDisconnect);
     socket.on("connect", onConnect);
+    socket.on("spectator_mode", onSpectatorMode);
     socket.on("state_restore", onStateRestore);
     socket.on("your_cards", onYourCards);
     socket.on("room_state", onRoomState);
@@ -405,7 +430,11 @@ export default function LiveGame({
     socket.on("balance_update", onBalanceUpdate);
 
     if (!joinedRef.current) {
-      socket.emit("join_room", { roomCode, cardIds });
+      socket.emit("join_room", {
+        roomCode,
+        cardIds,
+        spectate: spectate === true || !cardIds?.length,
+      });
       joinedRef.current = true;
     }
 
@@ -414,6 +443,7 @@ export default function LiveGame({
       joinedRef.current = false;
       socket.off("disconnect", onDisconnect);
       socket.off("connect", onConnect);
+      socket.off("spectator_mode", onSpectatorMode);
       socket.off("state_restore", onStateRestore);
       socket.off("your_cards", onYourCards);
       socket.off("room_state", onRoomState);
@@ -490,14 +520,34 @@ export default function LiveGame({
           margin: "0 auto",
           color: "#fff",
           minHeight: "100vh",
-          background: "#0f1420",
+          background: "linear-gradient(180deg, #0f1420 0%, #1a0f2e 100%)",
           paddingBottom: 80,
         }}
       >
+        {/* 👈 Spectator banner */}
+        {isSpectator && (
+          <div
+            style={{
+              background: "linear-gradient(135deg, #3498db, #2980b9)",
+              color: "#fff",
+              padding: "10px",
+              borderRadius: 10,
+              marginBottom: 10,
+              textAlign: "center",
+              fontSize: 12,
+              fontWeight: "bold",
+              boxShadow: "0 4px 15px rgba(52,152,219,0.4)",
+              animation: "slideInLeft 0.3s ease-out",
+            }}
+          >
+            👀 SPECTATOR MODE — ያለ ካርቴላ እያዩ ነው
+          </div>
+        )}
+
         {!isConnected && (
           <div
             style={{
-              background: "#e74c3c",
+              background: "linear-gradient(135deg, #e74c3c, #c0392b)",
               color: "#fff",
               padding: "8px",
               borderRadius: 8,
@@ -512,32 +562,35 @@ export default function LiveGame({
           </div>
         )}
 
+        {/* STATS */}
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(5, 1fr)",
-            gap: 4,
-            marginBottom: 8,
+            gap: 5,
+            marginBottom: 10,
           }}
         >
-          <Stat label="Game ID" value={roomCode} color="#f39c12" />
-          <Stat label="Players" value={playerCount} />
-          <Stat label="Bet" value={entryFee} />
-          <Stat label="Derash" value={prizePool} color="#2ecc71" />
-          <Stat label="Called" value={calledNumbers.length} />
+          <Stat label="🎮 Room" value={roomCode} color="#f39c12" />
+          <Stat label="👥 Players" value={playerCount} color="#3498db" />
+          <Stat label="🎯 Bet" value={entryFee} color="#9c27b0" />
+          <Stat label="💰 Prize" value={prizePool} color="#2ecc71" />
+          <Stat label="📢 Called" value={calledNumbers.length} color="#e74c3c" />
         </div>
 
+        {/* MAIN */}
         <div
           style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
         >
+          {/* LEFT — BINGO board */}
           <div
             style={{
-              background: "#1a1a2e",
+              background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
               border: "1px solid #2a2a40",
-              borderRadius: 10,
+              borderRadius: 12,
               padding: 6,
               overflowY: "auto",
-              maxHeight: "calc(100vh - 180px)",
+              maxHeight: "calc(100vh - 200px)",
             }}
           >
             <div
@@ -552,13 +605,14 @@ export default function LiveGame({
                 <div
                   key={h.letter}
                   style={{
-                    background: h.color,
+                    background: `linear-gradient(135deg, ${h.color}, ${h.color}cc)`,
                     color: "#fff",
                     textAlign: "center",
                     fontWeight: "bold",
                     fontSize: 14,
                     padding: "6px 0",
                     borderRadius: 6,
+                    boxShadow: `0 2px 8px ${h.color}66`,
                   }}
                 >
                   {h.letter}
@@ -601,27 +655,34 @@ export default function LiveGame({
                             style={{
                               aspectRatio: 1,
                               background: free
-                                ? "#ffd43b"
+                                ? "linear-gradient(135deg, #ffd43b, #f39c12)"
                                 : isLast
-                                ? "#ff9800"
+                                ? "linear-gradient(135deg, #ff9800, #f39c12)"
                                 : marked
-                                ? "#4caf50"
-                                : "#252d44",
+                                ? "linear-gradient(135deg, #4caf50, #2ecc71)"
+                                : "linear-gradient(135deg, #252d44, #1b2233)",
                               color: free ? "#1b2233" : "#fff",
                               fontSize: 12,
                               fontWeight: "bold",
                               borderRadius: 6,
                               border: isLast
                                 ? "2px solid #ffd43b"
-                                : "1px solid #333",
+                                : marked
+                                ? "1px solid rgba(46,204,113,0.4)"
+                                : "1px solid #2a2a40",
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
-                              transition: "background 0.3s ease",
+                              transition: "all 0.3s ease",
                               animation: isLast
                                 ? "cellFlash 0.6s ease-out"
                                 : "none",
-                              transform: isLast ? "scale(1.08)" : "scale(1)",
+                              transform: isLast ? "scale(1.12)" : "scale(1)",
+                              boxShadow: isLast
+                                ? "0 0 15px rgba(255,152,0,0.8)"
+                                : marked
+                                ? "0 0 8px rgba(76,175,80,0.4)"
+                                : "none",
                             }}
                           >
                             {free ? "★" : v}
@@ -650,10 +711,10 @@ export default function LiveGame({
                       style={{
                         aspectRatio: 1,
                         background: isLast
-                          ? "#ff9800"
+                          ? "linear-gradient(135deg, #ff9800, #f39c12)"
                           : called
-                          ? info.color
-                          : "#252d44",
+                          ? `linear-gradient(135deg, ${info.color}, ${info.color}cc)`
+                          : "linear-gradient(135deg, #252d44, #1b2233)",
                         color: "#fff",
                         fontSize: 12,
                         fontWeight: "bold",
@@ -663,12 +724,17 @@ export default function LiveGame({
                         justifyContent: "center",
                         border: isLast
                           ? "2px solid #ffd43b"
-                          : "1px solid #333",
-                        transition: "background 0.3s ease",
+                          : "1px solid #2a2a40",
+                        transition: "all 0.3s ease",
                         animation: isLast
                           ? "cellFlash 0.6s ease-out"
                           : "none",
-                        transform: isLast ? "scale(1.08)" : "scale(1)",
+                        transform: isLast ? "scale(1.12)" : "scale(1)",
+                        boxShadow: isLast
+                          ? "0 0 15px rgba(255,152,0,0.8)"
+                          : called
+                          ? `0 0 6px ${info.color}88`
+                          : "none",
                       }}
                     >
                       {n}
@@ -679,22 +745,24 @@ export default function LiveGame({
             )}
           </div>
 
+          {/* RIGHT — Current number + Pattern */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {/* CURRENT */}
             <div
               style={{
-                background: "#1a1a2e",
+                background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
                 border: flashNumber
                   ? "2px solid #ffd43b"
-                  : "1px solid #f39c12",
-                borderRadius: 10,
+                  : "2px solid #f39c12",
+                borderRadius: 12,
                 padding: 12,
                 textAlign: "center",
                 minHeight: 160,
                 position: "relative",
-                transition: "border 0.3s",
+                transition: "all 0.3s",
                 boxShadow: flashNumber
-                  ? "0 0 25px rgba(255,212,59,0.6)"
-                  : "0 0 12px rgba(243,156,18,0.2)",
+                  ? "0 0 30px rgba(255,212,59,0.7)"
+                  : "0 0 15px rgba(243,156,18,0.25)",
               }}
             >
               <button
@@ -703,7 +771,9 @@ export default function LiveGame({
                   position: "absolute",
                   top: 6,
                   right: 6,
-                  background: soundOn ? "#2ecc71" : "#555",
+                  background: soundOn
+                    ? "linear-gradient(135deg, #2ecc71, #27ae60)"
+                    : "#555",
                   color: "#fff",
                   border: "none",
                   borderRadius: 6,
@@ -722,7 +792,8 @@ export default function LiveGame({
                   color: "#aaa",
                   fontSize: 10,
                   marginBottom: 6,
-                  letterSpacing: 1,
+                  letterSpacing: 2,
+                  fontWeight: "bold",
                 }}
               >
                 CURRENT
@@ -732,35 +803,55 @@ export default function LiveGame({
                 <div
                   key={numberAnimKey}
                   style={{
-                    background: "#fff",
+                    background:
+                      "radial-gradient(circle, #ffffff 0%, #f5f5f5 70%, #e8e8e8 100%)",
                     color: lastInfo.color,
                     borderRadius: "50%",
-                    width: 90,
-                    height: 90,
+                    width: 100,
+                    height: 100,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                     fontWeight: "bold",
-                    fontSize: 24,
+                    fontSize: 26,
                     margin: "0 auto",
-                    border: "4px solid #f39c12",
+                    border: "5px solid #f39c12",
                     animation:
                       "numberPop 0.5s ease-out, currentPulse 1.5s ease-in-out infinite",
+                    boxShadow: `0 0 40px ${lastInfo.color}88`,
                   }}
                 >
                   {lastLetter || lastInfo.letter}-{lastNumber}
                 </div>
               ) : (
-                <div style={{ height: 90 }} />
+                <div
+                  style={{
+                    width: 100,
+                    height: 100,
+                    margin: "0 auto",
+                    borderRadius: "50%",
+                    background:
+                      "radial-gradient(circle, #1a1a2e 0%, #0f1420 100%)",
+                    border: "2px dashed #2a2a40",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#444",
+                    fontSize: 11,
+                    fontWeight: "bold",
+                  }}
+                >
+                  በመጠበቅ...
+                </div>
               )}
             </div>
 
+            {/* WINNING PATTERN */}
             <div
               style={{
-                background:
-                  "linear-gradient(135deg, #1a1a2e 0%, #0f1420 100%)",
+                background: "linear-gradient(135deg, #1a1a2e 0%, #0f1420 100%)",
                 border: "2px solid #f39c12",
-                borderRadius: 10,
+                borderRadius: 12,
                 padding: "12px",
                 flex: 1,
                 display: "flex",
@@ -768,7 +859,7 @@ export default function LiveGame({
                 justifyContent: "center",
                 alignItems: "center",
                 minHeight: 200,
-                boxShadow: "0 0 20px rgba(243,156,18,0.25)",
+                boxShadow: "0 0 25px rgba(243,156,18,0.3)",
               }}
             >
               <div
@@ -818,6 +909,7 @@ export default function LiveGame({
           </div>
         </div>
 
+        {/* BOTTOM */}
         <div
           style={{
             position: "fixed",
@@ -827,7 +919,7 @@ export default function LiveGame({
             maxWidth: 480,
             margin: "0 auto",
             padding: "10px 12px",
-            background: "#0f1420",
+            background: "linear-gradient(180deg, transparent, #0f1420)",
             borderTop: "1px solid #2a2a40",
           }}
         >
@@ -843,12 +935,14 @@ export default function LiveGame({
               fontSize: 14,
               fontWeight: "bold",
               cursor: "pointer",
+              boxShadow: "0 4px 15px rgba(231,76,60,0.4)",
             }}
           >
             Leave
           </button>
         </div>
 
+        {/* BINGO POPUP */}
         {bingoPopup && (
           <>
             <Confetti />
@@ -888,11 +982,18 @@ export default function LiveGame({
                 style={{
                   color: "#f39c12",
                   margin: 0,
-                  fontSize: 42,
-                  letterSpacing: 4,
+                  fontSize: 52,
+                  letterSpacing: 6,
                   fontWeight: "bold",
+                  background:
+                    "linear-gradient(135deg, #f39c12, #ffd43b, #f39c12)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundClip: "text",
                   animation:
                     "bingoGlow 1.5s ease-in-out infinite, popIn 0.5s ease-out",
+                  filter:
+                    "drop-shadow(0 0 20px rgba(243,156,18,0.8)) drop-shadow(0 0 40px rgba(243,156,18,0.5))",
                 }}
               >
                 BINGO!
@@ -912,7 +1013,7 @@ export default function LiveGame({
 
               <div
                 style={{
-                  background: "#1a1a2e",
+                  background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
                   border: "1px solid #f39c12",
                   borderRadius: 10,
                   padding: "8px 16px",
@@ -921,6 +1022,7 @@ export default function LiveGame({
                   display: "flex",
                   alignItems: "center",
                   gap: 8,
+                  boxShadow: "0 0 15px rgba(243,156,18,0.3)",
                 }}
               >
                 <span style={{ fontSize: 18 }}>
@@ -940,6 +1042,7 @@ export default function LiveGame({
                   padding: 14,
                   width: "100%",
                   maxWidth: 400,
+                  boxShadow: "0 0 30px rgba(243,156,18,0.4)",
                 }}
               >
                 <div
@@ -1113,6 +1216,7 @@ export default function LiveGame({
                   fontWeight: "bold",
                   color: "#fff",
                   textShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                  boxShadow: "0 4px 20px rgba(46,204,113,0.4)",
                 }}
               >
                 💰 Total Pool: {bingoPopup.prizePool} ETB
@@ -1136,17 +1240,27 @@ function Stat({ label, value, color = "#fff" }) {
   return (
     <div
       style={{
-        background: "#1a1a2e",
-        border: "1px solid #2a2a40",
-        borderRadius: 8,
-        padding: "6px 4px",
+        background: `linear-gradient(135deg, ${color}22, ${color}08)`,
+        border: `1px solid ${color}66`,
+        borderRadius: 10,
+        padding: "8px 4px",
         textAlign: "center",
+        boxShadow: `0 2px 10px ${color}22`,
       }}
     >
-      <div style={{ color: "#aaa", fontSize: 9, marginBottom: 2 }}>
+      <div style={{ color: "#aaa", fontSize: 9, marginBottom: 3 }}>
         {label}
       </div>
-      <div style={{ color, fontSize: 12, fontWeight: "bold" }}>{value}</div>
+      <div
+        style={{
+          color,
+          fontSize: 13,
+          fontWeight: "bold",
+          textShadow: `0 0 10px ${color}66`,
+        }}
+      >
+        {value}
+      </div>
     </div>
   );
 }

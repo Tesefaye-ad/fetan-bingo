@@ -7,7 +7,6 @@ const {
   markNumber,
   randomWinPattern,
 } = require("../utils/bingoCard");
-// 👈 auth middleware ከ routes/auth.js አሁን
 const auth = require("../routes/auth");
 const { verifySocketToken } = auth;
 
@@ -94,6 +93,9 @@ function initGameSocket(io) {
     next();
   });
 
+  // ═══════════════════════════════════════════════════════
+  // AUTO-STARTER + STALE CLEANER
+  // ═══════════════════════════════════════════════════════
   setInterval(async () => {
     try {
       const regular = await Game.find({
@@ -155,6 +157,7 @@ function initGameSocket(io) {
   io.on("connection", (socket) => {
     activeUserIds.add(socket.userId);
 
+    // ─── SELECT CARD ───
     socket.on("select_card", async ({ roomCode, cardId }) => {
       try {
         const game = await Game.findOne({ roomCode });
@@ -181,7 +184,7 @@ function initGameSocket(io) {
         if (alreadyMine) return;
         if (user.balance < game.entryFee) {
           return socket.emit("error_message", {
-            message: "Insufficient balance",
+            message: `❌ በቂ ባላንስ የለዎትም! (${game.entryFee} ETB)`,
           });
         }
 
@@ -250,7 +253,10 @@ function initGameSocket(io) {
       }
     });
 
-    socket.on("join_room", async ({ roomCode, cardIds }) => {
+    // ═══════════════════════════════════════════════════════
+    // JOIN ROOM — with Spectator support
+    // ═══════════════════════════════════════════════════════
+    socket.on("join_room", async ({ roomCode, cardIds, spectate }) => {
       try {
         if (!roomCode) return;
         roomCode = String(roomCode).trim().toUpperCase();
@@ -299,18 +305,15 @@ function initGameSocket(io) {
           (p) => p.user.toString() === socket.userId
         );
 
-        if (
-          existing.length === 0 &&
-          (game.status === "active" || game.status === "finished")
-        ) {
-          return socket.emit("error_message", {
-            message: "🎯 ጨዋታው ተጀምሯል! ቀጣዩን ይጠብቁ።",
-          });
-        }
+        // 👈 SPECTATOR MODE
+        const isSpectator =
+          spectate === true || (selectedIds.length === 0 && existing.length === 0);
 
+        // Reconnecting player → restore
         if (existing.length > 0) {
           socket.join(roomCode);
           socket.data.roomCode = roomCode;
+          socket.data.isSpectator = false;
           socket.emit("state_restore", {
             roomCode,
             status: game.status,
@@ -329,9 +332,46 @@ function initGameSocket(io) {
           return;
         }
 
-        if (selectedIds.length === 0) {
-          return socket.emit("error_message", { message: "❌ ካርቴላ ይምረጡ!" });
+        // Spectator
+        if (isSpectator) {
+          socket.join(roomCode);
+          socket.data.roomCode = roomCode;
+          socket.data.isSpectator = true;
+          socket.emit("spectator_mode", {
+            roomCode,
+            status: game.status,
+            calledNumbers: game.calledNumbers || [],
+            winPattern: game.winPattern || "any-row",
+            prizePool: game.prizePool || 0,
+            playerCount: game.players.length,
+            entryFee: game.entryFee,
+          });
+          io.to(roomCode).emit("room_state", buildRoomState(game));
+          return;
         }
+
+        // New player — needs cards
+        if (game.status === "active" || game.status === "finished") {
+          // Can't join an active game with cards — go spectator
+          socket.join(roomCode);
+          socket.data.roomCode = roomCode;
+          socket.data.isSpectator = true;
+          socket.emit("error_message", {
+            message: "🎯 ጨዋታው ተጀምሯል! Spectator ሁነው ይመልከቱ",
+          });
+          socket.emit("spectator_mode", {
+            roomCode,
+            status: game.status,
+            calledNumbers: game.calledNumbers || [],
+            winPattern: game.winPattern,
+            prizePool: game.prizePool,
+            playerCount: game.players.length,
+            entryFee: game.entryFee,
+          });
+          io.to(roomCode).emit("room_state", buildRoomState(game));
+          return;
+        }
+
         if (game.players.length >= MAX_PLAYERS) {
           return socket.emit("error_message", { message: "Room full" });
         }
@@ -354,9 +394,24 @@ function initGameSocket(io) {
           );
           if (!reserved) {
             if (user.balance < game.entryFee) {
-              return socket.emit("error_message", {
-                message: "Insufficient balance",
+              // 👈 Insufficient balance → fallback to spectator
+              socket.join(roomCode);
+              socket.data.roomCode = roomCode;
+              socket.data.isSpectator = true;
+              socket.emit("error_message", {
+                message: `❌ በቂ ባላንስ የለዎትም! (${game.entryFee} ETB) — Spectator ሁነው ይመልከቱ`,
               });
+              socket.emit("spectator_mode", {
+                roomCode,
+                status: game.status,
+                calledNumbers: game.calledNumbers || [],
+                winPattern: game.winPattern,
+                prizePool: game.prizePool,
+                playerCount: game.players.length,
+                entryFee: game.entryFee,
+              });
+              io.to(roomCode).emit("room_state", buildRoomState(game));
+              return;
             }
             user.balance -= game.entryFee;
             await Transaction.create({
@@ -389,13 +444,28 @@ function initGameSocket(io) {
         );
 
         if (newCards.length === 0) {
-          return socket.emit("error_message", { message: "❌ ካርዶቹ ተይዘዋል" });
+          // Nothing selected — fallback to spectator
+          socket.join(roomCode);
+          socket.data.roomCode = roomCode;
+          socket.data.isSpectator = true;
+          socket.emit("spectator_mode", {
+            roomCode,
+            status: game.status,
+            calledNumbers: game.calledNumbers || [],
+            winPattern: game.winPattern,
+            prizePool: game.prizePool,
+            playerCount: game.players.length,
+            entryFee: game.entryFee,
+          });
+          io.to(roomCode).emit("room_state", buildRoomState(game));
+          return;
         }
 
         await user.save();
         await game.save();
         socket.join(roomCode);
         socket.data.roomCode = roomCode;
+        socket.data.isSpectator = false;
         socket.emit("balance_update", { balance: user.balance });
         socket.emit("your_cards", {
           cards: newCards,
@@ -622,6 +692,7 @@ function initGameSocket(io) {
             ? "G"
             : "O";
 
+        // Send updated cards per user
         const grouped = {};
         for (const p of g.players) {
           const uid = p.user.toString();

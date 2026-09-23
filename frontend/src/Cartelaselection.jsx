@@ -27,10 +27,9 @@ export default function CartelaSelection({
   const confirmLockRef = useRef(false);
 
   const isWeeklyRoom = roomCode === "ROOM50" || roomCode === "ROOM100";
+  const canAfford = currentBalance >= stake;
 
-  // ═══════════════════════════════════════════════════
   // Reset on room change
-  // ═══════════════════════════════════════════════════
   useEffect(() => {
     triggeredRef.current = false;
     fetchedRef.current = false;
@@ -44,13 +43,10 @@ export default function CartelaSelection({
     setLoading(true);
   }, [roomCode]);
 
-  // ═══════════════════════════════════════════════════
   // Fetch room state
-  // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
-
     let cancelled = false;
 
     (async () => {
@@ -70,7 +66,6 @@ export default function CartelaSelection({
           ]);
         }
 
-        // Weekly — no countdown
         if (data.isWeeklyGame || isWeeklyRoom) {
           setIsWeekly(true);
           setCountdown(null);
@@ -79,10 +74,8 @@ export default function CartelaSelection({
           return;
         }
 
-        // Calculate server-side timer
         let remaining = 0;
         let localDeadline = null;
-
         if (data.selectionEndsAt && data.serverTime) {
           const serverDeadline = new Date(data.selectionEndsAt).getTime();
           const serverNow = new Date(data.serverTime).getTime();
@@ -95,19 +88,16 @@ export default function CartelaSelection({
             );
           }
         }
-
         if (localDeadline === null && typeof data.remainingSeconds === "number") {
           remaining = Math.max(0, data.remainingSeconds);
           if (remaining > 0) localDeadline = Date.now() + remaining * 1000;
         }
-
         if (localDeadline !== null) {
           setDeadlineAt(localDeadline);
           setCountdown(remaining);
         } else if (remaining === 0) {
           setCountdown(0);
         }
-
         setLoading(false);
       } catch (e) {
         if (cancelled) return;
@@ -117,7 +107,6 @@ export default function CartelaSelection({
       }
     })();
 
-    // Fetch fresh balance
     (async () => {
       try {
         const token = localStorage.getItem("bingo_token");
@@ -134,9 +123,7 @@ export default function CartelaSelection({
     };
   }, [roomCode, isWeeklyRoom, retryKey]);
 
-  // ═══════════════════════════════════════════════════
-  // Countdown tick
-  // ═══════════════════════════════════════════════════
+  // Countdown
   useEffect(() => {
     if (isWeekly || !deadlineAt) return;
     const tick = () => {
@@ -148,57 +135,26 @@ export default function CartelaSelection({
     return () => clearInterval(timer);
   }, [deadlineAt, isWeekly]);
 
-  // ═══════════════════════════════════════════════════
-  // 🔥 Timer = 0 → Go to game (FIXED: pick 1 affordable card)
-  // ═══════════════════════════════════════════════════
+  // Timer = 0 → go to game
   useEffect(() => {
     if (isWeekly) return;
     if (countdown === null || countdown > 0) return;
     if (triggeredRef.current || confirmLockRef.current) return;
-
     triggeredRef.current = true;
     confirmLockRef.current = true;
 
-    // If user selected cards → use them
-    if (selectedCards.length > 0) {
-      return onConfirm(selectedCards);
+    // User selected cards → confirm
+    if (selectedCards.length > 0 && canAfford) {
+      return onConfirm(selectedCards, { spectate: false });
     }
 
-    // 🔥 FIXED: pick only 1 affordable card (minimal charge)
-    const takenSet = new Set(takenCards);
-    const free = [];
-    for (let i = 1; i <= 1000; i++) if (!takenSet.has(i)) free.push(i);
+    // No cards OR can't afford → spectate
+    onConfirm([], { spectate: true });
+  }, [countdown, selectedCards, canAfford, onConfirm, isWeekly]);
 
-    if (free.length === 0) {
-      setError("❌ ምንም ነፃ ካርድ የለም");
-      return onCancel();
-    }
-
-    if (currentBalance < stake) {
-      setError(`❌ በቂ ባላንስ የለዎትም!`);
-      return onCancel();
-    }
-
-    // Pick 1 random free card
-    const pick = free[Math.floor(Math.random() * free.length)];
-    onConfirm([pick]);
-  }, [
-    countdown,
-    selectedCards,
-    takenCards,
-    currentBalance,
-    stake,
-    onConfirm,
-    onCancel,
-    isWeekly,
-  ]);
-
-  // ═══════════════════════════════════════════════════
-  // Socket events
-  // ═══════════════════════════════════════════════════
+  // Socket
   useEffect(() => {
     const s = getSocket();
-
     const onSel = ({ cardId }) =>
       setTakenCards((p) => [...new Set([...p, cardId])]);
     const onDesel = ({ cardId }) =>
@@ -219,9 +175,6 @@ export default function CartelaSelection({
     };
   }, []);
 
-  // ═══════════════════════════════════════════════════
-  // Handlers
-  // ═══════════════════════════════════════════════════
   const handleSelect = (id) => {
     if (confirmLockRef.current) return;
 
@@ -236,8 +189,10 @@ export default function CartelaSelection({
       return;
     }
 
-    if (currentBalance < stake) {
-      return setError(`❌ በቂ ባላንስ የለዎትም! (${stake} ETB)`);
+    if (!canAfford) {
+      return setError(
+        `❌ በቂ ባላንስ የለዎትም! (${stake} ETB) — 👀 መመልከት ይችላሉ`
+      );
     }
 
     getSocket().emit("select_card", { roomCode, cardId: id });
@@ -248,8 +203,15 @@ export default function CartelaSelection({
   const confirmWeekly = () => {
     if (confirmLockRef.current) return;
     if (!selectedCards.length) return setError("❌ ቢያንስ አንድ ካርድ ይምረጡ!");
+    if (!canAfford) return setError(`❌ በቂ ባላንስ የለዎትም!`);
     confirmLockRef.current = true;
-    onConfirm(selectedCards);
+    onConfirm(selectedCards, { spectate: false });
+  };
+
+  const goSpectator = () => {
+    if (confirmLockRef.current) return;
+    confirmLockRef.current = true;
+    onConfirm([], { spectate: true });
   };
 
   const retryFetch = () => {
@@ -266,9 +228,6 @@ export default function CartelaSelection({
   const numbers = Array.from({ length: 1000 }, (_, i) => i + 1);
   const total = selectedCards.length * stake;
 
-  // ═══════════════════════════════════════════════════
-  // Loading
-  // ═══════════════════════════════════════════════════
   if (loading) {
     return (
       <div
@@ -285,10 +244,19 @@ export default function CartelaSelection({
           justifyContent: "center",
         }}
       >
-        <div style={{ fontSize: 40, marginBottom: 15 }}>🎴</div>
-        <div style={{ color: "#f39c12", fontSize: 14 }}>
+        <div
+          style={{
+            fontSize: 60,
+            marginBottom: 15,
+            animation: "spin 2s linear infinite",
+          }}
+        >
+          🎴
+        </div>
+        <div style={{ color: "#f39c12", fontSize: 14, fontWeight: "bold" }}>
           ካርቴላዎችን በመጫን ላይ...
         </div>
+        <style>{`@keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }`}</style>
       </div>
     );
   }
@@ -310,8 +278,15 @@ export default function CartelaSelection({
           textAlign: "center",
         }}
       >
-        <div style={{ fontSize: 40, marginBottom: 15 }}>⚠️</div>
-        <div style={{ color: "#e74c3c", fontSize: 14, marginBottom: 15 }}>
+        <div style={{ fontSize: 50, marginBottom: 15 }}>⚠️</div>
+        <div
+          style={{
+            color: "#e74c3c",
+            fontSize: 14,
+            marginBottom: 15,
+            fontWeight: "bold",
+          }}
+        >
           ከሰርቨር ጋር መገናኘት አልተቻለም
         </div>
         <button
@@ -351,12 +326,12 @@ export default function CartelaSelection({
   return (
     <div
       style={{
-        padding: 10,
+        padding: 12,
         maxWidth: 480,
         margin: "0 auto",
         color: "#fff",
         minHeight: "100vh",
-        background: "#0f1420",
+        background: "linear-gradient(180deg, #0f1420 0%, #1a0f2e 100%)",
         display: "flex",
         flexDirection: "column",
       }}
@@ -371,35 +346,67 @@ export default function CartelaSelection({
           borderRadius: 10,
           padding: "10px 18px",
           cursor: "pointer",
-          marginBottom: 10,
+          marginBottom: 12,
+          fontWeight: "bold",
         }}
       >
         ← Back
       </button>
+
+      {/* Insufficient balance warning */}
+      {!canAfford && (
+        <div
+          style={{
+            background: "linear-gradient(135deg, #e74c3c, #c0392b)",
+            borderRadius: 12,
+            padding: 12,
+            marginBottom: 12,
+            textAlign: "center",
+            fontSize: 12,
+            fontWeight: "bold",
+            boxShadow: "0 4px 15px rgba(231,76,60,0.4)",
+          }}
+        >
+          ⚠️ በቂ ብር የለዎትም ({stake} ETB ያስፈልጋል)
+          <br />
+          <span style={{ fontSize: 11, opacity: 0.9 }}>
+            👀 ግን ጨዋታውን መመልከት ይችላሉ
+          </span>
+        </div>
+      )}
 
       {/* Info Grid */}
       <div
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(4, 1fr)",
-          gap: 5,
-          background: "#1a1a2e",
-          border: "1px solid #2a2a40",
-          borderRadius: 10,
-          padding: "10px 8px",
-          marginBottom: 10,
+          gap: 6,
+          background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
+          border: "1px solid #f39c12",
+          borderRadius: 12,
+          padding: "12px 8px",
+          marginBottom: 12,
+          boxShadow: "0 4px 15px rgba(243,156,18,0.15)",
         }}
       >
-        <InfoCell label="Wallet" value={currentBalance} />
-        <InfoCell label="Stake" value={stake} />
-        <InfoCell label="Selected" value={selectedCards.length} />
         <InfoCell
-          label={isWeekly ? "Draw" : "Time"}
+          label="💰 Wallet"
+          value={currentBalance}
+          color={canAfford ? "#2ecc71" : "#e74c3c"}
+        />
+        <InfoCell label="🎯 Stake" value={stake} color="#f39c12" />
+        <InfoCell
+          label="🎴 Selected"
+          value={selectedCards.length}
+          color="#3498db"
+        />
+        <InfoCell
+          label={isWeekly ? "🗓 Draw" : "⏱ Time"}
           value={
             isWeekly
               ? roomCode === "ROOM50"
-                ? "ቅዳሜ 12:00"
-                : "ቅዳሜ 12:05"
+                ? "12:00"
+                : "12:05"
               : countdown !== null
               ? `${countdown}s`
               : "…"
@@ -411,7 +418,6 @@ export default function CartelaSelection({
               ? "#e74c3c"
               : "#ffd43b"
           }
-          small={isWeekly}
         />
       </div>
 
@@ -420,12 +426,13 @@ export default function CartelaSelection({
         style={{
           display: "flex",
           justifyContent: "space-between",
-          background: "#1a1a2e",
+          background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
           border: "1px solid #2a2a40",
           borderRadius: 10,
-          padding: "8px 12px",
+          padding: "10px 14px",
           marginBottom: 10,
-          fontSize: 12,
+          fontSize: 13,
+          fontWeight: "bold",
         }}
       >
         <span>
@@ -439,13 +446,15 @@ export default function CartelaSelection({
       {error && (
         <div
           style={{
-            background: "#e74c3c",
+            background: "linear-gradient(135deg, #e74c3c, #c0392b)",
             color: "#fff",
-            padding: 6,
-            borderRadius: 8,
-            marginBottom: 8,
-            fontSize: 11,
+            padding: 10,
+            borderRadius: 10,
+            marginBottom: 10,
+            fontSize: 12,
             textAlign: "center",
+            fontWeight: "bold",
+            boxShadow: "0 4px 12px rgba(231,76,60,0.4)",
           }}
         >
           {error}
@@ -461,9 +470,9 @@ export default function CartelaSelection({
           gridTemplateColumns: "repeat(8, 1fr)",
           gap: 5,
           marginBottom: 10,
-          paddingRight: 5,
+          paddingRight: 4,
           alignContent: "start",
-          maxHeight: "calc(100vh - 350px)",
+          maxHeight: "calc(100vh - 440px)",
         }}
       >
         {numbers.map((n) => {
@@ -477,17 +486,23 @@ export default function CartelaSelection({
               style={{
                 padding: "10px 0",
                 borderRadius: 8,
-                border: isSelected ? "2px solid #2ecc71" : "1px solid #333",
+                border: isSelected
+                  ? "2px solid #2ecc71"
+                  : "1px solid #2a2a40",
                 background: isTaken
-                  ? "#c0392b"
+                  ? "linear-gradient(135deg, #c0392b, #8e1f1f)"
                   : isSelected
-                  ? "#2ecc71"
-                  : "#1b2233",
+                  ? "linear-gradient(135deg, #2ecc71, #27ae60)"
+                  : "linear-gradient(135deg, #1b2233, #151b2b)",
                 color: "#fff",
                 fontWeight: "bold",
                 fontSize: 11,
                 cursor: isTaken ? "not-allowed" : "pointer",
-                opacity: isTaken ? 0.7 : 1,
+                opacity: isTaken ? 0.6 : 1,
+                boxShadow: isSelected
+                  ? "0 0 12px rgba(46,204,113,0.6)"
+                  : "none",
+                transition: "all 0.15s ease",
               }}
             >
               {n}
@@ -496,70 +511,101 @@ export default function CartelaSelection({
         })}
       </div>
 
-      {isWeekly ? (
+      {/* Weekly confirm */}
+      {isWeekly && (
         <>
           <div
             style={{
-              background: "#1a1a2e",
+              background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
               border: "1px solid #f39c12",
               borderRadius: 10,
-              padding: 10,
+              padding: 12,
               marginBottom: 10,
               textAlign: "center",
               fontSize: 11,
               color: "#f39c12",
+              fontWeight: "bold",
             }}
           >
-            🗓 ሳምንታዊ እጣ! ካርዶችዎን ይምረጡ። ጨዋታው ይጀመራል{" "}
-            <b>{roomCode === "ROOM50" ? "ቅዳሜ 12:00" : "ቅዳሜ 12:05"}</b>
+            🗓 ሳምንታዊ እጣ! ካርዶችዎን ይምረጡ
           </div>
           <button
             onClick={confirmWeekly}
-            disabled={!selectedCards.length}
+            disabled={!selectedCards.length || !canAfford}
             style={{
               width: "100%",
-              background: !selectedCards.length
-                ? "#555"
-                : "linear-gradient(135deg,#f39c12,#e67e22)",
+              background:
+                !selectedCards.length || !canAfford
+                  ? "#555"
+                  : "linear-gradient(135deg,#f39c12,#e67e22)",
               color: "#fff",
               border: "none",
               borderRadius: 12,
               padding: 14,
               fontSize: 14,
               fontWeight: "bold",
-              cursor: !selectedCards.length ? "not-allowed" : "pointer",
+              cursor:
+                !selectedCards.length || !canAfford ? "not-allowed" : "pointer",
               marginBottom: 10,
+              boxShadow:
+                !selectedCards.length || !canAfford
+                  ? "none"
+                  : "0 4px 15px rgba(243,156,18,0.5)",
             }}
           >
             ✅ Confirm ({selectedCards.length} ካርዶች, {total} ETB)
           </button>
         </>
-      ) : (
+      )}
+
+      {/* Non-weekly info */}
+      {!isWeekly && (
         <div
           style={{
             fontSize: 11,
             color: "#888",
             textAlign: "center",
-            paddingBottom: 10,
+            paddingBottom: 6,
           }}
         >
           ⏱ ሰዓቱ ሲያልቅ በራስ-ሰር ወደ ጨዋታው ይገባል
         </div>
       )}
+
+      {/* Spectate button */}
+      <button
+        onClick={goSpectator}
+        style={{
+          width: "100%",
+          background: "linear-gradient(135deg, #3498db, #2980b9)",
+          color: "#fff",
+          border: "none",
+          borderRadius: 12,
+          padding: 12,
+          fontSize: 13,
+          fontWeight: "bold",
+          cursor: "pointer",
+          marginTop: 6,
+          marginBottom: 10,
+          boxShadow: "0 4px 15px rgba(52,152,219,0.4)",
+        }}
+      >
+        👀 ያለ ካርቴላ ይመልከቱ (Spectate)
+      </button>
     </div>
   );
 }
 
-function InfoCell({ label, value, color = "#fff", small = false }) {
+function InfoCell({ label, value, color = "#fff" }) {
   return (
     <div style={{ textAlign: "center" }}>
-      <div style={{ color: "#aaa", fontSize: 10, marginBottom: 3 }}>
+      <div style={{ color: "#aaa", fontSize: 9, marginBottom: 3 }}>
         {label}
       </div>
       <div
         style={{
           color,
-          fontSize: small ? 11 : 14,
+          fontSize: 14,
           fontWeight: "bold",
           lineHeight: 1.2,
         }}

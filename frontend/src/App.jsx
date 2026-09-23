@@ -103,21 +103,18 @@ function Login({ onLoggedIn }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// GAMELOBBY
+// GAMELOBBY — ውብ + spectator friendly
 // ═══════════════════════════════════════════════════════
 function GameLobby({ onPlayStake, userBalance }) {
   const [loading, setLoading] = useState(null);
   const [error, setError] = useState("");
 
   async function play(fee) {
-    if (userBalance < fee) {
-      setError(`❌ በቂ ባላንስ የለዎትም! (${fee} ETB ያስፈልጋል)`);
-      return;
-    }
     setLoading(fee);
     setError("");
     try {
       const room = await createRoom(fee, SHARED_ROOMS[fee]);
+      // 👈 Balance ባይኖርም ይግባ — CartelaSelection ውስጥ spectator ይሆናል
       onPlayStake(fee, room.roomCode);
     } catch (err) {
       setError(err?.response?.data?.error || err.message || "Could not start");
@@ -126,46 +123,85 @@ function GameLobby({ onPlayStake, userBalance }) {
     }
   }
 
-  const btn = (color, fee) => ({
-    width: "100%",
-    background: userBalance < fee ? "#444" : color,
-    color: "#fff",
-    border: "none",
-    borderRadius: 10,
-    padding: 14,
-    fontWeight: "bold",
-    fontSize: 15,
-    cursor: userBalance < fee ? "not-allowed" : "pointer",
-    marginBottom: 6,
-    opacity: userBalance < fee ? 0.5 : 1,
-  });
+  const btn = (color, fee) => {
+    const affordable = userBalance >= fee;
+    return {
+      width: "100%",
+      background: `linear-gradient(135deg, ${color}, ${color}cc)`,
+      color: "#fff",
+      border: "none",
+      borderRadius: 14,
+      padding: "16px 20px",
+      fontWeight: "bold",
+      fontSize: 16,
+      cursor: loading !== null ? "wait" : "pointer",
+      marginBottom: 10,
+      boxShadow: affordable
+        ? `0 6px 20px ${color}55`
+        : `0 6px 20px rgba(255,152,0,0.3)`,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 10,
+      transition: "transform 0.15s ease",
+      position: "relative",
+      opacity: loading === fee ? 0.7 : 1,
+    };
+  };
+
+  const needsMore = (fee) => userBalance < fee;
 
   return (
     <div style={{ padding: 15, maxWidth: 450, margin: "0 auto" }}>
       {error && (
         <div
           style={{
-            background: "#e74c3c",
+            background: "linear-gradient(135deg, #e74c3c, #c0392b)",
             color: "#fff",
-            padding: 10,
-            borderRadius: 8,
+            padding: 12,
+            borderRadius: 10,
             marginBottom: 15,
             fontSize: 13,
             textAlign: "center",
+            fontWeight: "bold",
+            boxShadow: "0 4px 15px rgba(231,76,60,0.4)",
           }}
         >
           {error}
         </div>
       )}
-      <h2 style={{ color: "#fff", textAlign: "center", marginBottom: 20 }}>
+
+      <h2
+        style={{
+          color: "#fff",
+          textAlign: "center",
+          marginBottom: 8,
+          fontSize: 26,
+          letterSpacing: 0.5,
+        }}
+      >
         Welcome to <span style={{ color: "#f39c12" }}>Fetan Bingo</span>
       </h2>
+      <p
+        style={{
+          color: "#888",
+          textAlign: "center",
+          marginBottom: 20,
+          fontSize: 12,
+        }}
+      >
+        👀 በቂ ብር ከሌለዎትም ጨዋታውን መመልከት ይችላሉ
+      </p>
+
+      {/* Choose Stake */}
       <div
         style={{
-          border: "1px solid #f39c12",
-          borderRadius: 14,
-          padding: 16,
+          background: "linear-gradient(135deg, #1a1a2e 0%, #0f1420 100%)",
+          border: "2px solid #f39c12",
+          borderRadius: 16,
+          padding: 18,
           marginBottom: 16,
+          boxShadow: "0 4px 20px rgba(243,156,18,0.15)",
         }}
       >
         <div
@@ -173,28 +209,53 @@ function GameLobby({ onPlayStake, userBalance }) {
             color: "#f39c12",
             fontWeight: "bold",
             textAlign: "center",
-            marginBottom: 12,
+            marginBottom: 14,
+            fontSize: 14,
+            letterSpacing: 1,
           }}
         >
-          Choose Stake
+          🎯 CHOOSE STAKE
         </div>
         {STAKES.map((s) => (
-          <button
-            key={s.fee}
-            disabled={loading !== null}
-            onClick={() => play(s.fee)}
-            style={btn(s.color, s.fee)}
-          >
-            {loading === s.fee ? "Starting…" : `▶ Play ${s.fee} ETB`}
-          </button>
+          <div key={s.fee} style={{ position: "relative" }}>
+            <button
+              disabled={loading !== null}
+              onClick={() => play(s.fee)}
+              style={btn(s.color, s.fee)}
+            >
+              <span style={{ fontSize: 18 }}>▶</span>
+              <span>{loading === s.fee ? "Starting…" : `Play ${s.fee} ETB`}</span>
+            </button>
+            {needsMore(s.fee) && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 4,
+                  right: 8,
+                  background: "rgba(255,152,0,0.9)",
+                  color: "#fff",
+                  borderRadius: 12,
+                  padding: "2px 8px",
+                  fontSize: 9,
+                  fontWeight: "bold",
+                }}
+              >
+                👀 ይመልከቱ
+              </div>
+            )}
+          </div>
         ))}
       </div>
+
+      {/* Weekly Game */}
       <div
         style={{
-          border: "1px solid #f39c12",
-          borderRadius: 14,
-          padding: 16,
+          background: "linear-gradient(135deg, #1a1a2e 0%, #0f1420 100%)",
+          border: "2px solid #f39c12",
+          borderRadius: 16,
+          padding: 18,
           marginBottom: 16,
+          boxShadow: "0 4px 20px rgba(243,156,18,0.15)",
         }}
       >
         <div
@@ -202,22 +263,50 @@ function GameLobby({ onPlayStake, userBalance }) {
             color: "#f39c12",
             fontWeight: "bold",
             textAlign: "center",
-            marginBottom: 12,
+            marginBottom: 14,
+            fontSize: 14,
+            letterSpacing: 1,
           }}
         >
-          Weekly Game
+          🗓 WEEKLY GAME
         </div>
         {WEEKLY_GAMES.map((g) => (
-          <div key={g.fee} style={{ marginBottom: 10 }}>
+          <div key={g.fee} style={{ marginBottom: 12, position: "relative" }}>
             <button
               disabled={loading !== null}
               onClick={() => play(g.fee)}
-              style={{ ...btn(g.color, g.fee), marginBottom: 4 }}
+              style={btn(g.color, g.fee)}
             >
-              {loading === g.fee ? "Starting…" : `▶ Play ${g.fee} ETB`}
+              <span style={{ fontSize: 18 }}>▶</span>
+              <span>
+                {loading === g.fee ? "Starting…" : `Play ${g.fee} ETB`}
+              </span>
             </button>
+            {needsMore(g.fee) && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 4,
+                  right: 8,
+                  background: "rgba(255,152,0,0.9)",
+                  color: "#fff",
+                  borderRadius: 12,
+                  padding: "2px 8px",
+                  fontSize: 9,
+                  fontWeight: "bold",
+                }}
+              >
+                👀 ይመልከቱ
+              </div>
+            )}
             <div
-              style={{ color: "#f39c12", fontSize: 12, textAlign: "center" }}
+              style={{
+                color: "#f39c12",
+                fontSize: 11,
+                textAlign: "center",
+                fontWeight: "bold",
+                marginTop: 2,
+              }}
             >
               {g.schedule}
             </div>
@@ -770,6 +859,7 @@ function App() {
   const [balance, setBalance] = useState(0);
   const [roomCode, setRoomCode] = useState(null);
   const [cardIds, setCardIds] = useState([]);
+  const [spectate, setSpectate] = useState(false); // 👈 አዲስ
   const [showCartela, setShowCartela] = useState(false);
   const [stakeAmount, setStakeAmount] = useState(10);
   const [activeTab, setActiveTab] = useState("Game");
@@ -813,11 +903,14 @@ function App() {
   const handlePlayStake = (fee, code) => {
     setStakeAmount(fee);
     setRoomCode(code);
+    setSpectate(false);
     setShowCartela(true);
   };
 
-  const handleCartelaConfirm = (ids) => {
+  // 👈 Accept spectate flag
+  const handleCartelaConfirm = (ids, opts = {}) => {
     setCardIds(ids);
+    setSpectate(opts.spectate === true);
     setShowCartela(false);
   };
 
@@ -825,6 +918,7 @@ function App() {
     disconnectSocket();
     setRoomCode(null);
     setCardIds([]);
+    setSpectate(false);
     setShowCartela(false);
     setStakeAmount(10);
     setActiveTab("Game");
@@ -833,6 +927,7 @@ function App() {
   const handleGameEnded = () => {
     disconnectSocket();
     setCardIds([]);
+    setSpectate(false);
     setShowCartela(true); // back to cartela for next round
   };
 
@@ -859,6 +954,7 @@ function App() {
             <LiveGame
               roomCode={roomCode}
               cardIds={cardIds}
+              spectate={spectate}
               setBalance={setBalance}
               telegramId={user.telegramId}
               onExit={handleLeave}
