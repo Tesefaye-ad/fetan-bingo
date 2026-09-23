@@ -24,7 +24,6 @@ export default function CartelaSelection({
   const confirmLockRef = useRef(false);
 
   const isWeeklyRoom = roomCode === "ROOM50" || roomCode === "ROOM100";
-  const canAfford = currentBalance >= stake;
 
   useEffect(() => {
     triggeredRef.current = false;
@@ -134,20 +133,22 @@ export default function CartelaSelection({
     triggeredRef.current = true;
     confirmLockRef.current = true;
 
-    if (selectedCards.length > 0 && canAfford) {
+    if (selectedCards.length > 0) {
       return onConfirm(selectedCards);
     }
 
-    // No cards → pick a random free card if affordable
+    // Pick random free card (backend will validate balance)
     const takenSet = new Set(takenCards);
     const free = [];
     for (let i = 1; i <= 1000; i++) if (!takenSet.has(i)) free.push(i);
-    if (free.length > 0 && canAfford) {
+
+    if (free.length > 0) {
       const pick = free[Math.floor(Math.random() * free.length)];
       return onConfirm([pick]);
     }
+
     onConfirm([]);
-  }, [countdown, selectedCards, canAfford, takenCards, onConfirm, isWeekly]);
+  }, [countdown, selectedCards, takenCards, onConfirm, isWeekly]);
 
   // Socket
   useEffect(() => {
@@ -186,9 +187,7 @@ export default function CartelaSelection({
       return;
     }
 
-    if (!canAfford) {
-      return setError(`❌ በቂ ባላንስ የለዎትም! (${stake} ETB ያስፈልጋል)`);
-    }
+    // 👈 በቂ ባላንስ check የለም — backend ይወስናል
 
     getSocket().emit("select_card", { roomCode, cardId: id });
     setSelectedCards((p) => [...p, id]);
@@ -198,7 +197,6 @@ export default function CartelaSelection({
   const confirmWeekly = () => {
     if (confirmLockRef.current) return;
     if (!selectedCards.length) return setError("❌ ቢያንስ አንድ ካርድ ይምረጡ!");
-    if (!canAfford) return setError(`❌ በቂ ባላንስ የለዎትም!`);
     confirmLockRef.current = true;
     onConfirm(selectedCards);
   };
@@ -236,23 +234,7 @@ export default function CartelaSelection({
         ← Back
       </button>
 
-      {!canAfford && (
-        <div
-          style={{
-            background: "linear-gradient(135deg, #e74c3c, #c0392b)",
-            borderRadius: 12,
-            padding: 12,
-            marginBottom: 12,
-            textAlign: "center",
-            fontSize: 12,
-            fontWeight: "bold",
-          }}
-        >
-          ⚠️ በቂ ብር የለዎትም ({stake} ETB ያስፈልጋል)
-        </div>
-      )}
-
-      {/* Info Grid */}
+      {/* Info Grid — በቂ ብር warning የለም */}
       <div
         style={{
           display: "grid",
@@ -265,11 +247,7 @@ export default function CartelaSelection({
           marginBottom: 12,
         }}
       >
-        <InfoCell
-          label="💰 Wallet"
-          value={currentBalance}
-          color={canAfford ? "#2ecc71" : "#e74c3c"}
-        />
+        <InfoCell label="💰 Wallet" value={currentBalance} color="#2ecc71" />
         <InfoCell label="🎯 Stake" value={stake} color="#f39c12" />
         <InfoCell
           label="🎴 Selected"
@@ -347,7 +325,7 @@ export default function CartelaSelection({
           marginBottom: 10,
           paddingRight: 4,
           alignContent: "start",
-          maxHeight: "calc(100vh - 420px)",
+          maxHeight: "calc(100vh - 380px)",
         }}
       >
         {numbers.map((n) => {
@@ -389,38 +367,27 @@ export default function CartelaSelection({
       {isWeekly ? (
         <button
           onClick={confirmWeekly}
-          disabled={!selectedCards.length || !canAfford}
+          disabled={!selectedCards.length}
           style={{
             width: "100%",
-            background:
-              !selectedCards.length || !canAfford
-                ? "#555"
-                : "linear-gradient(135deg,#f39c12,#e67e22)",
+            background: !selectedCards.length
+              ? "#555"
+              : "linear-gradient(135deg,#f39c12,#e67e22)",
             color: "#fff",
             border: "none",
             borderRadius: 12,
             padding: 14,
             fontSize: 14,
             fontWeight: "bold",
-            cursor:
-              !selectedCards.length || !canAfford ? "not-allowed" : "pointer",
+            cursor: !selectedCards.length ? "not-allowed" : "pointer",
             marginBottom: 10,
           }}
         >
           ✅ Confirm ({selectedCards.length} ካርዶች, {total} ETB)
         </button>
-      ) : (
-        <div
-          style={{
-            fontSize: 11,
-            color: "#888",
-            textAlign: "center",
-            paddingBottom: 10,
-          }}
-        >
-          ⏱ ሰዓቱ ሲያልቅ በራስ-ሰር ወደ ጨዋታው ይገባል
-        </div>
-      )}
+      ) : null}
+
+      {/* ሰዓቱ ሲያልቅ... ጽሑፍ ሙሉ በሙሉ ተሰርዟል */}
     </div>
   );
 }

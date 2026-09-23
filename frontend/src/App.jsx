@@ -32,41 +32,6 @@ const WEEKLY_GAMES = [
 ];
 const SHARED_ROOMS = { 10: "ROOM10", 20: "ROOM20", 50: "ROOM50", 100: "ROOM100" };
 
-const STAKE_STYLES = {
-  10: {
-    gradient: "linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)",
-    shadow: "0 8px 24px rgba(16,185,129,0.45)",
-    shadowHover: "0 12px 32px rgba(16,185,129,0.6)",
-    icon: "🌱",
-    label: "Starter",
-    subtitle: "ቀላል ግቤት",
-  },
-  20: {
-    gradient: "linear-gradient(135deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%)",
-    shadow: "0 8px 24px rgba(59,130,246,0.45)",
-    shadowHover: "0 12px 32px rgba(59,130,246,0.6)",
-    icon: "⚡",
-    label: "Fast",
-    subtitle: "ፈጣን ድል",
-  },
-  50: {
-    gradient: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 50%, #6d28d9 100%)",
-    shadow: "0 8px 24px rgba(139,92,246,0.45)",
-    shadowHover: "0 12px 32px rgba(139,92,246,0.6)",
-    icon: "💎",
-    label: "Premium",
-    subtitle: "ሳምንታዊ",
-  },
-  100: {
-    gradient: "linear-gradient(135deg, #f59e0b 0%, #f97316 50%, #ea580c 100%)",
-    shadow: "0 8px 24px rgba(245,158,11,0.5)",
-    shadowHover: "0 12px 32px rgba(245,158,11,0.7)",
-    icon: "👑",
-    label: "VIP",
-    subtitle: "ከፍተኛ ሽልማት",
-  },
-};
-
 // ═══════════════════════════════════════════════════════
 // LOGIN
 // ═══════════════════════════════════════════════════════
@@ -135,7 +100,7 @@ function Login({ onLoggedIn }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// GAMELOBBY — 👈 Spectator hints ተሰርዘዋል
+// GAMELOBBY — 🧹 ቀለል ያለ
 // ═══════════════════════════════════════════════════════
 function GameLobby({ onPlayStake, userBalance }) {
   const [loading, setLoading] = useState(null);
@@ -155,39 +120,37 @@ function GameLobby({ onPlayStake, userBalance }) {
   }
 
   const StakeButton = ({ fee, schedule }) => {
-    const st = STAKE_STYLES[fee];
     const isLoading = loading === fee;
+    const color =
+      fee === 10
+        ? "#10b981"
+        : fee === 20
+        ? "#3b82f6"
+        : fee === 50
+        ? "#8b5cf6"
+        : "#f59e0b";
 
     return (
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 10 }}>
         <button
           disabled={loading !== null}
           onClick={() => play(fee)}
           style={{
             width: "100%",
-            background: st.gradient,
+            background: `linear-gradient(135deg, ${color} 0%, ${color}cc 50%, ${color}99 100%)`,
             color: "#fff",
             border: "none",
-            borderRadius: 16,
-            padding: "16px 18px",
+            borderRadius: 14,
+            padding: "16px 20px",
             cursor: loading !== null ? "wait" : "pointer",
-            boxShadow: st.shadow,
+            boxShadow: `0 6px 20px ${color}55`,
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+            transition: "all 0.2s ease",
             opacity: isLoading ? 0.85 : 1,
             position: "relative",
             overflow: "hidden",
-            transform: isLoading ? "scale(0.98)" : "scale(1)",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = "translateY(-3px) scale(1.02)";
-            e.currentTarget.style.boxShadow = st.shadowHover;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "scale(1)";
-            e.currentTarget.style.boxShadow = st.shadow;
           }}
         >
           <div
@@ -206,66 +169,13 @@ function GameLobby({ onPlayStake, userBalance }) {
 
           <div
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
+              fontSize: 17,
+              fontWeight: "900",
+              letterSpacing: 0.5,
               zIndex: 1,
             }}
           >
-            <div
-              style={{
-                width: 46,
-                height: 46,
-                borderRadius: 12,
-                background: "rgba(255,255,255,0.2)",
-                backdropFilter: "blur(10px)",
-                border: "1px solid rgba(255,255,255,0.3)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 24,
-              }}
-            >
-              {isLoading ? (
-                <div
-                  style={{
-                    width: 20,
-                    height: 20,
-                    border: "2px solid rgba(255,255,255,0.4)",
-                    borderTopColor: "#fff",
-                    borderRadius: "50%",
-                    animation: "spin 0.8s linear infinite",
-                  }}
-                />
-              ) : (
-                st.icon
-              )}
-            </div>
-            <div style={{ textAlign: "left" }}>
-              <div
-                style={{
-                  fontSize: 16,
-                  fontWeight: "900",
-                  letterSpacing: 0.5,
-                  marginBottom: 2,
-                }}
-              >
-                {isLoading ? "Starting…" : `Play ${fee} ETB`}
-              </div>
-              <div
-                style={{
-                  fontSize: 10,
-                  fontWeight: "600",
-                  letterSpacing: 1,
-                  opacity: 0.9,
-                  textTransform: "uppercase",
-                }}
-              >
-                {st.label}
-                {schedule && ` • ${schedule}`}
-                {!schedule && ` • ${st.subtitle}`}
-              </div>
-            </div>
+            {isLoading ? "Starting…" : `Play ${fee} ETB`}
           </div>
 
           <div
@@ -273,13 +183,12 @@ function GameLobby({ onPlayStake, userBalance }) {
               width: 32,
               height: 32,
               borderRadius: "50%",
-              background: "rgba(255,255,255,0.2)",
-              backdropFilter: "blur(10px)",
-              border: "1px solid rgba(255,255,255,0.3)",
+              background: "rgba(255,255,255,0.22)",
+              border: "1px solid rgba(255,255,255,0.35)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 14,
+              fontSize: 15,
               fontWeight: "bold",
               zIndex: 1,
             }}
@@ -294,7 +203,7 @@ function GameLobby({ onPlayStake, userBalance }) {
               fontSize: 11,
               textAlign: "center",
               fontWeight: "bold",
-              marginTop: 6,
+              marginTop: 5,
             }}
           >
             🗓 {schedule}
@@ -330,7 +239,7 @@ function GameLobby({ onPlayStake, userBalance }) {
         </div>
       )}
 
-      {/* 👈 ጽሑፍ ተሰርዟል — አሁን ርዕስ ብቻ */}
+      {/* Header */}
       <div style={{ textAlign: "center", marginBottom: 22 }}>
         <h2
           style={{
@@ -349,7 +258,7 @@ function GameLobby({ onPlayStake, userBalance }) {
         </h2>
       </div>
 
-      {/* Balance Card */}
+      {/* Balance Card — ስም የለውም ብቻ */}
       <div
         style={{
           background:
@@ -378,26 +287,15 @@ function GameLobby({ onPlayStake, userBalance }) {
           >
             💳
           </div>
-          <div>
-            <div
-              style={{
-                color: "#888",
-                fontSize: 10,
-                fontWeight: "bold",
-              }}
-            >
-              የእርስዎ ባላንስ
-            </div>
-            <div
-              style={{
-                color: "#fff",
-                fontSize: 18,
-                fontWeight: "900",
-              }}
-            >
-              {userBalance}{" "}
-              <span style={{ fontSize: 12, color: "#f39c12" }}>ETB</span>
-            </div>
+          <div
+            style={{
+              color: "#fff",
+              fontSize: 18,
+              fontWeight: "900",
+            }}
+          >
+            {userBalance}{" "}
+            <span style={{ fontSize: 12, color: "#f39c12" }}>ETB</span>
           </div>
         </div>
         <div
@@ -488,34 +386,10 @@ function GameLobby({ onPlayStake, userBalance }) {
         <StakeButton key={g.fee} fee={g.fee} schedule={g.schedule} />
       ))}
 
-      {/* Info footer — 👈 የቀድሞ ጽሑፍ ተሰርዟል */}
-      <div
-        style={{
-          marginTop: 20,
-          padding: "10px 14px",
-          background: "rgba(26,26,46,0.6)",
-          border: "1px solid rgba(42,42,64,0.8)",
-          borderRadius: 10,
-          fontSize: 10,
-          color: "#888",
-          textAlign: "center",
-          lineHeight: 1.6,
-        }}
-      >
-        💡 <b style={{ color: "#f39c12" }}>ምክር:</b> የሚመርጡት stake ሲያልቅ ወደ
-        ካርቴላ መምረጫ ይሄዳሉ።
-        <br />🏆 አሸናፊው <b style={{ color: "#2ecc71" }}>80%</b> የሽልማት ገንዘብ
-        ያገኛል
-      </div>
-
       <style>{`
         @keyframes shine {
           0% { left: -100%; }
           50%, 100% { left: 200%; }
-        }
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
         }
       `}</style>
     </div>
