@@ -18,9 +18,6 @@ export default function CartelaSelection({
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [isWeekly, setIsWeekly] = useState(false);
-  const [fetchFailed, setFetchFailed] = useState(false);
-  const [retryKey, setRetryKey] = useState(0);
-  const [loading, setLoading] = useState(true);
 
   const triggeredRef = useRef(false);
   const fetchedRef = useRef(false);
@@ -29,7 +26,6 @@ export default function CartelaSelection({
   const isWeeklyRoom = roomCode === "ROOM50" || roomCode === "ROOM100";
   const canAfford = currentBalance >= stake;
 
-  // Reset on room change
   useEffect(() => {
     triggeredRef.current = false;
     fetchedRef.current = false;
@@ -39,8 +35,7 @@ export default function CartelaSelection({
     setSelectedCards([]);
     setTakenCards([]);
     setError("");
-    setFetchFailed(false);
-    setLoading(true);
+    setIsWeekly(false);
   }, [roomCode]);
 
   // Fetch room state
@@ -70,18 +65,17 @@ export default function CartelaSelection({
           setIsWeekly(true);
           setCountdown(null);
           setDeadlineAt(null);
-          setLoading(false);
           return;
         }
 
         let remaining = 0;
         let localDeadline = null;
         if (data.selectionEndsAt && data.serverTime) {
-          const serverDeadline = new Date(data.selectionEndsAt).getTime();
-          const serverNow = new Date(data.serverTime).getTime();
-          if (Number.isFinite(serverDeadline) && Number.isFinite(serverNow)) {
-            const clockOffset = serverNow - Date.now();
-            localDeadline = serverDeadline - clockOffset;
+          const sd = new Date(data.selectionEndsAt).getTime();
+          const sn = new Date(data.serverTime).getTime();
+          if (Number.isFinite(sd) && Number.isFinite(sn)) {
+            const offset = sn - Date.now();
+            localDeadline = sd - offset;
             remaining = Math.max(
               0,
               Math.floor((localDeadline - Date.now()) / 1000)
@@ -98,12 +92,9 @@ export default function CartelaSelection({
         } else if (remaining === 0) {
           setCountdown(0);
         }
-        setLoading(false);
       } catch (e) {
         if (cancelled) return;
-        console.error("[Cartela] fetch error:", e);
-        setFetchFailed(true);
-        setLoading(false);
+        setError("⚠️ ከሰርቨር ጋር መገናኘት አልተቻለም");
       }
     })();
 
@@ -121,7 +112,7 @@ export default function CartelaSelection({
     return () => {
       cancelled = true;
     };
-  }, [roomCode, isWeeklyRoom, retryKey]);
+  }, [roomCode, isWeeklyRoom]);
 
   // Countdown
   useEffect(() => {
@@ -143,14 +134,20 @@ export default function CartelaSelection({
     triggeredRef.current = true;
     confirmLockRef.current = true;
 
-    // User selected cards → confirm
     if (selectedCards.length > 0 && canAfford) {
-      return onConfirm(selectedCards, { spectate: false });
+      return onConfirm(selectedCards);
     }
 
-    // No cards OR can't afford → spectate
-    onConfirm([], { spectate: true });
-  }, [countdown, selectedCards, canAfford, onConfirm, isWeekly]);
+    // No cards → pick a random free card if affordable
+    const takenSet = new Set(takenCards);
+    const free = [];
+    for (let i = 1; i <= 1000; i++) if (!takenSet.has(i)) free.push(i);
+    if (free.length > 0 && canAfford) {
+      const pick = free[Math.floor(Math.random() * free.length)];
+      return onConfirm([pick]);
+    }
+    onConfirm([]);
+  }, [countdown, selectedCards, canAfford, takenCards, onConfirm, isWeekly]);
 
   // Socket
   useEffect(() => {
@@ -190,9 +187,7 @@ export default function CartelaSelection({
     }
 
     if (!canAfford) {
-      return setError(
-        `❌ በቂ ባላንስ የለዎትም! (${stake} ETB) — 👀 መመልከት ይችላሉ`
-      );
+      return setError(`❌ በቂ ባላንስ የለዎትም! (${stake} ETB ያስፈልጋል)`);
     }
 
     getSocket().emit("select_card", { roomCode, cardId: id });
@@ -205,123 +200,11 @@ export default function CartelaSelection({
     if (!selectedCards.length) return setError("❌ ቢያንስ አንድ ካርድ ይምረጡ!");
     if (!canAfford) return setError(`❌ በቂ ባላንስ የለዎትም!`);
     confirmLockRef.current = true;
-    onConfirm(selectedCards, { spectate: false });
-  };
-
-  const goSpectator = () => {
-    if (confirmLockRef.current) return;
-    confirmLockRef.current = true;
-    onConfirm([], { spectate: true });
-  };
-
-  const retryFetch = () => {
-    fetchedRef.current = false;
-    confirmLockRef.current = false;
-    triggeredRef.current = false;
-    setFetchFailed(false);
-    setError("");
-    setSelectedCards([]);
-    setTakenCards([]);
-    setRetryKey((k) => k + 1);
+    onConfirm(selectedCards);
   };
 
   const numbers = Array.from({ length: 1000 }, (_, i) => i + 1);
   const total = selectedCards.length * stake;
-
-  if (loading) {
-    return (
-      <div
-        style={{
-          padding: 20,
-          maxWidth: 480,
-          margin: "0 auto",
-          color: "#fff",
-          minHeight: "100vh",
-          background: "#0f1420",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <div
-          style={{
-            fontSize: 60,
-            marginBottom: 15,
-            animation: "spin 2s linear infinite",
-          }}
-        >
-          🎴
-        </div>
-        <div style={{ color: "#f39c12", fontSize: 14, fontWeight: "bold" }}>
-          ካርቴላዎችን በመጫን ላይ...
-        </div>
-        <style>{`@keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }`}</style>
-      </div>
-    );
-  }
-
-  if (fetchFailed) {
-    return (
-      <div
-        style={{
-          padding: 20,
-          maxWidth: 480,
-          margin: "0 auto",
-          color: "#fff",
-          minHeight: "100vh",
-          background: "#0f1420",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          textAlign: "center",
-        }}
-      >
-        <div style={{ fontSize: 50, marginBottom: 15 }}>⚠️</div>
-        <div
-          style={{
-            color: "#e74c3c",
-            fontSize: 14,
-            marginBottom: 15,
-            fontWeight: "bold",
-          }}
-        >
-          ከሰርቨር ጋር መገናኘት አልተቻለም
-        </div>
-        <button
-          onClick={retryFetch}
-          style={{
-            background: "#f39c12",
-            color: "#111",
-            border: "none",
-            borderRadius: 10,
-            padding: "12px 30px",
-            fontWeight: "bold",
-            fontSize: 14,
-            cursor: "pointer",
-            marginBottom: 10,
-          }}
-        >
-          🔄 እንደገና ሞክር
-        </button>
-        <button
-          onClick={onCancel}
-          style={{
-            background: "transparent",
-            color: "#888",
-            border: "1px solid #333",
-            borderRadius: 10,
-            padding: "10px 20px",
-            fontSize: 13,
-            cursor: "pointer",
-          }}
-        >
-          ← ተመለስ
-        </button>
-      </div>
-    );
-  }
 
   return (
     <div
@@ -353,7 +236,6 @@ export default function CartelaSelection({
         ← Back
       </button>
 
-      {/* Insufficient balance warning */}
       {!canAfford && (
         <div
           style={{
@@ -364,14 +246,9 @@ export default function CartelaSelection({
             textAlign: "center",
             fontSize: 12,
             fontWeight: "bold",
-            boxShadow: "0 4px 15px rgba(231,76,60,0.4)",
           }}
         >
           ⚠️ በቂ ብር የለዎትም ({stake} ETB ያስፈልጋል)
-          <br />
-          <span style={{ fontSize: 11, opacity: 0.9 }}>
-            👀 ግን ጨዋታውን መመልከት ይችላሉ
-          </span>
         </div>
       )}
 
@@ -386,7 +263,6 @@ export default function CartelaSelection({
           borderRadius: 12,
           padding: "12px 8px",
           marginBottom: 12,
-          boxShadow: "0 4px 15px rgba(243,156,18,0.15)",
         }}
       >
         <InfoCell
@@ -454,7 +330,6 @@ export default function CartelaSelection({
             fontSize: 12,
             textAlign: "center",
             fontWeight: "bold",
-            boxShadow: "0 4px 12px rgba(231,76,60,0.4)",
           }}
         >
           {error}
@@ -472,7 +347,7 @@ export default function CartelaSelection({
           marginBottom: 10,
           paddingRight: 4,
           alignContent: "start",
-          maxHeight: "calc(100vh - 440px)",
+          maxHeight: "calc(100vh - 420px)",
         }}
       >
         {numbers.map((n) => {
@@ -511,87 +386,41 @@ export default function CartelaSelection({
         })}
       </div>
 
-      {/* Weekly confirm */}
-      {isWeekly && (
-        <>
-          <div
-            style={{
-              background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
-              border: "1px solid #f39c12",
-              borderRadius: 10,
-              padding: 12,
-              marginBottom: 10,
-              textAlign: "center",
-              fontSize: 11,
-              color: "#f39c12",
-              fontWeight: "bold",
-            }}
-          >
-            🗓 ሳምንታዊ እጣ! ካርዶችዎን ይምረጡ
-          </div>
-          <button
-            onClick={confirmWeekly}
-            disabled={!selectedCards.length || !canAfford}
-            style={{
-              width: "100%",
-              background:
-                !selectedCards.length || !canAfford
-                  ? "#555"
-                  : "linear-gradient(135deg,#f39c12,#e67e22)",
-              color: "#fff",
-              border: "none",
-              borderRadius: 12,
-              padding: 14,
-              fontSize: 14,
-              fontWeight: "bold",
-              cursor:
-                !selectedCards.length || !canAfford ? "not-allowed" : "pointer",
-              marginBottom: 10,
-              boxShadow:
-                !selectedCards.length || !canAfford
-                  ? "none"
-                  : "0 4px 15px rgba(243,156,18,0.5)",
-            }}
-          >
-            ✅ Confirm ({selectedCards.length} ካርዶች, {total} ETB)
-          </button>
-        </>
-      )}
-
-      {/* Non-weekly info */}
-      {!isWeekly && (
+      {isWeekly ? (
+        <button
+          onClick={confirmWeekly}
+          disabled={!selectedCards.length || !canAfford}
+          style={{
+            width: "100%",
+            background:
+              !selectedCards.length || !canAfford
+                ? "#555"
+                : "linear-gradient(135deg,#f39c12,#e67e22)",
+            color: "#fff",
+            border: "none",
+            borderRadius: 12,
+            padding: 14,
+            fontSize: 14,
+            fontWeight: "bold",
+            cursor:
+              !selectedCards.length || !canAfford ? "not-allowed" : "pointer",
+            marginBottom: 10,
+          }}
+        >
+          ✅ Confirm ({selectedCards.length} ካርዶች, {total} ETB)
+        </button>
+      ) : (
         <div
           style={{
             fontSize: 11,
             color: "#888",
             textAlign: "center",
-            paddingBottom: 6,
+            paddingBottom: 10,
           }}
         >
           ⏱ ሰዓቱ ሲያልቅ በራስ-ሰር ወደ ጨዋታው ይገባል
         </div>
       )}
-
-      {/* Spectate button */}
-      <button
-        onClick={goSpectator}
-        style={{
-          width: "100%",
-          background: "linear-gradient(135deg, #3498db, #2980b9)",
-          color: "#fff",
-          border: "none",
-          borderRadius: 12,
-          padding: 12,
-          fontSize: 13,
-          fontWeight: "bold",
-          cursor: "pointer",
-          marginTop: 6,
-          marginBottom: 10,
-          boxShadow: "0 4px 15px rgba(52,152,219,0.4)",
-        }}
-      >
-        👀 ያለ ካርቴላ ይመልከቱ (Spectate)
-      </button>
     </div>
   );
 }
