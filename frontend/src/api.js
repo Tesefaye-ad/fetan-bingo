@@ -5,7 +5,37 @@ import { useState, useEffect, useRef, useMemo } from "react";
 const API_BASE_URL =
   process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.onrender.com";
 
-const api = axios.create({ baseURL: API_BASE_URL });
+// ═══════════════════════════════════════════════════════
+// AXIOS — short timeout for most, long for auth
+// ═══════════════════════════════════════════════════════
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 15000, // 👈 15s ለአብዛኞቹ
+  headers: { "Content-Type": "application/json" },
+});
+
+// 👈 Retry interceptor — 1 ጊዜ ብቻ
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const config = error.config;
+
+    const isNetwork =
+      !error.response ||
+      error.code === "ECONNABORTED" ||
+      error.message === "Network Error";
+
+    // Retry በአንድ ጊዜ ብቻ
+    if (isNetwork && config && !config._retry && config._retryCount !== 1) {
+      config._retry = true;
+      config._retryCount = 1;
+      await new Promise((r) => setTimeout(r, 1500));
+      return api(config);
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("bingo_token");
@@ -14,7 +44,7 @@ api.interceptors.request.use((config) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// SOCKET
+// SOCKET — 60s connect timeout ለ cold start
 // ═══════════════════════════════════════════════════════
 let socket = null;
 
@@ -28,12 +58,10 @@ export function getSocket() {
     transports: ["websocket", "polling"],
     upgrade: true,
     reconnection: true,
-    reconnectionDelay: 500,
-    reconnectionDelayMax: 3000,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
     reconnectionAttempts: Infinity,
-    timeout: 8000,
-    forceNew: false,
-    multiplex: true,
+    timeout: 60000,
   });
   return socket;
 }
@@ -46,7 +74,7 @@ export function disconnectSocket() {
 }
 
 // ═══════════════════════════════════════════════════════
-// useTelegram HOOK
+// useTelegram
 // ═══════════════════════════════════════════════════════
 export function useTelegram() {
   const getTg = () => window.Telegram?.WebApp;
@@ -95,24 +123,46 @@ export function useTelegram() {
 }
 
 // ═══════════════════════════════════════════════════════
-// AUTH
+// AUTH — long timeout ለ cold start
 // ═══════════════════════════════════════════════════════
 export async function loginWithTelegram(initData) {
   if (!initData) throw new Error("Telegram initData is missing.");
-  const { data } = await api.post("/api/auth/telegram", { initData });
+  const { data } = await api.post(
+    "/api/auth/telegram",
+    { initData },
+    { timeout: 60000 } // 👈 auth ብቻ 60s
+  );
   localStorage.setItem("bingo_token", data.token);
   localStorage.setItem("telegramId", data.user.telegramId);
   return data.user;
 }
 
 // ═══════════════════════════════════════════════════════
-// GAME
+// CREATE ROOM — short timeout + fallback
 // ═══════════════════════════════════════════════════════
 export async function createRoom(entryFee, roomCode) {
   const body = { entryFee };
   if (roomCode) body.roomCode = roomCode;
-  const { data } = await api.post("/api/game/rooms", body);
-  return data;
+
+  const fallbackCode =
+    roomCode ||
+    "ROOM" + (entryFee >= 100 ? "100" : entryFee >= 50 ? "50" : entryFee);
+
+  try {
+    const { data } = await api.post("/api/game/rooms", body, {
+      timeout: 12000, // 👈 12s ብቻ
+    });
+    return data;
+  } catch (err) {
+    console.warn("[api] createRoom failed — using fallback:", err.message);
+    // 👈 ሁልጊዜ fallback ተመልስ
+    return {
+      roomCode: fallbackCode,
+      entryFee,
+      status: "waiting",
+      _fallback: true,
+    };
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -189,20 +239,17 @@ export async function markNotificationsRead() {
 }
 
 // ═══════════════════════════════════════════════════════
-// ADMIN — STATS
+// ADMIN
 // ═══════════════════════════════════════════════════════
 export async function adminGetStats() {
   const { data } = await api.get("/api/admin/stats");
   return data;
 }
 
-// ═══════════════════════════════════════════════════════
-// ADMIN — TRANSACTIONS
-// ═══════════════════════════════════════════════════════
 export async function adminGetTransactions({
   type,
   status,
-  limit = 100,
+  limit = 50,
   skip = 0,
 } = {}) {
   const params = new URLSearchParams();
@@ -226,10 +273,7 @@ export async function adminRejectTransaction(id, reason) {
   return data;
 }
 
-// ═══════════════════════════════════════════════════════
-// ADMIN — USERS
-// ═══════════════════════════════════════════════════════
-export async function adminGetUsers({ q, limit = 100, skip = 0 } = {}) {
+export async function adminGetUsers({ q, limit = 50, skip = 0 } = {}) {
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   params.set("limit", limit);
@@ -243,6 +287,11 @@ export async function adminBanUser(id, banned) {
   return data;
 }
 
+export async function adminBroadcast(title, body) {
+  const { data } = await api.post("/api/admin/broadcast", { title, body });
+  return data;
+}
+
 export async function adminAdjustBalance(id, amount, note) {
   const { data } = await api.post(`/api/admin/users/${id}/balance`, {
     amount,
@@ -251,17 +300,6 @@ export async function adminAdjustBalance(id, amount, note) {
   return data;
 }
 
-// ═══════════════════════════════════════════════════════
-// ADMIN — BROADCAST
-// ═══════════════════════════════════════════════════════
-export async function adminBroadcast(title, body) {
-  const { data } = await api.post("/api/admin/broadcast", { title, body });
-  return data;
-}
-
-// ═══════════════════════════════════════════════════════
-// 👈 ADMIN — CONFIG (አዲስ!)
-// ═══════════════════════════════════════════════════════
 export async function adminGetConfig() {
   const { data } = await api.get("/api/admin/config");
   return data;
@@ -275,9 +313,6 @@ export async function adminSaveConfig(ticketPrice, winnerPercent) {
   return data;
 }
 
-// ═══════════════════════════════════════════════════════
-// 👈 ADMIN — DRAW (አዲስ!)
-// ═══════════════════════════════════════════════════════
 export async function adminSetDrawNumber(number) {
   const { data } = await api.post("/api/admin/draw/set", { number });
   return data;
