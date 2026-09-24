@@ -5,8 +5,6 @@ const API_BASE_URL =
   process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.onrender.com";
 
 const TOTAL_CARDS = 1250;
-const FETCH_TIMEOUT_MS = 60000;
-const FALLBACK_TIMER_SEC = 50;
 
 export default function CartelaSelection({
   roomCode,
@@ -17,10 +15,8 @@ export default function CartelaSelection({
 }) {
   const [selectedCards, setSelectedCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
-  const [countdown, setCountdown] = useState(FALLBACK_TIMER_SEC);
-  const [deadlineAt, setDeadlineAt] = useState(
-    Date.now() + FALLBACK_TIMER_SEC * 1000
-  );
+  const [countdown, setCountdown] = useState(null);
+  const [deadlineAt, setDeadlineAt] = useState(null);
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [isWeekly, setIsWeekly] = useState(false);
@@ -35,39 +31,28 @@ export default function CartelaSelection({
     triggeredRef.current = false;
     fetchedRef.current = false;
     confirmLockRef.current = false;
-    setDeadlineAt(Date.now() + FALLBACK_TIMER_SEC * 1000);
-    setCountdown(FALLBACK_TIMER_SEC);
+    setDeadlineAt(null);
+    setCountdown(null);
     setSelectedCards([]);
     setTakenCards([]);
     setError("");
     setIsWeekly(false);
   }, [roomCode]);
 
-  // ═══════════════════════════════════════════════════════
-  // FETCH ROOM STATE — with retry + timeout + fallback
-  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
     let cancelled = false;
 
-    const fetchRoom = async (attempt = 1) => {
+    (async () => {
       try {
         const token = localStorage.getItem("bingo_token");
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
         const res = await fetch(`${API_BASE_URL}/api/game/rooms/${roomCode}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
-          signal: controller.signal,
         });
-        clearTimeout(timeoutId);
-
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (cancelled) return;
-
-        setError("");
 
         if (data.takenCards) setTakenCards(data.takenCards);
         if (data.reservedCards) {
@@ -83,10 +68,8 @@ export default function CartelaSelection({
           return;
         }
 
-        // Timer calculation with server offset
-        let remaining = FALLBACK_TIMER_SEC;
+        let remaining = 0;
         let localDeadline = null;
-
         if (data.selectionEndsAt && data.serverTime) {
           const sd = new Date(data.selectionEndsAt).getTime();
           const sn = new Date(data.serverTime).getTime();
@@ -99,48 +82,22 @@ export default function CartelaSelection({
             );
           }
         }
-
         if (localDeadline === null && typeof data.remainingSeconds === "number") {
           remaining = Math.max(0, data.remainingSeconds);
           if (remaining > 0) localDeadline = Date.now() + remaining * 1000;
         }
-
-        // Fallback if server didn't provide timer
-        if (localDeadline === null) {
-          localDeadline = Date.now() + FALLBACK_TIMER_SEC * 1000;
-          remaining = FALLBACK_TIMER_SEC;
+        if (localDeadline !== null) {
+          setDeadlineAt(localDeadline);
+          setCountdown(remaining);
+        } else if (remaining === 0) {
+          setCountdown(0);
         }
-
-        setDeadlineAt(localDeadline);
-        setCountdown(remaining);
       } catch (e) {
         if (cancelled) return;
-
-        // AbortError (timeout) — try again
-        if (e.name === "AbortError" && attempt < 3) {
-          console.warn(`[Cartela] Timeout, retry ${attempt}`);
-          setTimeout(() => fetchRoom(attempt + 1), 1000);
-          return;
-        }
-
-        // Network error — try again
-        if (attempt < 3) {
-          console.warn(`[Cartela] Retry ${attempt}`, e.message);
-          setTimeout(() => fetchRoom(attempt + 1), 1500 * attempt);
-          return;
-        }
-
-        // All failed — use fallback timer
-        console.warn("[Cartela] Offline fallback");
-        setError("⚠️ Offline — connecting...");
-        setDeadlineAt(Date.now() + FALLBACK_TIMER_SEC * 1000);
-        setCountdown(FALLBACK_TIMER_SEC);
+        setError("⚠️ Could not connect to server");
       }
-    };
+    })();
 
-    fetchRoom();
-
-    // Balance fetch (non-blocking)
     (async () => {
       try {
         const token = localStorage.getItem("bingo_token");
@@ -157,9 +114,6 @@ export default function CartelaSelection({
     };
   }, [roomCode, isWeeklyRoom]);
 
-  // ═══════════════════════════════════════════════════════
-  // COUNTDOWN — 100ms tick
-  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (isWeekly || !deadlineAt) return;
     const tick = () => {
@@ -167,13 +121,11 @@ export default function CartelaSelection({
       setCountdown(rem);
     };
     tick();
-    const timer = setInterval(tick, 100);
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, [deadlineAt, isWeekly]);
 
-  // ═══════════════════════════════════════════════════════
-  // TIMER = 0 → GO TO GAME
-  // ═══════════════════════════════════════════════════════
+  // 👈 Timer 0 → ወደ Live Game (2 ሰከንድ ውስጥ)
   useEffect(() => {
     if (isWeekly) return;
     if (countdown === null || countdown > 0) return;
@@ -183,7 +135,6 @@ export default function CartelaSelection({
 
     if (selectedCards.length > 0) return onConfirm(selectedCards);
 
-    // Auto-pick random free card
     const takenSet = new Set(takenCards);
     const free = [];
     for (let i = 1; i <= TOTAL_CARDS; i++)
@@ -196,9 +147,6 @@ export default function CartelaSelection({
     onConfirm([]);
   }, [countdown, selectedCards, takenCards, onConfirm, isWeekly]);
 
-  // ═══════════════════════════════════════════════════════
-  // SOCKET
-  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     const s = getSocket();
     const onSel = ({ cardId }) =>
@@ -400,7 +348,6 @@ export default function CartelaSelection({
                 boxShadow: isSelected
                   ? "0 0 10px rgba(46,204,113,0.6)"
                   : "none",
-                transition: "all 0.08s ease",
               }}
             >
               {n}
