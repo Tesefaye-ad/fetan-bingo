@@ -38,17 +38,24 @@ function generate75BallCard() {
   return { card, marked };
 }
 
-function generate1000Cards() {
+// 👈 1250 ካርዶች
+const TOTAL_CARDS = 1250;
+
+function generateCards(count = TOTAL_CARDS) {
   const arr = [];
-  for (let i = 1; i <= 1000; i++) {
+  for (let i = 1; i <= count; i++) {
     const { card, marked } = generate75BallCard();
     arr.push({ cardId: i, card, marked });
   }
   return arr;
 }
 
+// Backward-compatible aliases
+const generate1000Cards = () => generateCards(TOTAL_CARDS);
+const generate1250Cards = () => generateCards(TOTAL_CARDS);
+
 // ═══════════════════════════════════════════════════════
-// WIN PATTERNS — 5 patterns including 4-corners
+// WIN PATTERNS
 // ═══════════════════════════════════════════════════════
 const WIN_PATTERNS = [
   "any-row",
@@ -62,6 +69,14 @@ function randomWinPattern() {
   return WIN_PATTERNS[Math.floor(Math.random() * WIN_PATTERNS.length)];
 }
 
+// 👈 Pattern by room fee
+function getPatternForRoom(entryFee) {
+  if (entryFee <= 10) return "any-row";
+  if (entryFee <= 20) return "any-column";
+  if (entryFee <= 50) return "any-diagonal";
+  return "full-card";
+}
+
 function patternLabel(pattern) {
   const labels = {
     "any-row": "ማንኛውም ረድፍ (Any Row)",
@@ -73,10 +88,6 @@ function patternLabel(pattern) {
   return labels[pattern] || pattern;
 }
 
-// ═══════════════════════════════════════════════════════
-// Check if marked grid satisfies target pattern
-// Returns sub-pattern name (e.g. "row-3", "diag-1") or null
-// ═══════════════════════════════════════════════════════
 function checkWin(marked, targetPattern) {
   const findRow = () => {
     for (let r = 0; r < 5; r++) {
@@ -97,19 +108,14 @@ function checkWin(marked, targetPattern) {
   const hasFull = () => marked.every((row) => row.every(Boolean));
 
   switch (targetPattern) {
-    case "any-row": {
-      const r = findRow();
-      return r;
-    }
-    case "any-column": {
-      const c = findCol();
-      return c;
-    }
-    case "any-diagonal": {
+    case "any-row":
+      return findRow();
+    case "any-column":
+      return findCol();
+    case "any-diagonal":
       if (hasDiag1()) return "diag-1";
       if (hasDiag2()) return "diag-2";
       return null;
-    }
     case "four-corners":
       return hasFourCorners() ? "four-corners" : null;
     case "full-card":
@@ -129,10 +135,14 @@ function markNumber(card, marked, number) {
 
 module.exports = {
   generate75BallCard,
+  generateCards,
   generate1000Cards,
+  generate1250Cards,
+  TOTAL_CARDS,
   checkWin,
   markNumber,
   randomWinPattern,
+  getPatternForRoom,
   patternLabel,
   WIN_PATTERNS,
 };

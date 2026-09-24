@@ -4,6 +4,8 @@ import { getSocket } from "./api";
 const API_BASE_URL =
   process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.onrender.com";
 
+const TOTAL_CARDS = 1250; // 👈
+
 export default function CartelaSelection({
   roomCode,
   balance,
@@ -37,7 +39,6 @@ export default function CartelaSelection({
     setIsWeekly(false);
   }, [roomCode]);
 
-  // Fetch room state
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
@@ -93,7 +94,7 @@ export default function CartelaSelection({
         }
       } catch (e) {
         if (cancelled) return;
-        setError("⚠️ ከሰርቨር ጋር መገናኘት አልተቻለም");
+        setError("⚠️ Could not connect to server");
       }
     })();
 
@@ -113,7 +114,6 @@ export default function CartelaSelection({
     };
   }, [roomCode, isWeeklyRoom]);
 
-  // Countdown
   useEffect(() => {
     if (isWeekly || !deadlineAt) return;
     const tick = () => {
@@ -125,7 +125,6 @@ export default function CartelaSelection({
     return () => clearInterval(timer);
   }, [deadlineAt, isWeekly]);
 
-  // Timer = 0 → go to game
   useEffect(() => {
     if (isWeekly) return;
     if (countdown === null || countdown > 0) return;
@@ -133,23 +132,20 @@ export default function CartelaSelection({
     triggeredRef.current = true;
     confirmLockRef.current = true;
 
-    if (selectedCards.length > 0) {
-      return onConfirm(selectedCards);
-    }
+    if (selectedCards.length > 0) return onConfirm(selectedCards);
 
     const takenSet = new Set(takenCards);
     const free = [];
-    for (let i = 1; i <= 1000; i++) if (!takenSet.has(i)) free.push(i);
+    for (let i = 1; i <= TOTAL_CARDS; i++)
+      if (!takenSet.has(i)) free.push(i);
 
     if (free.length > 0) {
       const pick = free[Math.floor(Math.random() * free.length)];
       return onConfirm([pick]);
     }
-
     onConfirm([]);
   }, [countdown, selectedCards, takenCards, onConfirm, isWeekly]);
 
-  // Socket
   useEffect(() => {
     const s = getSocket();
     const onSel = ({ cardId }) =>
@@ -176,7 +172,7 @@ export default function CartelaSelection({
     if (confirmLockRef.current) return;
 
     if (takenCards.includes(id) && !selectedCards.includes(id)) {
-      return setError(`❌ ካርድ #${id} ተይዟል!`);
+      return setError(`❌ Card #${id} taken!`);
     }
 
     if (selectedCards.includes(id)) {
@@ -193,18 +189,18 @@ export default function CartelaSelection({
 
   const confirmWeekly = () => {
     if (confirmLockRef.current) return;
-    if (!selectedCards.length) return setError("❌ ቢያንስ አንድ ካርድ ይምረጡ!");
+    if (!selectedCards.length) return setError("❌ Select at least 1 card!");
     confirmLockRef.current = true;
     onConfirm(selectedCards);
   };
 
-  const numbers = Array.from({ length: 1000 }, (_, i) => i + 1);
+  const numbers = Array.from({ length: TOTAL_CARDS }, (_, i) => i + 1);
   const total = selectedCards.length * stake;
 
   return (
     <div
       style={{
-        padding: 12,
+        padding: 10,
         maxWidth: 480,
         margin: "0 auto",
         color: "#fff",
@@ -222,10 +218,11 @@ export default function CartelaSelection({
           border: "1px solid #4c6ef5",
           color: "#fff",
           borderRadius: 10,
-          padding: "10px 18px",
+          padding: "8px 16px",
           cursor: "pointer",
-          marginBottom: 12,
+          marginBottom: 8,
           fontWeight: "bold",
+          fontSize: 12,
         }}
       >
         ← Back
@@ -236,12 +233,12 @@ export default function CartelaSelection({
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(4, 1fr)",
-          gap: 6,
+          gap: 4,
           background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
           border: "1px solid #f39c12",
-          borderRadius: 12,
-          padding: "12px 8px",
-          marginBottom: 12,
+          borderRadius: 10,
+          padding: "8px 6px",
+          marginBottom: 8,
         }}
       >
         <InfoCell label="💰 Wallet" value={currentBalance} color="#2ecc71" />
@@ -280,9 +277,9 @@ export default function CartelaSelection({
           background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
           border: "1px solid #2a2a40",
           borderRadius: 10,
-          padding: "10px 14px",
-          marginBottom: 10,
-          fontSize: 13,
+          padding: "8px 12px",
+          marginBottom: 8,
+          fontSize: 12,
           fontWeight: "bold",
         }}
       >
@@ -299,10 +296,10 @@ export default function CartelaSelection({
           style={{
             background: "linear-gradient(135deg, #e74c3c, #c0392b)",
             color: "#fff",
-            padding: 10,
-            borderRadius: 10,
-            marginBottom: 10,
-            fontSize: 12,
+            padding: 8,
+            borderRadius: 8,
+            marginBottom: 8,
+            fontSize: 11,
             textAlign: "center",
             fontWeight: "bold",
           }}
@@ -311,18 +308,19 @@ export default function CartelaSelection({
         </div>
       )}
 
-      {/* Numbers Grid */}
+      {/* 👈 የተራዘመ የቁጥር ማሳያ */}
       <div
         style={{
           flex: 1,
           overflowY: "auto",
           display: "grid",
           gridTemplateColumns: "repeat(8, 1fr)",
-          gap: 5,
-          marginBottom: 10,
+          gap: 4,
+          marginBottom: 8,
           paddingRight: 4,
           alignContent: "start",
-          maxHeight: "calc(100vh - 340px)",
+          maxHeight: "calc(100vh - 260px)", // 👈 የተራዘመ
+          WebkitOverflowScrolling: "touch",
         }}
       >
         {numbers.map((n) => {
@@ -334,8 +332,8 @@ export default function CartelaSelection({
               onClick={() => handleSelect(n)}
               disabled={isTaken}
               style={{
-                padding: "10px 0",
-                borderRadius: 8,
+                padding: "9px 0",
+                borderRadius: 6,
                 border: isSelected
                   ? "2px solid #2ecc71"
                   : "1px solid #2a2a40",
@@ -346,13 +344,13 @@ export default function CartelaSelection({
                   : "linear-gradient(135deg, #1b2233, #151b2b)",
                 color: "#fff",
                 fontWeight: "bold",
-                fontSize: 11,
+                fontSize: 10,
                 cursor: isTaken ? "not-allowed" : "pointer",
                 opacity: isTaken ? 0.6 : 1,
                 boxShadow: isSelected
-                  ? "0 0 12px rgba(46,204,113,0.6)"
+                  ? "0 0 10px rgba(46,204,113,0.6)"
                   : "none",
-                transition: "all 0.15s ease",
+                transition: "all 0.1s ease",
               }}
             >
               {n}
@@ -361,7 +359,7 @@ export default function CartelaSelection({
         })}
       </div>
 
-      {isWeekly ? (
+      {isWeekly && (
         <button
           onClick={confirmWeekly}
           disabled={!selectedCards.length}
@@ -372,17 +370,17 @@ export default function CartelaSelection({
               : "linear-gradient(135deg,#f39c12,#e67e22)",
             color: "#fff",
             border: "none",
-            borderRadius: 12,
-            padding: 14,
-            fontSize: 14,
+            borderRadius: 10,
+            padding: 12,
+            fontSize: 13,
             fontWeight: "bold",
             cursor: !selectedCards.length ? "not-allowed" : "pointer",
-            marginBottom: 10,
+            marginBottom: 8,
           }}
         >
-          ✅ Confirm ({selectedCards.length} ካርዶች, {total} ETB)
+          ✅ Confirm ({selectedCards.length} cards, {total} ETB)
         </button>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -390,13 +388,13 @@ export default function CartelaSelection({
 function InfoCell({ label, value, color = "#fff" }) {
   return (
     <div style={{ textAlign: "center" }}>
-      <div style={{ color: "#aaa", fontSize: 9, marginBottom: 3 }}>
+      <div style={{ color: "#aaa", fontSize: 8, marginBottom: 2 }}>
         {label}
       </div>
       <div
         style={{
           color,
-          fontSize: 14,
+          fontSize: 13,
           fontWeight: "bold",
           lineHeight: 1.2,
         }}

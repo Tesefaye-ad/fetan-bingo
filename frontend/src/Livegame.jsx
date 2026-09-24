@@ -10,11 +10,11 @@ const HEADERS = [
 ];
 
 const PATTERN_LABELS = {
-  "any-row": "ረድፍ",
-  "any-column": "አምድ",
-  "any-diagonal": "ዲያጎናል",
-  "four-corners": "4 ማዕዘን",
-  "full-card": "ሙሉ ካርድ",
+  "any-row": "Row",
+  "any-column": "Column",
+  "any-diagonal": "Diagonal",
+  "four-corners": "4 Corners",
+  "full-card": "Full Card",
 };
 
 const PATTERN_ICONS = {
@@ -117,7 +117,7 @@ function PatternPreview({ pattern }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// MINI CARD (for My Cartelas tracker panel)
+// MINI CARD (for My Cards tracker panel)
 // ═══════════════════════════════════════════════════════
 function MiniCard({ card, marked, cardId, lastNumber }) {
   return (
@@ -526,8 +526,6 @@ export default function LiveGame({
           paddingBottom: 75,
         }}
       >
-        {/* 👈 Spectator banner ተሰርዟል */}
-
         {!isConnected && (
           <div
             style={{
@@ -541,11 +539,11 @@ export default function LiveGame({
               fontWeight: "bold",
             }}
           >
-            ⚠️ ኔትወርክ ተቋርጧል — በመገናኘት ላይ...
+            ⚠️ Network disconnected — reconnecting...
           </div>
         )}
 
-        {/* STATS */}
+        {/* STATS — English labels */}
         <div
           style={{
             display: "grid",
@@ -554,11 +552,11 @@ export default function LiveGame({
             marginBottom: 6,
           }}
         >
-          <Stat label="🎮" value={roomCode} color="#f39c12" />
-          <Stat label="👥" value={playerCount} color="#3498db" />
-          <Stat label="🎯" value={entryFee} color="#9c27b0" />
-          <Stat label="💰" value={prizePool} color="#2ecc71" />
-          <Stat label="📢" value={calledNumbers.length} color="#e74c3c" />
+          <Stat label="Game" value={roomCode} color="#f39c12" />
+          <Stat label="Players" value={playerCount} color="#3498db" />
+          <Stat label="Stake" value={entryFee} color="#9c27b0" />
+          <Stat label="Prize" value={prizePool} color="#2ecc71" />
+          <Stat label="Called" value={calledNumbers.length} color="#e74c3c" />
         </div>
 
         {/* MAIN */}
@@ -844,7 +842,7 @@ export default function LiveGame({
                   letterSpacing: 1,
                 }}
               >
-                🏆 ፓተርን
+                🏆 PATTERN
               </div>
               <PatternPreview pattern={winPattern} />
               <div
@@ -859,7 +857,7 @@ export default function LiveGame({
               </div>
             </div>
 
-            {/* 👈 MY CARDS TRACKER PANEL */}
+            {/* MY CARDS TRACKER PANEL */}
             {cards.length > 0 && (
               <div
                 style={{
@@ -883,7 +881,7 @@ export default function LiveGame({
                     textAlign: "center",
                   }}
                 >
-                  🎴 የእኔ ካርቴላ ({cards.length})
+                  🎴 MY CARDS ({cards.length})
                 </div>
                 {cards.map((ci, idx) => (
                   <MiniCard
@@ -1183,7 +1181,7 @@ export default function LiveGame({
 
               {nextGameCountdown > 0 && (
                 <div style={{ color: "#aaa", fontSize: 12 }}>
-                  ቀጣይ ጨዋታ በ{" "}
+                  Next game in{" "}
                   <b style={{ color: "#f39c12" }}>{nextGameCountdown}s</b>
                 </div>
               )}
@@ -1196,7 +1194,7 @@ export default function LiveGame({
 }
 
 // ═══════════════════════════════════════════════════════
-// COMPACT STAT
+// COMPACT STAT — English labels
 // ═══════════════════════════════════════════════════════
 function Stat({ label, value, color = "#fff" }) {
   return (
@@ -1209,7 +1207,17 @@ function Stat({ label, value, color = "#fff" }) {
         textAlign: "center",
       }}
     >
-      <div style={{ fontSize: 11, marginBottom: 1 }}>{label}</div>
+      <div
+        style={{
+          color: "#aaa",
+          fontSize: 8,
+          marginBottom: 1,
+          fontWeight: "bold",
+          letterSpacing: 0.3,
+        }}
+      >
+        {label}
+      </div>
       <div
         style={{
           color,
