@@ -38,7 +38,6 @@ function generate75BallCard() {
   return { card, marked };
 }
 
-// 👈 1250 ካርዶች
 const TOTAL_CARDS = 1250;
 
 function generateCards(count = TOTAL_CARDS) {
@@ -50,7 +49,6 @@ function generateCards(count = TOTAL_CARDS) {
   return arr;
 }
 
-// Backward-compatible aliases
 const generate1000Cards = () => generateCards(TOTAL_CARDS);
 const generate1250Cards = () => generateCards(TOTAL_CARDS);
 
@@ -69,7 +67,7 @@ function randomWinPattern() {
   return WIN_PATTERNS[Math.floor(Math.random() * WIN_PATTERNS.length)];
 }
 
-// 👈 Pattern by room fee
+// 👈 Pattern by stake
 function getPatternForRoom(entryFee) {
   if (entryFee <= 10) return "any-row";
   if (entryFee <= 20) return "any-column";
@@ -79,11 +77,11 @@ function getPatternForRoom(entryFee) {
 
 function patternLabel(pattern) {
   const labels = {
-    "any-row": "ማንኛውም ረድፍ (Any Row)",
-    "any-column": "ማንኛውም አምድ (Any Column)",
-    "any-diagonal": "ዲያጎናል (Diagonal)",
-    "four-corners": "4 ማዕዘን (4 Corners)",
-    "full-card": "ሙሉ ካርድ (Full Card)",
+    "any-row": "Any Row",
+    "any-column": "Any Column",
+    "any-diagonal": "Diagonal",
+    "four-corners": "4 Corners",
+    "full-card": "Full Card",
   };
   return labels[pattern] || pattern;
 }

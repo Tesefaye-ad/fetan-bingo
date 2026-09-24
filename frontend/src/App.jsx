@@ -27,8 +27,8 @@ const ADMIN_IDS =
 const LOGIN_TIMEOUT_MS = 10000;
 const STAKES = [{ fee: 10 }, { fee: 20 }];
 const WEEKLY_GAMES = [
-  { fee: 50, schedule: "ቅዳሜ ማታ 12:00" },
-  { fee: 100, schedule: "ቅዳሜ ማታ 12:05" },
+  { fee: 50, schedule: "Sat 12:00" },
+  { fee: 100, schedule: "Sat 12:05" },
 ];
 const SHARED_ROOMS = { 10: "ROOM10", 20: "ROOM20", 50: "ROOM50", 100: "ROOM100" };
 
@@ -100,7 +100,7 @@ function Login({ onLoggedIn }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// GAMELOBBY — 🧹 ቀለል ያለ + ወዲያውኑ transition
+// GAME LOBBY
 // ═══════════════════════════════════════════════════════
 function GameLobby({ onPlayStake }) {
   const [loading, setLoading] = useState(null);
@@ -112,7 +112,6 @@ function GameLobby({ onPlayStake }) {
     setError("");
     try {
       const room = await createRoom(fee, SHARED_ROOMS[fee]);
-      // 👈 ወዲያውኑ ወደ ካርቴላ — "Starting..." የለም
       onPlayStake(fee, room.roomCode);
     } catch (err) {
       setError(err?.response?.data?.error || err.message || "Could not start");
@@ -147,28 +146,12 @@ function GameLobby({ onPlayStake }) {
             boxShadow: `0 6px 20px ${color}55`,
             display: "flex",
             alignItems: "center",
-            justifyContent: "center", // 👈 CENTERED
+            justifyContent: "center",
             position: "relative",
             overflow: "hidden",
             opacity: isLoading ? 0.7 : 1,
-            transition: "opacity 0.2s ease",
           }}
         >
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              left: "-100%",
-              width: "100%",
-              height: "100%",
-              background:
-                "linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent)",
-              animation: "shine 3s infinite",
-              pointerEvents: "none",
-            }}
-          />
-
-          {/* 👈 ጽሑፍ ብቻ መሃል — ምንም arrow/icon የለም */}
           <span
             style={{
               fontSize: 17,
@@ -224,7 +207,6 @@ function GameLobby({ onPlayStake }) {
         </div>
       )}
 
-      {/* Header */}
       <div style={{ textAlign: "center", marginBottom: 22 }}>
         <h2
           style={{
@@ -243,9 +225,6 @@ function GameLobby({ onPlayStake }) {
         </h2>
       </div>
 
-      {/* 👈 Balance card ተሰርዟል */}
-
-      {/* CHOOSE STAKE */}
       <div
         style={{
           color: "#f39c12",
@@ -254,34 +233,15 @@ function GameLobby({ onPlayStake }) {
           letterSpacing: 2,
           marginBottom: 14,
           textAlign: "center",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 8,
         }}
       >
-        <span
-          style={{
-            height: 1,
-            width: 30,
-            background: "linear-gradient(90deg, transparent, #f39c12)",
-          }}
-        />
         🎯 CHOOSE STAKE
-        <span
-          style={{
-            height: 1,
-            width: 30,
-            background: "linear-gradient(90deg, #f39c12, transparent)",
-          }}
-        />
       </div>
 
       {STAKES.map((s) => (
         <StakeButton key={s.fee} fee={s.fee} />
       ))}
 
-      {/* WEEKLY GAME */}
       <div
         style={{
           color: "#f39c12",
@@ -291,39 +251,14 @@ function GameLobby({ onPlayStake }) {
           marginTop: 20,
           marginBottom: 14,
           textAlign: "center",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 8,
         }}
       >
-        <span
-          style={{
-            height: 1,
-            width: 30,
-            background: "linear-gradient(90deg, transparent, #f39c12)",
-          }}
-        />
         🗓 WEEKLY GAME
-        <span
-          style={{
-            height: 1,
-            width: 30,
-            background: "linear-gradient(90deg, #f39c12, transparent)",
-          }}
-        />
       </div>
 
       {WEEKLY_GAMES.map((g) => (
         <StakeButton key={g.fee} fee={g.fee} schedule={g.schedule} />
       ))}
-
-      <style>{`
-        @keyframes shine {
-          0% { left: -100%; }
-          50%, 100% { left: 200%; }
-        }
-      `}</style>
     </div>
   );
 }
@@ -399,7 +334,7 @@ function Profile({ user, balance, onUserUpdate }) {
 
   const shareLink = () => {
     if (!referral?.link) return;
-    const text = `🎱 Join Fetan Bingo and start winning!\n${referral.link}`;
+    const text = `🎱 Join Fetan Bingo!\n${referral.link}`;
     if (navigator.share) navigator.share({ text }).catch(() => {});
     else copyLink();
   };
@@ -529,18 +464,6 @@ function Profile({ user, balance, onUserUpdate }) {
             value={`${profile?.totalWinnings || 0} ETB`}
             color="#e67e22"
           />
-          <Card
-            icon="📥"
-            label="Deposits"
-            value={`${profile?.totalDeposits || 0} ETB`}
-            color="#16a085"
-          />
-          <Card
-            icon="📤"
-            label="Withdrawals"
-            value={`${profile?.totalWithdrawals || 0} ETB`}
-            color="#c0392b"
-          />
         </div>
       )}
 
@@ -581,10 +504,6 @@ function Profile({ user, balance, onUserUpdate }) {
                 </div>
               </div>
               <div style={{ fontSize: 11, color: "#888" }}>
-                {g.won
-                  ? `Won with card #${g.cardId} (${g.pattern})`
-                  : `Lost — entry ${g.entryFee} ETB`}
-                <br />
                 {g.finishedAt ? new Date(g.finishedAt).toLocaleString() : "—"}
               </div>
             </div>
@@ -622,15 +541,6 @@ function Profile({ user, balance, onUserUpdate }) {
                 >
                   {a.label}
                 </div>
-                <div
-                  style={{
-                    color: unlocked ? "#111" : "#888",
-                    fontSize: 10,
-                    marginTop: 2,
-                  }}
-                >
-                  {a.desc}
-                </div>
               </div>
             );
           })}
@@ -638,139 +548,76 @@ function Profile({ user, balance, onUserUpdate }) {
       )}
 
       {tab === "Invite" && (
-        <>
+        <div
+          style={{
+            background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
+            border: "2px solid #f39c12",
+            borderRadius: 14,
+            padding: 16,
+            textAlign: "center",
+          }}
+        >
+          <div style={{ fontSize: 40 }}>🎁</div>
           <div
             style={{
-              background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
-              border: "2px solid #f39c12",
-              borderRadius: 14,
-              padding: 16,
-              marginBottom: 12,
-              textAlign: "center",
+              color: "#f39c12",
+              fontSize: 16,
+              fontWeight: "bold",
+              marginBottom: 8,
             }}
           >
-            <div style={{ fontSize: 40 }}>🎁</div>
-            <div
-              style={{
-                color: "#f39c12",
-                fontSize: 16,
-                fontWeight: "bold",
-                marginBottom: 8,
-              }}
-            >
-              Invite & Earn 5 ETB
-            </div>
-            <div
-              style={{
-                color: "#aaa",
-                fontSize: 12,
-                marginBottom: 15,
-                lineHeight: 1.5,
-              }}
-            >
-              Share your link with friends. You get 5 ETB for each friend who
-              joins!
-            </div>
-            <div
-              style={{
-                background: "#0f1420",
-                border: "1px solid #2a2a40",
-                borderRadius: 8,
-                padding: 10,
-                fontSize: 11,
-                color: "#2ecc71",
-                wordBreak: "break-all",
-                marginBottom: 12,
-                fontFamily: "monospace",
-              }}
-            >
-              {referral?.link || "Loading..."}
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={copyLink}
-                style={{
-                  flex: 1,
-                  background: "#3498db",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 10,
-                  padding: 12,
-                  fontWeight: "bold",
-                  fontSize: 13,
-                  cursor: "pointer",
-                }}
-              >
-                📋 Copy
-              </button>
-              <button
-                onClick={shareLink}
-                style={{
-                  flex: 1,
-                  background: "linear-gradient(135deg,#f39c12,#e67e22)",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 10,
-                  padding: 12,
-                  fontWeight: "bold",
-                  fontSize: 13,
-                  cursor: "pointer",
-                }}
-              >
-                📤 Share
-              </button>
-            </div>
+            Invite & Earn 5 ETB
           </div>
           <div
             style={{
-              background: "#1a1a2e",
+              background: "#0f1420",
               border: "1px solid #2a2a40",
-              borderRadius: 12,
-              padding: 14,
+              borderRadius: 8,
+              padding: 10,
+              fontSize: 11,
+              color: "#2ecc71",
+              wordBreak: "break-all",
+              marginBottom: 12,
+              fontFamily: "monospace",
             }}
           >
-            <div
+            {referral?.link || "Loading..."}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={copyLink}
               style={{
-                color: "#f39c12",
+                flex: 1,
+                background: "#3498db",
+                color: "#fff",
+                border: "none",
+                borderRadius: 10,
+                padding: 12,
                 fontWeight: "bold",
                 fontSize: 13,
-                marginBottom: 10,
+                cursor: "pointer",
               }}
             >
-              👥 Invited Friends ({referral?.referralCount || 0})
-            </div>
-            {referral?.invited?.length > 0 ? (
-              referral.invited.map((u, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    padding: "8px 0",
-                    borderBottom: "1px solid #2a2a40",
-                    fontSize: 12,
-                  }}
-                >
-                  <span style={{ color: "#fff" }}>👤 {u.name}</span>
-                  <span style={{ color: "#888" }}>
-                    {new Date(u.joinedAt).toLocaleDateString()}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <div
-                style={{
-                  textAlign: "center",
-                  color: "#888",
-                  fontSize: 12,
-                  padding: 10,
-                }}
-              >
-                No invites yet
-              </div>
-            )}
+              📋 Copy
+            </button>
+            <button
+              onClick={shareLink}
+              style={{
+                flex: 1,
+                background: "linear-gradient(135deg,#f39c12,#e67e22)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 10,
+                padding: 12,
+                fontWeight: "bold",
+                fontSize: 13,
+                cursor: "pointer",
+              }}
+            >
+              📤 Share
+            </button>
           </div>
-        </>
+        </div>
       )}
 
       {tab === "Notifications" && (
@@ -805,12 +652,7 @@ function Profile({ user, balance, onUserUpdate }) {
                 >
                   {n.title}
                 </div>
-                <div style={{ color: "#aaa", fontSize: 12, lineHeight: 1.5 }}>
-                  {n.body}
-                </div>
-                <div style={{ color: "#666", fontSize: 10, marginTop: 6 }}>
-                  {new Date(n.createdAt).toLocaleString()}
-                </div>
+                <div style={{ color: "#aaa", fontSize: 12 }}>{n.body}</div>
               </div>
             ))
           )}
@@ -931,21 +773,11 @@ function App() {
   const handleGameEnded = () => {
     disconnectSocket();
     setCardIds([]);
-    setShowCartela(true);
+    setShowCartela(true); // 👈 ወደ ካርቴላ ተመለስ
   };
-
-  // 👈 በ Game tab ላይ ወይም በ cartela ወይም በ room ላይ ሲሆን header አይታይም
-  const hideHeader = activeTab === "Game";
 
   return (
     <div className="app" style={{ paddingBottom: 80 }}>
-      {!hideHeader && (
-        <header className="app-header">
-          <h1>🎱 Fetan Bingo</h1>
-          <span>Hi, {user.firstName || user.username}</span>
-        </header>
-      )}
-
       {activeTab === "Game" && (
         <>
           {showCartela ? (

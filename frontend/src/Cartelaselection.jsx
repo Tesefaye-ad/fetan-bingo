@@ -4,7 +4,7 @@ import { getSocket } from "./api";
 const API_BASE_URL =
   process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.onrender.com";
 
-const TOTAL_CARDS = 1250; // 👈
+const TOTAL_CARDS = 1250;
 
 export default function CartelaSelection({
   roomCode,
@@ -125,6 +125,7 @@ export default function CartelaSelection({
     return () => clearInterval(timer);
   }, [deadlineAt, isWeekly]);
 
+  // 👈 Timer 0 → ወደ Live Game (2 ሰከንድ ውስጥ)
   useEffect(() => {
     if (isWeekly) return;
     if (countdown === null || countdown > 0) return;
@@ -228,7 +229,6 @@ export default function CartelaSelection({
         ← Back
       </button>
 
-      {/* Info Grid */}
       <div
         style={{
           display: "grid",
@@ -241,15 +241,15 @@ export default function CartelaSelection({
           marginBottom: 8,
         }}
       >
-        <InfoCell label="💰 Wallet" value={currentBalance} color="#2ecc71" />
-        <InfoCell label="🎯 Stake" value={stake} color="#f39c12" />
+        <InfoCell label="Wallet" value={currentBalance} color="#2ecc71" />
+        <InfoCell label="Stake" value={stake} color="#f39c12" />
         <InfoCell
-          label="🎴 Selected"
+          label="Selected"
           value={selectedCards.length}
           color="#3498db"
         />
         <InfoCell
-          label={isWeekly ? "🗓 Draw" : "⏱ Time"}
+          label={isWeekly ? "Draw" : "Time"}
           value={
             isWeekly
               ? roomCode === "ROOM50"
@@ -269,7 +269,6 @@ export default function CartelaSelection({
         />
       </div>
 
-      {/* Totals */}
       <div
         style={{
           display: "flex",
@@ -308,7 +307,6 @@ export default function CartelaSelection({
         </div>
       )}
 
-      {/* 👈 የተራዘመ የቁጥር ማሳያ */}
       <div
         style={{
           flex: 1,
@@ -319,7 +317,7 @@ export default function CartelaSelection({
           marginBottom: 8,
           paddingRight: 4,
           alignContent: "start",
-          maxHeight: "calc(100vh - 260px)", // 👈 የተራዘመ
+          maxHeight: "calc(100vh - 260px)",
           WebkitOverflowScrolling: "touch",
         }}
       >
@@ -350,7 +348,6 @@ export default function CartelaSelection({
                 boxShadow: isSelected
                   ? "0 0 10px rgba(46,204,113,0.6)"
                   : "none",
-                transition: "all 0.1s ease",
               }}
             >
               {n}

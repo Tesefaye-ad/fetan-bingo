@@ -10,8 +10,8 @@ const HEADERS = [
 ];
 
 const PATTERN_LABELS = {
-  "any-row": "Row",
-  "any-column": "Column",
+  "any-row": "Any Row",
+  "any-column": "Any Column",
   "any-diagonal": "Diagonal",
   "four-corners": "4 Corners",
   "full-card": "Full Card",
@@ -41,7 +41,7 @@ function buildBoard() {
 }
 
 // ═══════════════════════════════════════════════════════
-// COMPACT PATTERN PREVIEW
+// PATTERN PREVIEW
 // ═══════════════════════════════════════════════════════
 function PatternPreview({ pattern }) {
   const getHighlightedCells = () => {
@@ -117,7 +117,7 @@ function PatternPreview({ pattern }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// MINI CARD (for My Cards tracker panel)
+// MINI CARD (My Cards tracker)
 // ═══════════════════════════════════════════════════════
 function MiniCard({ card, marked, cardId, lastNumber }) {
   return (
@@ -167,7 +167,6 @@ function MiniCard({ card, marked, cardId, lastNumber }) {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  transition: "all 0.2s",
                 }}
               >
                 {free ? "★" : v}
@@ -180,6 +179,9 @@ function MiniCard({ card, marked, cardId, lastNumber }) {
   );
 }
 
+// ═══════════════════════════════════════════════════════
+// CONFETTI
+// ═══════════════════════════════════════════════════════
 function Confetti() {
   const pieces = Array.from({ length: 50 }, (_, i) => i);
   const colors = ["#f39c12", "#2ecc71", "#3498db", "#e74c3c", "#9c27b0"];
@@ -219,6 +221,9 @@ function Confetti() {
   );
 }
 
+// ═══════════════════════════════════════════════════════
+// SOUND
+// ═══════════════════════════════════════════════════════
 const sound = {
   ctx: null,
   enabled: true,
@@ -257,16 +262,9 @@ const sound = {
       return;
     }
     const { letter } = getLetter(num);
-    const frequencies = {
-      B: [400, 500],
-      I: [550, 650],
-      N: [700, 800],
-      G: [850, 950],
-      O: [1000, 1100],
-    };
-    const [f1, f2] = frequencies[letter] || [880, 1100];
-    this.play(f1, 130, "sine", 0.22);
-    setTimeout(() => this.play(f2, 130, "sine", 0.18), 140);
+    const freq = { B: 450, I: 600, N: 750, G: 900, O: 1050 }[letter] || 880;
+    this.play(freq, 130, "sine", 0.22);
+    setTimeout(() => this.play(freq + 100, 130, "sine", 0.18), 140);
   },
   bingo() {
     this.play(523, 200, "triangle", 0.28);
@@ -279,6 +277,9 @@ const sound = {
   },
 };
 
+// ═══════════════════════════════════════════════════════
+// MAIN LIVE GAME
+// ═══════════════════════════════════════════════════════
 export default function LiveGame({
   roomCode,
   cardIds,
@@ -300,7 +301,6 @@ export default function LiveGame({
   const [winPattern, setWinPattern] = useState("any-row");
   const [flashNumber, setFlashNumber] = useState(false);
   const [bingoPopup, setBingoPopup] = useState(null);
-  const [nextGameCountdown, setNextGameCountdown] = useState(0);
   const [soundOn, setSoundOn] = useState(true);
   const [isConnected, setIsConnected] = useState(true);
   const [numberAnimKey, setNumberAnimKey] = useState(0);
@@ -310,6 +310,9 @@ export default function LiveGame({
     sound.enabled = soundOn;
   }, [soundOn]);
 
+  // ═══════════════════════════════════════════════════
+  // SOCKET
+  // ═══════════════════════════════════════════════════
   useEffect(() => {
     const socket = getSocket();
     socketRef.current = socket;
@@ -384,9 +387,12 @@ export default function LiveGame({
       setCalledNumbers(cn);
       if (wp) setWinPattern(wp);
       setNumberAnimKey((k) => k + 1);
+
       if (soundOnRef.current) sound.callNumber(number);
+
       setFlashNumber(true);
       setTimeout(() => setFlashNumber(false), 600);
+
       setCards((prev) =>
         prev.map((ci) => {
           const m = ci.marked.map((r) => [...r]);
@@ -396,6 +402,7 @@ export default function LiveGame({
           return { ...ci, marked: m };
         })
       );
+
       if (window.navigator.vibrate) window.navigator.vibrate(80);
     };
 
@@ -407,15 +414,12 @@ export default function LiveGame({
         window.navigator.vibrate([100, 50, 100, 50, 200]);
     };
 
-    const onGameOver = (r) => {
-      if (r.winPattern) setWinPattern(r.winPattern);
-      if (r.nextGameAt) {
-        const rem = Math.max(
-          0,
-          Math.floor((new Date(r.nextGameAt) - Date.now()) / 1000)
-        );
-        setNextGameCountdown(rem);
-      }
+    const onGameOver = () => {
+      // 👈 5 ሰከንድ ቆይቶ ወደ ካርቴላ ይመለሳል
+      setTimeout(() => {
+        if (onGameEnded) onGameEnded();
+        else onExit();
+      }, 5000);
     };
 
     const onNextGameReady = () => {
@@ -423,7 +427,6 @@ export default function LiveGame({
       setLastNumber(null);
       setLastLetter(null);
       setCalledNumbers([]);
-      setNextGameCountdown(0);
     };
 
     const onBalanceUpdate = ({ balance: b }) => setBalance(b);
@@ -462,24 +465,6 @@ export default function LiveGame({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode, setBalance]);
-
-  useEffect(() => {
-    if (!bingoPopup) return;
-    const t = setTimeout(
-      () => (onGameEnded ? onGameEnded() : onExit()),
-      5000
-    );
-    return () => clearTimeout(t);
-  }, [bingoPopup, onGameEnded, onExit]);
-
-  useEffect(() => {
-    if (nextGameCountdown <= 0) return;
-    const t = setTimeout(() => {
-      setNextGameCountdown((prev) => prev - 1);
-      if (soundOnRef.current && nextGameCountdown <= 3) sound.tick();
-    }, 1000);
-    return () => clearTimeout(t);
-  }, [nextGameCountdown]);
 
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
 
@@ -539,11 +524,11 @@ export default function LiveGame({
               fontWeight: "bold",
             }}
           >
-            ⚠️ Network disconnected — reconnecting...
+            ⚠️ Network lost — reconnecting...
           </div>
         )}
 
-        {/* STATS — English labels */}
+        {/* STATS */}
         <div
           style={{
             display: "grid",
@@ -593,7 +578,6 @@ export default function LiveGame({
                     fontSize: 13,
                     padding: "5px 0",
                     borderRadius: 5,
-                    boxShadow: `0 2px 6px ${h.color}66`,
                   }}
                 >
                   {h.letter}
@@ -707,11 +691,6 @@ export default function LiveGame({
                         animation: isLast
                           ? "cellFlash 0.6s ease-out"
                           : "none",
-                        boxShadow: isLast
-                          ? "0 0 12px rgba(255,152,0,0.8)"
-                          : called
-                          ? `0 0 4px ${info.color}88`
-                          : "none",
                       }}
                     >
                       {n}
@@ -722,9 +701,9 @@ export default function LiveGame({
             )}
           </div>
 
-          {/* RIGHT — Compact panels */}
+          {/* RIGHT — Current + Pattern + Tracker */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {/* COMPACT CURRENT */}
+            {/* CURRENT */}
             <div
               style={{
                 background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
@@ -756,7 +735,6 @@ export default function LiveGame({
                   fontSize: 10,
                   fontWeight: "bold",
                   cursor: "pointer",
-                  zIndex: 1,
                 }}
               >
                 {soundOn ? "🔊" : "🔇"}
@@ -820,7 +798,7 @@ export default function LiveGame({
               )}
             </div>
 
-            {/* COMPACT PATTERN */}
+            {/* PATTERN */}
             <div
               style={{
                 background: "linear-gradient(135deg, #1a1a2e 0%, #0f1420 100%)",
@@ -857,7 +835,7 @@ export default function LiveGame({
               </div>
             </div>
 
-            {/* MY CARDS TRACKER PANEL */}
+            {/* MY CARDS TRACKER */}
             {cards.length > 0 && (
               <div
                 style={{
@@ -929,7 +907,7 @@ export default function LiveGame({
           </button>
         </div>
 
-        {/* BINGO POPUP */}
+        {/* BINGO POPUP — 5s auto-close */}
         {bingoPopup && (
           <>
             <Confetti />
@@ -1111,7 +1089,8 @@ export default function LiveGame({
                       textAlign: "center",
                     }}
                   >
-                    🎴 WINNING ({bingoPopup.winningCartelas.length})
+                    🎴 WINNING CARTELAS (
+                    {bingoPopup.winningCartelas.length})
                   </div>
                   {bingoPopup.winningCartelas.slice(0, 2).map((wc, idx) => (
                     <div key={idx} style={{ marginBottom: 10 }}>
@@ -1179,12 +1158,9 @@ export default function LiveGame({
                 💰 Pool: {bingoPopup.prizePool} ETB
               </div>
 
-              {nextGameCountdown > 0 && (
-                <div style={{ color: "#aaa", fontSize: 12 }}>
-                  Next game in{" "}
-                  <b style={{ color: "#f39c12" }}>{nextGameCountdown}s</b>
-                </div>
-              )}
+              <div style={{ color: "#888", fontSize: 11, marginTop: 4 }}>
+                Returning to card selection...
+              </div>
             </div>
           </>
         )}
@@ -1193,9 +1169,6 @@ export default function LiveGame({
   );
 }
 
-// ═══════════════════════════════════════════════════════
-// COMPACT STAT — English labels
-// ═══════════════════════════════════════════════════════
 function Stat({ label, value, color = "#fff" }) {
   return (
     <div
