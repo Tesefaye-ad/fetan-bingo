@@ -100,17 +100,24 @@ function Login({ onLoggedIn }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// GAMELOBBY
+// GAMELOBBY — 🧹 ቀለል ያለ + ወዲያውኑ transition
 // ═══════════════════════════════════════════════════════
 function GameLobby({ onPlayStake }) {
+  const [loading, setLoading] = useState(null);
   const [error, setError] = useState("");
 
-  // 👈 ወዲያውኑ ወደ ካርቴላ — background ላይ createRoom ይላካል
-  function play(fee) {
+  async function play(fee) {
+    if (loading !== null) return;
+    setLoading(fee);
     setError("");
-    // Fire and forget — ሳንጠብቅ ወደ ካርቴላ እንሂድ
-    createRoom(fee, SHARED_ROOMS[fee]).catch(() => {});
-    onPlayStake(fee, SHARED_ROOMS[fee]);
+    try {
+      const room = await createRoom(fee, SHARED_ROOMS[fee]);
+      // 👈 ወዲያውኑ ወደ ካርቴላ — "Starting..." የለም
+      onPlayStake(fee, room.roomCode);
+    } catch (err) {
+      setError(err?.response?.data?.error || err.message || "Could not start");
+      setLoading(null);
+    }
   }
 
   const StakeButton = ({ fee, schedule }) => {
@@ -122,10 +129,12 @@ function GameLobby({ onPlayStake }) {
         : fee === 50
         ? "#8b5cf6"
         : "#f59e0b";
+    const isLoading = loading === fee;
 
     return (
       <div style={{ marginBottom: 10 }}>
         <button
+          disabled={loading !== null}
           onClick={() => play(fee)}
           style={{
             width: "100%",
@@ -133,15 +142,16 @@ function GameLobby({ onPlayStake }) {
             color: "#fff",
             border: "none",
             borderRadius: 14,
-            padding: "18px 20px",
-            cursor: "pointer",
+            padding: "16px 20px",
+            cursor: loading !== null ? "wait" : "pointer",
             boxShadow: `0 6px 20px ${color}55`,
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
-            transition: "all 0.2s ease",
+            justifyContent: "center", // 👈 CENTERED
             position: "relative",
             overflow: "hidden",
+            opacity: isLoading ? 0.7 : 1,
+            transition: "opacity 0.2s ease",
           }}
         >
           <div
@@ -157,8 +167,9 @@ function GameLobby({ onPlayStake }) {
               pointerEvents: "none",
             }}
           />
-          {/* 👈 ሴንተር የተደረገ ጽሑፍ */}
-          <div
+
+          {/* 👈 ጽሑፍ ብቻ መሃል — ምንም arrow/icon የለም */}
+          <span
             style={{
               fontSize: 17,
               fontWeight: "900",
@@ -167,7 +178,7 @@ function GameLobby({ onPlayStake }) {
             }}
           >
             Play {fee} ETB
-          </div>
+          </span>
         </button>
         {schedule && (
           <div
@@ -193,7 +204,7 @@ function GameLobby({ onPlayStake }) {
         maxWidth: 450,
         margin: "0 auto",
         paddingBottom: 100,
-        paddingTop: 30,
+        paddingTop: 20,
       }}
     >
       {error && (
@@ -213,7 +224,26 @@ function GameLobby({ onPlayStake }) {
         </div>
       )}
 
-      {/* 👈 Header ተሰርዟል — ከ app-header ጋር አንድ አይነት ነበር */}
+      {/* Header */}
+      <div style={{ textAlign: "center", marginBottom: 22 }}>
+        <h2
+          style={{
+            color: "#fff",
+            fontSize: 28,
+            fontWeight: "900",
+            background:
+              "linear-gradient(135deg, #f39c12 0%, #ffd43b 50%, #f39c12 100%)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+            margin: 0,
+          }}
+        >
+          🎱 Fetan Bingo
+        </h2>
+      </div>
+
+      {/* 👈 Balance card ተሰርዟል */}
 
       {/* CHOOSE STAKE */}
       <div
@@ -904,9 +934,17 @@ function App() {
     setShowCartela(true);
   };
 
+  // 👈 በ Game tab ላይ ወይም በ cartela ወይም በ room ላይ ሲሆን header አይታይም
+  const hideHeader = activeTab === "Game";
+
   return (
     <div className="app" style={{ paddingBottom: 80 }}>
-      {/* 👈 app-header ሙሉ በሙሉ ተሰርዟል */}
+      {!hideHeader && (
+        <header className="app-header">
+          <h1>🎱 Fetan Bingo</h1>
+          <span>Hi, {user.firstName || user.username}</span>
+        </header>
+      )}
 
       {activeTab === "Game" && (
         <>
