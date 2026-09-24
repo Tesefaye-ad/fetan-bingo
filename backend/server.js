@@ -72,29 +72,15 @@ async function connectDB() {
 const app = express();
 const server = http.createServer(app);
 
-// 👈 Telegram Mini App — ሁሉንም origin ፍቀድ
+const allowedOrigins = process.env.CLIENT_URL
+  ? process.env.CLIENT_URL.split(",").map((o) => o.trim())
+  : "*";
+
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-    credentials: false,
-  },
-  pingTimeout: 60000,
-  pingInterval: 25000,
-  connectTimeout: 45000,
+  cors: { origin: allowedOrigins, methods: ["GET", "POST"] },
 });
 
-app.use(
-  cors({
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: false,
-  })
-);
-
-app.options("*", cors());
-
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/", (req, res) =>
@@ -123,25 +109,22 @@ server.listen(PORT, "0.0.0.0", () => {
 connectDB();
 
 // ═══════════════════════════════════════════════════════
-// KEEP-ALIVE — በየ 2 ደቂቃው (Render cold start ለመከላከል)
+// KEEP-ALIVE
 // ═══════════════════════════════════════════════════════
 const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 
 setInterval(async () => {
   try {
-    const res = await fetch(`${SELF_URL}/health`);
-    if (res.ok) console.log(`[keep-alive] pinged`);
-  } catch (err) {
-    console.error("[keep-alive] failed:", err.message);
-  }
-}, 2 * 60 * 1000); // 👈 2 ደቂቃ
+    await fetch(`${SELF_URL}/health`);
+  } catch (err) {}
+}, 4 * 60 * 1000);
 
 setTimeout(async () => {
   try {
     await fetch(`${SELF_URL}/health`);
     console.log("[keep-alive] Initial ping");
   } catch (err) {}
-}, 5000);
+}, 10000);
 
 // ═══════════════════════════════════════════════════════
 // TELEGRAM BOT WEBHOOK
@@ -151,8 +134,7 @@ try {
   startBot(app).then(() => {
     const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
     const RENDER_URL =
-      process.env.RENDER_EXTERNAL_URL ||
-      `https://fetan-bingo-he4x.onrender.com`;
+      process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-he4x.onrender.com`;
 
     setTimeout(async () => {
       try {
@@ -169,6 +151,4 @@ try {
   console.error("[server] Bot failed:", err.message);
 }
 
-process.on("unhandledRejection", (r) =>
-  console.error("[unhandledRejection]", r)
-);
+process.on("unhandledRejection", (r) => console.error("[unhandledRejection]", r));
