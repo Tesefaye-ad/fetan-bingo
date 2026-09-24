@@ -1,4 +1,5 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const User = require("../models/User");
 const Game = require("../models/Game");
 const Transaction = require("../models/Transaction");
@@ -10,6 +11,35 @@ const { getActiveUserCount } = require("../socket/gameSocket");
 const router = express.Router();
 router.use(requireAuth);
 
+// ═══════════════════════════════════════════════════════
+// 👈 CONFIG MODEL (inline — አዲስ ፋይል ሳይፈጠር)
+// ═══════════════════════════════════════════════════════
+const ConfigSchema = new mongoose.Schema(
+  {
+    key: { type: String, unique: true, default: "system" },
+    ticketPrice: { type: Number, default: 10 },
+    winnerPercent: { type: Number, default: 80 },
+    forcedWinNumber: { type: Number, default: null },
+    drawMode: {
+      type: String,
+      enum: ["random", "manual", "forced"],
+      default: "random",
+    },
+  },
+  { timestamps: true }
+);
+
+const Config = mongoose.model("Config", ConfigSchema);
+
+async function getConfig() {
+  let config = await Config.findOne({ key: "system" });
+  if (!config) config = await Config.create({ key: "system" });
+  return config;
+}
+
+// ═══════════════════════════════════════════════════════
+// ADMIN GUARD
+// ═══════════════════════════════════════════════════════
 async function requireAdmin(req, res, next) {
   const user = await User.findById(req.userId).select("isAdmin");
   if (!user || !user.isAdmin) {
@@ -18,35 +48,64 @@ async function requireAdmin(req, res, next) {
   next();
 }
 
+// ═══════════════════════════════════════════════════════
+// STATS — Financial Dashboard
+// ═══════════════════════════════════════════════════════
 router.get("/stats", requireAdmin, async (req, res) => {
   try {
-    const [registeredUsers, totalGames, pendingDeposits, pendingWithdrawals] =
-      await Promise.all([
-        User.countDocuments(),
-        Game.countDocuments({ status: "finished" }),
-        Transaction.countDocuments({ type: "deposit", status: "pending" }),
-        Transaction.countDocuments({ type: "withdrawal", status: "pending" }),
-      ]);
+    const [
+      registeredUsers,
+      totalGames,
+      pendingDeposits,
+      pendingWithdrawals,
+      approvedDepositsAgg,
+      approvedWithdrawalsAgg,
+    ] = await Promise.all([
+      User.countDocuments(),
+      Game.countDocuments({ status: "finished" }),
+      Transaction.countDocuments({ type: "deposit", status: "pending" }),
+      Transaction.countDocuments({ type: "withdrawal", status: "pending" }),
+      Transaction.aggregate([
+        { $match: { type: "deposit", status: "completed" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+      Transaction.aggregate([
+        { $match: { type: "withdrawal", status: "completed" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+    ]);
+
+    const totalDeposits = approvedDepositsAgg[0]?.total || 0;
+    const totalWithdrawals = approvedWithdrawalsAgg[0]?.total || 0;
+    const houseCommission = totalDeposits - totalWithdrawals;
+
     res.json({
       activeUsers: getActiveUserCount(),
       registeredUsers,
       totalGames,
       pendingDeposits,
       pendingWithdrawals,
+      totalDeposits,
+      totalWithdrawals,
+      houseCommission,
     });
   } catch (err) {
+    console.error("[admin/stats]", err);
     res.status(500).json({ error: "Could not load stats" });
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// TRANSACTIONS — list with filters
+// ═══════════════════════════════════════════════════════
 router.get("/transactions", requireAdmin, async (req, res) => {
   try {
-    const { type, status, limit = 50, skip = 0 } = req.query;
+    const { type, status, limit = 100, skip = 0 } = req.query;
     const filter = {};
     if (type) filter.type = type;
     if (status) filter.status = status;
 
-    const [transactions, total] = await Promise.all([
+    const [transactions, total, counts] = await Promise.all([
       Transaction.find(filter)
         .populate("user", "telegramId username firstName lastName phone")
         .sort({ createdAt: -1 })
@@ -54,13 +113,32 @@ router.get("/transactions", requireAdmin, async (req, res) => {
         .limit(Number(limit))
         .lean(),
       Transaction.countDocuments(filter),
+      Transaction.aggregate([
+        {
+          $match: {
+            type: type || { $in: ["deposit", "withdrawal"] },
+          },
+        },
+        { $group: { _id: "$status", count: { $sum: 1 } } },
+      ]),
     ]);
-    res.json({ transactions, total });
+
+    const statusCounts = { pending: 0, completed: 0, failed: 0, all: 0 };
+    for (const c of counts) {
+      statusCounts[c._id] = c.count;
+      statusCounts.all += c.count;
+    }
+
+    res.json({ transactions, total, statusCounts });
   } catch (err) {
+    console.error("[admin/transactions]", err);
     res.status(500).json({ error: "Could not load transactions" });
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// APPROVE
+// ═══════════════════════════════════════════════════════
 router.post("/transactions/:id/approve", requireAdmin, async (req, res) => {
   try {
     const tx = await Transaction.findById(req.params.id);
@@ -98,10 +176,14 @@ router.post("/transactions/:id/approve", requireAdmin, async (req, res) => {
 
     res.json({ ok: true, transaction: tx });
   } catch (err) {
+    console.error("[admin/approve]", err);
     res.status(500).json({ error: "Could not approve" });
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// REJECT
+// ═══════════════════════════════════════════════════════
 router.post("/transactions/:id/reject", requireAdmin, async (req, res) => {
   try {
     const { reason } = req.body;
@@ -112,11 +194,13 @@ router.post("/transactions/:id/reject", requireAdmin, async (req, res) => {
     }
 
     const user = await User.findById(tx.user);
+
     if (tx.type === "withdrawal" && user) {
       user.balance += tx.amount;
       tx.balanceAfter = user.balance;
       await user.save();
     }
+
     tx.status = "failed";
     tx.meta = { ...(tx.meta || {}), rejectReason: reason || "Rejected" };
     await tx.save();
@@ -132,28 +216,35 @@ router.post("/transactions/:id/reject", requireAdmin, async (req, res) => {
         type: "warning",
       });
     }
+
     res.json({ ok: true, transaction: tx });
   } catch (err) {
+    console.error("[admin/reject]", err);
     res.status(500).json({ error: "Could not reject" });
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// USERS — list + search
+// ═══════════════════════════════════════════════════════
 router.get("/users", requireAdmin, async (req, res) => {
   try {
-    const { q, limit = 50, skip = 0 } = req.query;
+    const { q, limit = 100, skip = 0 } = req.query;
     const filter = {};
     if (q) {
       filter.$or = [
         { telegramId: { $regex: q, $options: "i" } },
         { username: { $regex: q, $options: "i" } },
         { firstName: { $regex: q, $options: "i" } },
+        { lastName: { $regex: q, $options: "i" } },
         { phone: { $regex: q, $options: "i" } },
       ];
     }
+
     const [users, total] = await Promise.all([
       User.find(filter)
         .select(
-          "telegramId username firstName lastName phone balance bonusBalance isBanned isAdmin gamesPlayed gamesWon totalWinnings referralCount createdAt"
+          "telegramId username firstName lastName phone balance bonusBalance isBanned isAdmin gamesPlayed gamesWon totalWinnings createdAt"
         )
         .sort({ createdAt: -1 })
         .skip(Number(skip))
@@ -161,12 +252,17 @@ router.get("/users", requireAdmin, async (req, res) => {
         .lean(),
       User.countDocuments(filter),
     ]);
+
     res.json({ users, total });
   } catch (err) {
+    console.error("[admin/users]", err);
     res.status(500).json({ error: "Could not load users" });
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// BAN / UNBAN
+// ═══════════════════════════════════════════════════════
 router.post("/users/:id/ban", requireAdmin, async (req, res) => {
   try {
     const { banned } = req.body;
@@ -182,24 +278,9 @@ router.post("/users/:id/ban", requireAdmin, async (req, res) => {
   }
 });
 
-router.post("/broadcast", requireAdmin, async (req, res) => {
-  try {
-    const { title, body } = req.body;
-    if (!title || !body) {
-      return res.status(400).json({ error: "Title and body required" });
-    }
-    const notification = await Notification.create({
-      user: null,
-      title,
-      body,
-      type: "info",
-    });
-    res.json({ ok: true, notification });
-  } catch (err) {
-    res.status(500).json({ error: "Could not broadcast" });
-  }
-});
-
+// ═══════════════════════════════════════════════════════
+// ADJUST BALANCE / EDIT USER
+// ═══════════════════════════════════════════════════════
 router.post("/users/:id/balance", requireAdmin, async (req, res) => {
   try {
     const { amount, note } = req.body;
@@ -224,6 +305,103 @@ router.post("/users/:id/balance", requireAdmin, async (req, res) => {
     res.json({ ok: true, user });
   } catch (err) {
     res.status(500).json({ error: "Could not adjust balance" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// BROADCAST
+// ═══════════════════════════════════════════════════════
+router.post("/broadcast", requireAdmin, async (req, res) => {
+  try {
+    const { title, body } = req.body;
+    if (!body || !body.trim()) {
+      return res.status(400).json({ error: "Message required" });
+    }
+    const notification = await Notification.create({
+      user: null,
+      title: title || "📢 Announcement",
+      body,
+      type: "info",
+    });
+    res.json({ ok: true, notification });
+  } catch (err) {
+    res.status(500).json({ error: "Could not broadcast" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// CONFIG — GET / UPDATE
+// ═══════════════════════════════════════════════════════
+router.get("/config", requireAdmin, async (req, res) => {
+  try {
+    const config = await getConfig();
+    res.json({
+      ticketPrice: config.ticketPrice,
+      winnerPercent: config.winnerPercent,
+      forcedWinNumber: config.forcedWinNumber,
+      drawMode: config.drawMode,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Could not load config" });
+  }
+});
+
+router.post("/config", requireAdmin, async (req, res) => {
+  try {
+    const { ticketPrice, winnerPercent } = req.body;
+    const config = await getConfig();
+
+    if (ticketPrice !== undefined) {
+      const tp = Number(ticketPrice);
+      if (tp > 0) config.ticketPrice = tp;
+    }
+    if (winnerPercent !== undefined) {
+      const wp = Number(winnerPercent);
+      if (wp > 0 && wp <= 100) config.winnerPercent = wp;
+    }
+    await config.save();
+
+    res.json({
+      ok: true,
+      config: {
+        ticketPrice: config.ticketPrice,
+        winnerPercent: config.winnerPercent,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Could not save config" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// DRAW — set forced win number
+// ═══════════════════════════════════════════════════════
+router.post("/draw/set", requireAdmin, async (req, res) => {
+  try {
+    const { number } = req.body;
+    const num = Number(number);
+    if (!num || num < 1 || num > 1250) {
+      return res.status(400).json({ error: "Enter 1-1250" });
+    }
+    const config = await getConfig();
+    config.forcedWinNumber = num;
+    config.drawMode = "forced";
+    await config.save();
+    res.json({ ok: true, forcedWinNumber: num });
+  } catch (err) {
+    res.status(500).json({ error: "Could not set" });
+  }
+});
+
+router.post("/draw/clear", requireAdmin, async (req, res) => {
+  try {
+    const config = await getConfig();
+    config.forcedWinNumber = null;
+    config.drawMode = "random";
+    await config.save();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Could not clear" });
   }
 });
 

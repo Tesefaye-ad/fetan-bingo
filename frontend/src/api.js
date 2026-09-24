@@ -14,7 +14,7 @@ api.interceptors.request.use((config) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// SOCKET (ከ socket.js የተዋሃደ)
+// SOCKET
 // ═══════════════════════════════════════════════════════
 let socket = null;
 
@@ -46,7 +46,7 @@ export function disconnectSocket() {
 }
 
 // ═══════════════════════════════════════════════════════
-// useTelegram HOOK (ከ useTelegram.js የተዋሃደ)
+// useTelegram HOOK
 // ═══════════════════════════════════════════════════════
 export function useTelegram() {
   const getTg = () => window.Telegram?.WebApp;
@@ -95,7 +95,7 @@ export function useTelegram() {
 }
 
 // ═══════════════════════════════════════════════════════
-// API FUNCTIONS
+// AUTH
 // ═══════════════════════════════════════════════════════
 export async function loginWithTelegram(initData) {
   if (!initData) throw new Error("Telegram initData is missing.");
@@ -105,6 +105,9 @@ export async function loginWithTelegram(initData) {
   return data.user;
 }
 
+// ═══════════════════════════════════════════════════════
+// GAME
+// ═══════════════════════════════════════════════════════
 export async function createRoom(entryFee, roomCode) {
   const body = { entryFee };
   if (roomCode) body.roomCode = roomCode;
@@ -112,6 +115,9 @@ export async function createRoom(entryFee, roomCode) {
   return data;
 }
 
+// ═══════════════════════════════════════════════════════
+// WALLET
+// ═══════════════════════════════════════════════════════
 export async function getWalletHistory() {
   const { data } = await api.get("/api/wallet/history");
   return data.transactions;
@@ -144,6 +150,9 @@ export async function transfer(toTelegramId, amount) {
   return data.balance;
 }
 
+// ═══════════════════════════════════════════════════════
+// USER
+// ═══════════════════════════════════════════════════════
 export async function getMe() {
   const { data } = await api.get("/api/user/me");
   return data.user;
@@ -179,15 +188,21 @@ export async function markNotificationsRead() {
   return data;
 }
 
+// ═══════════════════════════════════════════════════════
+// ADMIN — STATS
+// ═══════════════════════════════════════════════════════
 export async function adminGetStats() {
   const { data } = await api.get("/api/admin/stats");
   return data;
 }
 
+// ═══════════════════════════════════════════════════════
+// ADMIN — TRANSACTIONS
+// ═══════════════════════════════════════════════════════
 export async function adminGetTransactions({
   type,
   status,
-  limit = 50,
+  limit = 100,
   skip = 0,
 } = {}) {
   const params = new URLSearchParams();
@@ -211,7 +226,10 @@ export async function adminRejectTransaction(id, reason) {
   return data;
 }
 
-export async function adminGetUsers({ q, limit = 50, skip = 0 } = {}) {
+// ═══════════════════════════════════════════════════════
+// ADMIN — USERS
+// ═══════════════════════════════════════════════════════
+export async function adminGetUsers({ q, limit = 100, skip = 0 } = {}) {
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   params.set("limit", limit);
@@ -225,16 +243,48 @@ export async function adminBanUser(id, banned) {
   return data;
 }
 
-export async function adminBroadcast(title, body) {
-  const { data } = await api.post("/api/admin/broadcast", { title, body });
-  return data;
-}
-
 export async function adminAdjustBalance(id, amount, note) {
   const { data } = await api.post(`/api/admin/users/${id}/balance`, {
     amount,
     note,
   });
+  return data;
+}
+
+// ═══════════════════════════════════════════════════════
+// ADMIN — BROADCAST
+// ═══════════════════════════════════════════════════════
+export async function adminBroadcast(title, body) {
+  const { data } = await api.post("/api/admin/broadcast", { title, body });
+  return data;
+}
+
+// ═══════════════════════════════════════════════════════
+// 👈 ADMIN — CONFIG (አዲስ!)
+// ═══════════════════════════════════════════════════════
+export async function adminGetConfig() {
+  const { data } = await api.get("/api/admin/config");
+  return data;
+}
+
+export async function adminSaveConfig(ticketPrice, winnerPercent) {
+  const { data } = await api.post("/api/admin/config", {
+    ticketPrice,
+    winnerPercent,
+  });
+  return data;
+}
+
+// ═══════════════════════════════════════════════════════
+// 👈 ADMIN — DRAW (አዲስ!)
+// ═══════════════════════════════════════════════════════
+export async function adminSetDrawNumber(number) {
+  const { data } = await api.post("/api/admin/draw/set", { number });
+  return data;
+}
+
+export async function adminClearDrawNumber() {
+  const { data } = await api.post("/api/admin/draw/clear");
   return data;
 }
 
