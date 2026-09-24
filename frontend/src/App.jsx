@@ -105,10 +105,11 @@ function Login({ onLoggedIn }) {
 function GameLobby({ onPlayStake }) {
   const [error, setError] = useState("");
 
-  // 👈 ወዲያውኑ ወደ ካርቴላ — ምንም "Starting..." የለም
+  // 👈 ወዲያውኑ ወደ ካርቴላ — background ላይ createRoom ይላካል
   function play(fee) {
     setError("");
-    // 👈 ካርቴላ ላይ በቀጥታ ሂድ፤ createRoom በ backend ራሱ ይፈጠራል
+    // Fire and forget — ሳንጠብቅ ወደ ካርቴላ እንሂድ
+    createRoom(fee, SHARED_ROOMS[fee]).catch(() => {});
     onPlayStake(fee, SHARED_ROOMS[fee]);
   }
 
