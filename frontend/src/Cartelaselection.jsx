@@ -137,7 +137,6 @@ export default function CartelaSelection({
       return onConfirm(selectedCards);
     }
 
-    // Pick random free card (backend will validate balance)
     const takenSet = new Set(takenCards);
     const free = [];
     for (let i = 1; i <= 1000; i++) if (!takenSet.has(i)) free.push(i);
@@ -187,8 +186,6 @@ export default function CartelaSelection({
       return;
     }
 
-    // 👈 በቂ ባላንስ check የለም — backend ይወስናል
-
     getSocket().emit("select_card", { roomCode, cardId: id });
     setSelectedCards((p) => [...p, id]);
     setError("");
@@ -234,7 +231,7 @@ export default function CartelaSelection({
         ← Back
       </button>
 
-      {/* Info Grid — በቂ ብር warning የለም */}
+      {/* Info Grid */}
       <div
         style={{
           display: "grid",
@@ -325,7 +322,7 @@ export default function CartelaSelection({
           marginBottom: 10,
           paddingRight: 4,
           alignContent: "start",
-          maxHeight: "calc(100vh - 380px)",
+          maxHeight: "calc(100vh - 340px)",
         }}
       >
         {numbers.map((n) => {
@@ -386,8 +383,6 @@ export default function CartelaSelection({
           ✅ Confirm ({selectedCards.length} ካርዶች, {total} ETB)
         </button>
       ) : null}
-
-      {/* ሰዓቱ ሲያልቅ... ጽሑፍ ሙሉ በሙሉ ተሰርዟል */}
     </div>
   );
 }

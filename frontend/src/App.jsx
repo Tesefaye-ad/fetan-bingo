@@ -100,27 +100,19 @@ function Login({ onLoggedIn }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// GAMELOBBY — 🧹 ቀለል ያለ
+// GAMELOBBY
 // ═══════════════════════════════════════════════════════
-function GameLobby({ onPlayStake, userBalance }) {
-  const [loading, setLoading] = useState(null);
+function GameLobby({ onPlayStake }) {
   const [error, setError] = useState("");
 
-  async function play(fee) {
-    setLoading(fee);
+  // 👈 ወዲያውኑ ወደ ካርቴላ — ምንም "Starting..." የለም
+  function play(fee) {
     setError("");
-    try {
-      const room = await createRoom(fee, SHARED_ROOMS[fee]);
-      onPlayStake(fee, room.roomCode);
-    } catch (err) {
-      setError(err?.response?.data?.error || err.message || "Could not start");
-    } finally {
-      setLoading(null);
-    }
+    // 👈 ካርቴላ ላይ በቀጥታ ሂድ፤ createRoom በ backend ራሱ ይፈጠራል
+    onPlayStake(fee, SHARED_ROOMS[fee]);
   }
 
   const StakeButton = ({ fee, schedule }) => {
-    const isLoading = loading === fee;
     const color =
       fee === 10
         ? "#10b981"
@@ -133,7 +125,6 @@ function GameLobby({ onPlayStake, userBalance }) {
     return (
       <div style={{ marginBottom: 10 }}>
         <button
-          disabled={loading !== null}
           onClick={() => play(fee)}
           style={{
             width: "100%",
@@ -141,14 +132,13 @@ function GameLobby({ onPlayStake, userBalance }) {
             color: "#fff",
             border: "none",
             borderRadius: 14,
-            padding: "16px 20px",
-            cursor: loading !== null ? "wait" : "pointer",
+            padding: "18px 20px",
+            cursor: "pointer",
             boxShadow: `0 6px 20px ${color}55`,
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
+            justifyContent: "center",
             transition: "all 0.2s ease",
-            opacity: isLoading ? 0.85 : 1,
             position: "relative",
             overflow: "hidden",
           }}
@@ -166,7 +156,7 @@ function GameLobby({ onPlayStake, userBalance }) {
               pointerEvents: "none",
             }}
           />
-
+          {/* 👈 ሴንተር የተደረገ ጽሑፍ */}
           <div
             style={{
               fontSize: 17,
@@ -175,25 +165,7 @@ function GameLobby({ onPlayStake, userBalance }) {
               zIndex: 1,
             }}
           >
-            {isLoading ? "Starting…" : `Play ${fee} ETB`}
-          </div>
-
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: "50%",
-              background: "rgba(255,255,255,0.22)",
-              border: "1px solid rgba(255,255,255,0.35)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 15,
-              fontWeight: "bold",
-              zIndex: 1,
-            }}
-          >
-            →
+            Play {fee} ETB
           </div>
         </button>
         {schedule && (
@@ -220,6 +192,7 @@ function GameLobby({ onPlayStake, userBalance }) {
         maxWidth: 450,
         margin: "0 auto",
         paddingBottom: 100,
+        paddingTop: 30,
       }}
     >
       {error && (
@@ -239,79 +212,7 @@ function GameLobby({ onPlayStake, userBalance }) {
         </div>
       )}
 
-      {/* Header */}
-      <div style={{ textAlign: "center", marginBottom: 22 }}>
-        <h2
-          style={{
-            color: "#fff",
-            fontSize: 28,
-            fontWeight: "900",
-            background:
-              "linear-gradient(135deg, #f39c12 0%, #ffd43b 50%, #f39c12 100%)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            backgroundClip: "text",
-            margin: 0,
-          }}
-        >
-          🎱 Fetan Bingo
-        </h2>
-      </div>
-
-      {/* Balance Card — ስም የለውም ብቻ */}
-      <div
-        style={{
-          background:
-            "linear-gradient(135deg, rgba(26,26,46,0.9) 0%, rgba(15,20,32,0.9) 100%)",
-          border: "1px solid rgba(243,156,18,0.3)",
-          borderRadius: 14,
-          padding: "12px 18px",
-          marginBottom: 22,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: "50%",
-              background: "linear-gradient(135deg, #f39c12, #e67e22)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 20,
-            }}
-          >
-            💳
-          </div>
-          <div
-            style={{
-              color: "#fff",
-              fontSize: 18,
-              fontWeight: "900",
-            }}
-          >
-            {userBalance}{" "}
-            <span style={{ fontSize: 12, color: "#f39c12" }}>ETB</span>
-          </div>
-        </div>
-        <div
-          style={{
-            background: "rgba(46,204,113,0.15)",
-            border: "1px solid rgba(46,204,113,0.4)",
-            borderRadius: 20,
-            padding: "4px 12px",
-            color: "#2ecc71",
-            fontSize: 10,
-            fontWeight: "bold",
-          }}
-        >
-          ✓ Active
-        </div>
-      </div>
+      {/* 👈 Header ተሰርዟል — ከ app-header ጋር አንድ አይነት ነበር */}
 
       {/* CHOOSE STAKE */}
       <div
@@ -1004,12 +905,7 @@ function App() {
 
   return (
     <div className="app" style={{ paddingBottom: 80 }}>
-      {!showCartela && !roomCode && (
-        <header className="app-header">
-          <h1>🎱 Fetan Bingo</h1>
-          <span>Hi, {user.firstName || user.username}</span>
-        </header>
-      )}
+      {/* 👈 app-header ሙሉ በሙሉ ተሰርዟል */}
 
       {activeTab === "Game" && (
         <>
@@ -1031,7 +927,7 @@ function App() {
               onGameEnded={handleGameEnded}
             />
           ) : (
-            <GameLobby onPlayStake={handlePlayStake} userBalance={balance} />
+            <GameLobby onPlayStake={handlePlayStake} />
           )}
         </>
       )}
