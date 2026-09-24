@@ -81,10 +81,16 @@ function buildRoomState(game) {
 
 function initGameSocket(io) {
   const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 1000);
-  const CALL_INTERVAL_MS = 800; // 👈 ፈጣን ጥሪ
+
+  // ═══════════════════════════════════════════════════════
+  // 👈 TIMING CONSTANTS — ትክክለኛ
+  // ═══════════════════════════════════════════════════════
+  const CALL_INTERVAL_MS = 400; // 🎯 ተጫዋቾች ሲኖሩ
+  const EMPTY_GAME_INTERVAL_MS = 300; // ⚡ ተጫዋቾች ከሌሉ
+  const FIRST_CALL_DELAY_MS = 100; // 👈 መጀመሪያ
+  const WINNER_DISPLAY_MS = 5000; // 🎉 የአሸናፊ ማሳያ
+  const EMPTY_GAME_RESET_MS = 1500; // 🔄 ባዶ ጨዋታ reset
   const SELECTION_TIMER_MS = Number(process.env.SELECTION_TIMER_MS || 50000);
-  const WINNER_DISPLAY_MS = 5000; // 👈 5 ሰከንድ ማሳያ
-  const FIRST_CALL_DELAY_MS = 200; // 👈 ፈጣን መጀመር
 
   io.use((socket, next) => {
     const payload = verifySocketToken(socket.handshake.auth?.token);
@@ -112,6 +118,7 @@ function initGameSocket(io) {
           startGame(io, g.roomCode);
         }
       }
+
       const weekly = await Game.find({ status: "waiting", isWeeklyGame: true });
       for (const g of weekly) {
         if (
@@ -122,12 +129,14 @@ function initGameSocket(io) {
           startGame(io, g.roomCode);
         }
       }
+
       // Stale cleanup
       const stale = await Game.find({
         status: "active",
-        startedAt: { $lt: new Date(Date.now() - 5 * 60 * 1000) },
+        startedAt: { $lt: new Date(Date.now() - 3 * 60 * 1000) },
       });
       for (const g of stale) {
+        console.log(`[auto-starter] Stale reset: ${g.roomCode}`);
         stopCaller(g.roomCode);
         g.status = "waiting";
         g.calledNumbers = [];
@@ -176,7 +185,6 @@ function initGameSocket(io) {
             r.cardId === cardId &&
             String(r.telegramId) === String(socket.telegramId)
         );
-
         if (taken || reservedByOther) {
           return socket.emit("error_message", {
             message: `❌ Card #${cardId} taken!`,
@@ -395,7 +403,6 @@ function initGameSocket(io) {
               r.cardId === id &&
               String(r.telegramId) === String(socket.telegramId)
           );
-
           if (!reserved) {
             if (user.balance < game.entryFee) {
               socket.join(roomCode);
@@ -496,6 +503,8 @@ function initGameSocket(io) {
   // AUTO-DETECT WINNERS
   // ═══════════════════════════════════════════════════════
   async function autoDetectWinners(io, game) {
+    if (!game.players || game.players.length === 0) return false;
+
     const targetPattern = game.winPattern || "any-row";
     const winners = [];
 
@@ -516,18 +525,16 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // PROCESS WINNERS + 5s DISPLAY + AUTO RESET
+  // PROCESS WINNERS — 5s display
   // ═══════════════════════════════════════════════════════
   async function processWinners(io, game, winners) {
     stopCaller(game.roomCode);
-
     if (!game.winningCartelas) game.winningCartelas = [];
     if (!game.winners) game.winners = [];
 
     for (const { player, pattern } of winners) {
       const playerUser = await User.findById(player.user);
       if (!playerUser) continue;
-
       game.winningCartelas.push({
         userId: playerUser._id.toString(),
         telegramId: player.telegramId || String(playerUser.telegramId),
@@ -537,7 +544,6 @@ function initGameSocket(io) {
         card: player.card,
         marked: player.marked,
       });
-
       if (
         !game.winners.some((w) => w.toString() === playerUser._id.toString())
       ) {
@@ -558,7 +564,6 @@ function initGameSocket(io) {
     for (const tgId of Object.keys(userPrizeMap)) {
       const user = await User.findOne({ telegramId: tgId });
       if (!user) continue;
-
       const prize = userPrizeMap[tgId];
       const cartelaCount = game.winningCartelas.filter(
         (w) => w.telegramId === tgId
@@ -595,7 +600,7 @@ function initGameSocket(io) {
       });
     }
 
-    // 👈 Emit BINGO popup
+    // 🎉 Emit BINGO popup
     io.to(game.roomCode).emit("bingo_claimed", {
       winPattern: game.winPattern,
       prizePool: game.prizePool,
@@ -612,67 +617,103 @@ function initGameSocket(io) {
       })),
     });
 
-    // 👈 5 ሰከንድ ቆይቶ reset
-    setTimeout(async () => {
-      const fresh = await Game.findOne({ roomCode: game.roomCode });
-      if (!fresh) return;
+    console.log(
+      `[processWinners] ${game.roomCode} — ${winnersPanelData.length} winner(s)`
+    );
 
-      fresh.status = "finished";
-      fresh.finishedAt = new Date();
-      await fresh.save();
+    // 🎯 5s → reset → back to cartela
+    setTimeout(
+      () => resetRoom(io, game.roomCode, "winner", WINNER_DISPLAY_MS),
+      WINNER_DISPLAY_MS
+    );
+  }
 
-      for (const p of fresh.players) {
-        await User.findByIdAndUpdate(p.user, { $inc: { gamesPlayed: 1 } });
+  // ═══════════════════════════════════════════════════════
+  // 👈 RESET ROOM
+  // ═══════════════════════════════════════════════════════
+  async function resetRoom(io, roomCode, reason = "unknown", delayMs = 0) {
+    const doReset = async () => {
+      try {
+        const fresh = await Game.findOne({ roomCode });
+        if (!fresh) return;
+
+        // Finished first
+        if (fresh.status !== "finished") {
+          fresh.status = "finished";
+          fresh.finishedAt = new Date();
+          await fresh.save();
+        }
+
+        // Increment gamesPlayed
+        for (const p of fresh.players) {
+          await User.findByIdAndUpdate(p.user, { $inc: { gamesPlayed: 1 } });
+        }
+
+        // Emit game_over
+        io.to(roomCode).emit("game_over", {
+          winners: (fresh.winningCartelas || []).map((w) => ({
+            telegramId: w.telegramId,
+            name: w.name,
+            cardId: w.cardId,
+            pattern: w.pattern,
+            card: w.card,
+            marked: w.marked,
+          })),
+          totalWinners: (fresh.winningCartelas || []).length,
+          prizePool: fresh.prizePool,
+          winPattern: fresh.winPattern,
+          reason,
+          nextGameAt: new Date(Date.now() + 500),
+        });
+
+        // Reset
+        fresh.status = "waiting";
+        fresh.calledNumbers = [];
+        fresh.prizePool = 0;
+        fresh.winners = [];
+        fresh.winningCartelas = [];
+        fresh.players = [];
+        fresh.reservedCards = [];
+        fresh.startedAt = undefined;
+        fresh.finishedAt = undefined;
+        fresh.winPattern = getPatternForRoom(fresh.entryFee);
+
+        if (fresh.isWeeklyGame) {
+          fresh.scheduledStart = getNextWeeklyStart(
+            getWeeklyFee(fresh.roomCode)
+          );
+          fresh.selectionEndsAt = undefined;
+        } else {
+          fresh.selectionEndsAt = new Date(Date.now() + SELECTION_TIMER_MS);
+        }
+        await fresh.save();
+
+        io.to(roomCode).emit("next_game_ready", { roomCode });
+        io.to(roomCode).emit("room_state", buildRoomState(fresh));
+
+        console.log(
+          `[resetRoom] ${roomCode} — reason: ${reason} — done`
+        );
+      } catch (err) {
+        console.error(`[resetRoom:${roomCode}]`, err);
       }
+    };
 
-      io.to(game.roomCode).emit("game_over", {
-        winners: (fresh.winningCartelas || []).map((w) => ({
-          telegramId: w.telegramId,
-          name: w.name,
-          cardId: w.cardId,
-          pattern: w.pattern,
-          card: w.card,
-          marked: w.marked,
-        })),
-        totalWinners: (fresh.winningCartelas || []).length,
-        prizePool: fresh.prizePool,
-        winPattern: fresh.winPattern,
-        nextGameAt: new Date(Date.now() + 500),
-      });
-
-      // Reset room
-      fresh.status = "waiting";
-      fresh.calledNumbers = [];
-      fresh.prizePool = 0;
-      fresh.winners = [];
-      fresh.winningCartelas = [];
-      fresh.players = [];
-      fresh.reservedCards = [];
-      fresh.startedAt = undefined;
-      fresh.finishedAt = undefined;
-      fresh.winPattern = getPatternForRoom(fresh.entryFee);
-
-      if (fresh.isWeeklyGame) {
-        fresh.scheduledStart = getNextWeeklyStart(getWeeklyFee(fresh.roomCode));
-        fresh.selectionEndsAt = undefined;
-      } else {
-        fresh.selectionEndsAt = new Date(Date.now() + SELECTION_TIMER_MS);
-      }
-      await fresh.save();
-
-      io.to(game.roomCode).emit("next_game_ready", {
-        roomCode: game.roomCode,
-      });
-      io.to(game.roomCode).emit("room_state", buildRoomState(fresh));
-    }, WINNER_DISPLAY_MS);
+    if (delayMs > 0) {
+      setTimeout(doReset, delayMs);
+    } else {
+      await doReset();
+    }
   }
 
   // ═══════════════════════════════════════════════════════
   // START GAME
   // ═══════════════════════════════════════════════════════
   async function startGame(io, roomCode) {
-    // Guard ድግግሞሽ
-    if (activeCallers.has(roomCode)) return;
+    if (activeCallers.has(roomCode)) {
+      console.log(`[startGame] ${roomCode} already active — skip`);
+      return;
+    }
     activeCallers.set(roomCode, null);
 
     try {
@@ -681,6 +722,14 @@ function initGameSocket(io) {
         activeCallers.delete(roomCode);
         return;
       }
+
+      const playerCount = game.players.length;
+      const hasPlayers = playerCount > 0;
+
+      // 👈 ትክክለኛ interval by player count
+      const intervalMs = hasPlayers
+        ? CALL_INTERVAL_MS
+        : EMPTY_GAME_INTERVAL_MS;
 
       game.status = "active";
       game.startedAt = new Date();
@@ -691,10 +740,16 @@ function initGameSocket(io) {
       game.selectionEndsAt = undefined;
       await game.save();
 
-      // 👈 Game started event
+      console.log(
+        `[startGame] ${roomCode} — ${playerCount} player(s) — ${
+          hasPlayers ? "400ms" : "300ms"
+        } — pattern: ${game.winPattern}`
+      );
+
       io.to(roomCode).emit("game_started", {
         roomCode,
         winPattern: game.winPattern,
+        playerCount,
       });
 
       let active = true;
@@ -713,16 +768,26 @@ function initGameSocket(io) {
             return;
           }
 
+          // Check player count for interval
+          const currentInterval =
+            g.players.length > 0 ? CALL_INTERVAL_MS : EMPTY_GAME_INTERVAL_MS;
+
           const num = randomUncalled(g.calledNumbers, g.maxNumber);
           if (num === null) {
+            // 👈 ሁሉም 75 ተጠርተዋል — አሸናፊ የለም
             active = false;
             activeCallers.delete(roomCode);
-            return finishGame(io, roomCode);
+            console.log(
+              `[caller:${roomCode}] All 75 called — no winner — reset`
+            );
+            // 👈 ባዶ ጨዋታ — ፈጣን reset (1.5s)
+            resetRoom(io, roomCode, "all-called", EMPTY_GAME_RESET_MS);
+            return;
           }
 
           // Duplicate guard
           if (g.calledNumbers.includes(num)) {
-            const h = setTimeout(runCaller, CALL_INTERVAL_MS);
+            const h = setTimeout(runCaller, currentInterval);
             activeCallers.set(roomCode, h);
             return;
           }
@@ -744,23 +809,25 @@ function initGameSocket(io) {
               ? "G"
               : "O";
 
-          // Auto-mark ለተጫዋቾች
-          const grouped = {};
-          for (const p of g.players) {
-            const uid = p.user.toString();
-            if (!grouped[uid])
-              grouped[uid] = { cards: [], markedCards: [], cardIds: [] };
-            grouped[uid].cards.push(p.card);
-            grouped[uid].markedCards.push(p.marked);
-            grouped[uid].cardIds.push(p.cardId);
-          }
-          for (const s of io.sockets.sockets.values()) {
-            if (s.userId && grouped[s.userId]) {
-              s.emit("your_cards", grouped[s.userId]);
+          // Auto-mark — send per user
+          if (g.players.length > 0) {
+            const grouped = {};
+            for (const p of g.players) {
+              const uid = p.user.toString();
+              if (!grouped[uid])
+                grouped[uid] = { cards: [], markedCards: [], cardIds: [] };
+              grouped[uid].cards.push(p.card);
+              grouped[uid].markedCards.push(p.marked);
+              grouped[uid].cardIds.push(p.cardId);
+            }
+            for (const s of io.sockets.sockets.values()) {
+              if (s.userId && grouped[s.userId]) {
+                s.emit("your_cards", grouped[s.userId]);
+              }
             }
           }
 
-          // Number called broadcast
+          // Broadcast number
           io.to(roomCode).emit("number_called", {
             number: num,
             letter,
@@ -780,70 +847,21 @@ function initGameSocket(io) {
         }
 
         if (active) {
-          const h = setTimeout(runCaller, CALL_INTERVAL_MS);
+          const currentInterval =
+            await Game.findOne({ roomCode }).then((g) =>
+              g?.players.length > 0 ? CALL_INTERVAL_MS : EMPTY_GAME_INTERVAL_MS
+            );
+          const h = setTimeout(runCaller, currentInterval);
           activeCallers.set(roomCode, h);
         }
       };
 
-      // 👈 ፈጣን መጀመር (500ms)
       const initial = setTimeout(runCaller, FIRST_CALL_DELAY_MS);
       activeCallers.set(roomCode, initial);
     } catch (err) {
       console.error(`[startGame:${roomCode}]`, err);
       activeCallers.delete(roomCode);
     }
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // FINISH GAME (draw — all called)
-  // ═══════════════════════════════════════════════════════
-  async function finishGame(io, roomCode) {
-    const game = await Game.findOne({ roomCode });
-    if (!game) return;
-    stopCaller(roomCode);
-
-    game.status = "finished";
-    game.finishedAt = new Date();
-    await game.save();
-
-    for (const p of game.players) {
-      await User.findByIdAndUpdate(p.user, { $inc: { gamesPlayed: 1 } });
-    }
-
-    io.to(roomCode).emit("game_over", {
-      winners: [],
-      totalWinners: 0,
-      prizePool: game.prizePool,
-      winPattern: game.winPattern,
-      nextGameAt: new Date(Date.now() + WINNER_DISPLAY_MS),
-    });
-
-    setTimeout(async () => {
-      const fresh = await Game.findOne({ roomCode });
-      if (!fresh) return;
-
-      fresh.status = "waiting";
-      fresh.calledNumbers = [];
-      fresh.prizePool = 0;
-      fresh.winners = [];
-      fresh.winningCartelas = [];
-      fresh.players = [];
-      fresh.reservedCards = [];
-      fresh.startedAt = undefined;
-      fresh.finishedAt = undefined;
-      fresh.winPattern = getPatternForRoom(fresh.entryFee);
-
-      if (fresh.isWeeklyGame) {
-        fresh.scheduledStart = getNextWeeklyStart(getWeeklyFee(fresh.roomCode));
-        fresh.selectionEndsAt = undefined;
-      } else {
-        fresh.selectionEndsAt = new Date(Date.now() + SELECTION_TIMER_MS);
-      }
-      await fresh.save();
-
-      io.to(roomCode).emit("next_game_ready", { roomCode });
-      io.to(roomCode).emit("room_state", buildRoomState(fresh));
-    }, WINNER_DISPLAY_MS);
   }
 }
 
