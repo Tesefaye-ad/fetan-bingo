@@ -24,7 +24,6 @@ export default function CartelaSelection({
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [isWeekly, setIsWeekly] = useState(false);
-  const [fetching, setFetching] = useState(false);
 
   const triggeredRef = useRef(false);
   const fetchedRef = useRef(false);
@@ -42,7 +41,6 @@ export default function CartelaSelection({
     setTakenCards([]);
     setError("");
     setIsWeekly(false);
-    setFetching(true);
   }, [roomCode]);
 
   // ═══════════════════════════════════════════════════════
@@ -69,7 +67,6 @@ export default function CartelaSelection({
         const data = await res.json();
         if (cancelled) return;
 
-        setFetching(false);
         setError("");
 
         if (data.takenCards) setTakenCards(data.takenCards);
@@ -135,7 +132,6 @@ export default function CartelaSelection({
 
         // All failed — use fallback timer
         console.warn("[Cartela] Offline fallback");
-        setFetching(false);
         setError("⚠️ Offline — connecting...");
         setDeadlineAt(Date.now() + FALLBACK_TIMER_SEC * 1000);
         setCountdown(FALLBACK_TIMER_SEC);
