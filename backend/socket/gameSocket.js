@@ -81,10 +81,10 @@ function buildRoomState(game) {
 
 function initGameSocket(io) {
   const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 1000);
-  const CALL_INTERVAL_MS = 1500; // 👈 ፈጣን ጥሪ
+  const CALL_INTERVAL_MS = 800; // 👈 ፈጣን ጥሪ
   const SELECTION_TIMER_MS = Number(process.env.SELECTION_TIMER_MS || 50000);
   const WINNER_DISPLAY_MS = 5000; // 👈 5 ሰከንድ ማሳያ
-  const FIRST_CALL_DELAY_MS = 500; // 👈 ፈጣን መጀመር
+  const FIRST_CALL_DELAY_MS = 200; // 👈 ፈጣን መጀመር
 
   io.use((socket, next) => {
     const payload = verifySocketToken(socket.handshake.auth?.token);
