@@ -25,12 +25,38 @@ const ADMIN_IDS =
   ENV_ADMIN_IDS.length > 0 ? ENV_ADMIN_IDS : DEFAULT_ADMIN_IDS;
 
 const LOGIN_TIMEOUT_MS = 10000;
-const STAKES = [{ fee: 10 }, { fee: 20 }];
-const WEEKLY_GAMES = [
-  { fee: 50, schedule: "Sat 12:00" },
-  { fee: 100, schedule: "Sat 12:05" },
-];
 const SHARED_ROOMS = { 10: "ROOM10", 20: "ROOM20", 50: "ROOM50", 100: "ROOM100" };
+
+// ═══════════════════════════════════════════════════════
+// 🕐 DAILY COUNTDOWN HELPERS
+// ═══════════════════════════════════════════════════════
+function getTimeUntilNextDaily(targetHour, targetMinute) {
+  // Ethiopia = UTC+3
+  const ETHIOPIA_OFFSET_HOURS = 3;
+  const targetUTCHour = targetHour - ETHIOPIA_OFFSET_HOURS;
+
+  const now = new Date();
+  const nowUTC = now.getTime();
+
+  const target = new Date();
+  target.setUTCHours(targetUTCHour, targetMinute, 0, 0);
+
+  let targetTime = target.getTime();
+  if (targetTime <= nowUTC) {
+    targetTime += 24 * 60 * 60 * 1000; // Next day
+  }
+
+  return targetTime - nowUTC;
+}
+
+function formatCountdown(ms) {
+  if (ms < 0) ms = 0;
+  const totalSec = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
 
 // ═══════════════════════════════════════════════════════
 // LOGIN
@@ -100,94 +126,126 @@ function Login({ onLoggedIn }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// GAME LOBBY
+// GAME LOBBY — 🎨 ልክ እንደ ፎቶው + Daily Countdown
 // ═══════════════════════════════════════════════════════
 function GameLobby({ onPlayStake }) {
   const [loading, setLoading] = useState(null);
   const [error, setError] = useState("");
+  const [daily50, setDaily50] = useState("00:00:00");
+  const [daily100, setDaily100] = useState("00:00:00");
+
+  // 🕐 Live countdown to 12:00 & 12:05 EAT
+  useEffect(() => {
+    const update = () => {
+      setDaily50(formatCountdown(getTimeUntilNextDaily(12, 0)));
+      setDaily100(formatCountdown(getTimeUntilNextDaily(12, 5)));
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   async function play(fee) {
     if (loading !== null) return;
     setLoading(fee);
     setError("");
+
+    const fallbackCode = SHARED_ROOMS[fee] || `ROOM${fee}`;
+
+    const timeoutPromise = new Promise((resolve) =>
+      setTimeout(() => resolve({ roomCode: fallbackCode, _timeout: true }), 8000)
+    );
+
     try {
-      const room = await createRoom(fee, SHARED_ROOMS[fee]);
-      onPlayStake(fee, room.roomCode);
+      const roomPromise = createRoom(fee, fallbackCode).catch((err) => {
+        console.warn("[GameLobby] createRoom failed:", err.message);
+        return { roomCode: fallbackCode, _error: true };
+      });
+
+      const room = await Promise.race([roomPromise, timeoutPromise]);
+      onPlayStake(fee, room.roomCode || fallbackCode);
     } catch (err) {
-      setError(err?.response?.data?.error || err.message || "Could not start");
+      console.error("[GameLobby] Fatal:", err);
+      onPlayStake(fee, fallbackCode);
+    } finally {
       setLoading(null);
     }
   }
 
-  const StakeButton = ({ fee, schedule }) => {
-    const color =
-      fee === 10
-        ? "#10b981"
-        : fee === 20
-        ? "#3b82f6"
-        : fee === 50
-        ? "#8b5cf6"
-        : "#f59e0b";
+  // 🎨 ውብ የቁልፍ አካል
+  const GameButton = ({ fee, color1, color2, glowColor }) => {
     const isLoading = loading === fee;
-
     return (
-      <div style={{ marginBottom: 10 }}>
-        <button
-          disabled={loading !== null}
-          onClick={() => play(fee)}
+      <button
+        disabled={loading !== null}
+        onClick={() => play(fee)}
+        style={{
+          width: "100%",
+          background: `linear-gradient(135deg, ${color1} 0%, ${color2} 100%)`,
+          color: "#fff",
+          border: "none",
+          borderRadius: 14,
+          padding: "18px 24px",
+          cursor: loading !== null ? "wait" : "pointer",
+          boxShadow: `0 8px 24px ${glowColor}66, 0 4px 12px ${glowColor}44, inset 0 1px 0 rgba(255,255,255,0.2)`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 10,
+          position: "relative",
+          overflow: "hidden",
+          opacity: isLoading ? 0.7 : 1,
+          transition: "all 0.2s ease",
+          fontFamily: "inherit",
+        }}
+      >
+        <div
           style={{
+            position: "absolute",
+            top: 0,
+            left: "-100%",
             width: "100%",
-            background: `linear-gradient(135deg, ${color} 0%, ${color}cc 50%, ${color}99 100%)`,
-            color: "#fff",
-            border: "none",
-            borderRadius: 14,
-            padding: "16px 20px",
-            cursor: loading !== null ? "wait" : "pointer",
-            boxShadow: `0 6px 20px ${color}55`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            position: "relative",
-            overflow: "hidden",
-            opacity: isLoading ? 0.7 : 1,
+            height: "100%",
+            background:
+              "linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)",
+            animation: "shine 3s infinite",
+            pointerEvents: "none",
+          }}
+        />
+        <span
+          style={{
+            fontSize: 14,
+            opacity: 0.95,
+            textShadow: "0 1px 2px rgba(0,0,0,0.3)",
+            zIndex: 1,
           }}
         >
-          <span
-            style={{
-              fontSize: 17,
-              fontWeight: "900",
-              letterSpacing: 0.5,
-              zIndex: 1,
-            }}
-          >
-            Play {fee} ETB
-          </span>
-        </button>
-        {schedule && (
-          <div
-            style={{
-              color: "#f39c12",
-              fontSize: 11,
-              textAlign: "center",
-              fontWeight: "bold",
-              marginTop: 5,
-            }}
-          >
-            🗓 {schedule}
-          </div>
-        )}
-      </div>
+          ▶
+        </span>
+        <span
+          style={{
+            fontSize: 18,
+            fontWeight: "900",
+            letterSpacing: 0.3,
+            textShadow: "0 2px 4px rgba(0,0,0,0.3)",
+            zIndex: 1,
+          }}
+        >
+          {isLoading ? "Opening..." : `Play ${fee} ETB`}
+        </span>
+      </button>
     );
   };
 
   return (
     <div
       style={{
-        padding: 15,
+        padding: "20px 15px",
         maxWidth: 450,
         margin: "0 auto",
         paddingBottom: 100,
-        paddingTop: 20,
+        minHeight: "100vh",
+        background: "linear-gradient(180deg, #0f1420 0%, #1a0f2e 100%)",
       }}
     >
       {error && (
@@ -207,58 +265,248 @@ function GameLobby({ onPlayStake }) {
         </div>
       )}
 
-      <div style={{ textAlign: "center", marginBottom: 22 }}>
-        <h2
+      {/* HEADER */}
+      <div style={{ textAlign: "center", marginBottom: 20, marginTop: 10 }}>
+        <h1
           style={{
             color: "#fff",
-            fontSize: 28,
+            fontSize: 34,
             fontWeight: "900",
-            background:
-              "linear-gradient(135deg, #f39c12 0%, #ffd43b 50%, #f39c12 100%)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            backgroundClip: "text",
             margin: 0,
+            lineHeight: 1.15,
+            letterSpacing: 0.5,
+            textShadow: "0 2px 10px rgba(0,0,0,0.3)",
           }}
         >
-          🎱 Fetan Bingo
-        </h2>
+          Welcome to{" "}
+          <span
+            style={{
+              background:
+                "linear-gradient(135deg, #f39c12 0%, #ffd43b 50%, #f39c12 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+              filter: "drop-shadow(0 2px 8px rgba(243,156,18,0.5))",
+            }}
+          >
+            Fetan Bingo
+          </span>
+        </h1>
+
+        <div
+          style={{
+            marginTop: 12,
+            color: "#888",
+            fontSize: 13,
+            fontWeight: "600",
+            letterSpacing: 4,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+          }}
+        >
+          <span style={{ color: "#f39c12", fontSize: 14 }}>✦</span>
+          <span>ቁጥር ያግኙ ያሸንፉ</span>
+          <span style={{ color: "#f39c12", fontSize: 14 }}>✦</span>
+        </div>
       </div>
 
+      {/* ⚡ INSTANT GAMES */}
       <div
         style={{
-          color: "#f39c12",
-          fontSize: 13,
-          fontWeight: "bold",
-          letterSpacing: 2,
-          marginBottom: 14,
-          textAlign: "center",
+          background:
+            "linear-gradient(135deg, rgba(26,26,46,0.7) 0%, rgba(15,20,32,0.9) 100%)",
+          border: "1px solid rgba(46,204,113,0.3)",
+          borderRadius: 20,
+          padding: "20px 16px 18px",
+          marginBottom: 16,
+          boxShadow:
+            "0 4px 20px rgba(46,204,113,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
         }}
       >
-        🎯 CHOOSE STAKE
+        <div
+          style={{
+            textAlign: "center",
+            marginBottom: 18,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+          }}
+        >
+          <span style={{ fontSize: 16, color: "#2ecc71" }}>⚡</span>
+          <span
+            style={{
+              color: "#2ecc71",
+              fontSize: 14,
+              fontWeight: "900",
+              letterSpacing: 3,
+              textShadow: "0 0 12px rgba(46,204,113,0.5)",
+            }}
+          >
+            INSTANT GAMES
+          </span>
+          <span style={{ fontSize: 16, color: "#2ecc71" }}>⚡</span>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <GameButton
+            fee={10}
+            color1="#10b981"
+            color2="#059669"
+            glowColor="#10b981"
+          />
+          <GameButton
+            fee={20}
+            color1="#06b6d4"
+            color2="#0891b2"
+            glowColor="#06b6d4"
+          />
+        </div>
       </div>
 
-      {STAKES.map((s) => (
-        <StakeButton key={s.fee} fee={s.fee} />
-      ))}
-
+      {/* 🏆 DAILY JACKPOT — Live Countdown */}
       <div
         style={{
-          color: "#f39c12",
-          fontSize: 13,
-          fontWeight: "bold",
-          letterSpacing: 2,
-          marginTop: 20,
-          marginBottom: 14,
-          textAlign: "center",
+          background:
+            "linear-gradient(135deg, rgba(26,26,46,0.7) 0%, rgba(15,20,32,0.9) 100%)",
+          border: "1px solid rgba(243,156,18,0.3)",
+          borderRadius: 20,
+          padding: "20px 16px 18px",
+          marginBottom: 16,
+          boxShadow:
+            "0 4px 20px rgba(243,156,18,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
         }}
       >
-        🗓 WEEKLY GAME
+        <div
+          style={{
+            textAlign: "center",
+            marginBottom: 18,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+          }}
+        >
+          <span style={{ fontSize: 16 }}>🏆</span>
+          <span
+            style={{
+              color: "#f39c12",
+              fontSize: 14,
+              fontWeight: "900",
+              letterSpacing: 3,
+              textShadow: "0 0 12px rgba(243,156,18,0.5)",
+            }}
+          >
+            DAILY JACKPOT
+          </span>
+          <span style={{ fontSize: 16 }}>🏆</span>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Play 50 — 12:00 */}
+          <div>
+            <GameButton
+              fee={50}
+              color1="#8b5cf6"
+              color2="#7c3aed"
+              glowColor="#8b5cf6"
+            />
+            <div
+              style={{
+                textAlign: "center",
+                marginTop: 8,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              <span style={{ fontSize: 13 }}>🕐</span>
+              <span
+                style={{
+                  color: "#8b5cf6",
+                  fontSize: 13,
+                  fontWeight: "900",
+                  fontFamily: "monospace",
+                  letterSpacing: 1,
+                  textShadow: "0 0 10px rgba(139,92,246,0.5)",
+                  background: "rgba(139,92,246,0.15)",
+                  padding: "3px 10px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(139,92,246,0.4)",
+                }}
+              >
+                {daily50}
+              </span>
+              <span
+                style={{
+                  color: "#888",
+                  fontSize: 10,
+                  fontWeight: "bold",
+                }}
+              >
+                (12:00 EAT)
+              </span>
+            </div>
+          </div>
+
+          {/* Play 100 — 12:05 */}
+          <div>
+            <GameButton
+              fee={100}
+              color1="#f59e0b"
+              color2="#d97706"
+              glowColor="#f59e0b"
+            />
+            <div
+              style={{
+                textAlign: "center",
+                marginTop: 8,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              <span style={{ fontSize: 13 }}>🕐</span>
+              <span
+                style={{
+                  color: "#f59e0b",
+                  fontSize: 13,
+                  fontWeight: "900",
+                  fontFamily: "monospace",
+                  letterSpacing: 1,
+                  textShadow: "0 0 10px rgba(245,158,11,0.5)",
+                  background: "rgba(245,158,11,0.15)",
+                  padding: "3px 10px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(245,158,11,0.4)",
+                }}
+              >
+                {daily100}
+              </span>
+              <span
+                style={{
+                  color: "#888",
+                  fontSize: 10,
+                  fontWeight: "bold",
+                }}
+              >
+                (12:05 EAT)
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {WEEKLY_GAMES.map((g) => (
-        <StakeButton key={g.fee} fee={g.fee} schedule={g.schedule} />
-      ))}
+      <style>{`
+        @keyframes shine {
+          0% { left: -100%; }
+          50%, 100% { left: 200%; }
+        }
+      `}</style>
     </div>
   );
 }
@@ -773,7 +1021,7 @@ function App() {
   const handleGameEnded = () => {
     disconnectSocket();
     setCardIds([]);
-    setShowCartela(true); // 👈 ወደ ካርቴላ ተመለስ
+    setShowCartela(true);
   };
 
   return (

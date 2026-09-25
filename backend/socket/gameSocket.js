@@ -35,22 +35,28 @@ function stopCaller(roomCode) {
   }
 }
 
-function getNextWeeklyStart(fee) {
+// ═══════════════════════════════════════════════════════
+// 👈 DAILY — በየቀኑ 12:00 / 12:05 EAT
+// ═══════════════════════════════════════════════════════
+function getNextDailyStart(fee) {
   const ETHIOPIA_OFFSET_MS = 3 * 60 * 60 * 1000;
   const now = new Date();
   const et = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
-  const targetDay = 6;
-  const targetHour = 0;
+
+  const targetHour = 12;
   const targetMinute = fee === 50 ? 0 : 5;
-  let daysUntil = (targetDay - et.getUTCDay() + 7) % 7;
-  if (daysUntil === 0) {
-    const today = new Date(et);
-    today.setUTCHours(targetHour, targetMinute, 0, 0);
-    if (et >= today) daysUntil = 7;
+
+  const today = new Date(et);
+  today.setUTCHours(targetHour, targetMinute, 0, 0);
+
+  let next;
+  if (et.getTime() < today.getTime()) {
+    next = today;
+  } else {
+    next = new Date(today);
+    next.setUTCDate(next.getUTCDate() + 1);
   }
-  const next = new Date(et);
-  next.setUTCDate(next.getUTCDate() + daysUntil);
-  next.setUTCHours(targetHour, targetMinute, 0, 0);
+
   return new Date(next.getTime() - ETHIOPIA_OFFSET_MS);
 }
 
@@ -79,17 +85,182 @@ function buildRoomState(game) {
   };
 }
 
+// ═══════════════════════════════════════════════════════
+// 🎴 Render Bingo Cartela as text art
+// ═══════════════════════════════════════════════════════
+function renderCartela(card, marked, pattern) {
+  if (!card || !Array.isArray(card) || card.length !== 5) return "";
+  const W = 8;
+
+  const padCenter = (text, width) => {
+    text = String(text);
+    if (text.length >= width) return text.slice(0, width);
+    const total = width - text.length;
+    const left = Math.floor(total / 2);
+    const right = total - left;
+    return " ".repeat(left) + text + " ".repeat(right);
+  };
+
+  // Determine winning cells
+  const winningSet = new Set();
+  const k = (r, c) => `${r}-${c}`;
+
+  if (pattern) {
+    if (pattern.startsWith("row-")) {
+      const r = parseInt(pattern.split("-")[1], 10) - 1;
+      for (let c = 0; c < 5; c++) winningSet.add(k(r, c));
+    } else if (pattern.startsWith("col-")) {
+      const c = parseInt(pattern.split("-")[1], 10) - 1;
+      for (let r = 0; r < 5; r++) winningSet.add(k(r, c));
+    } else if (pattern === "diag-1") {
+      for (let i = 0; i < 5; i++) winningSet.add(k(i, i));
+    } else if (pattern === "diag-2") {
+      for (let i = 0; i < 5; i++) winningSet.add(k(i, 4 - i));
+    } else if (pattern === "four-corners") {
+      winningSet.add(k(0, 0));
+      winningSet.add(k(0, 4));
+      winningSet.add(k(4, 0));
+      winningSet.add(k(4, 4));
+    } else if (pattern === "full-card") {
+      for (let r = 0; r < 5; r++)
+        for (let c = 0; c < 5; c++) winningSet.add(k(r, c));
+    }
+  }
+
+  const topBorder = "┌" + Array(5).fill("─".repeat(W)).join("┬") + "┐";
+  const midBorder = "├" + Array(5).fill("─".repeat(W)).join("┼") + "┤";
+  const bottomBorder = "└" + Array(5).fill("─".repeat(W)).join("┴") + "┘";
+
+  const lines = [topBorder];
+
+  // Header
+  const headers = ["B", "I", "N", "G", "O"];
+  lines.push("│" + headers.map((h) => padCenter(h, W)).join("│") + "│");
+  lines.push(midBorder);
+
+  // Rows
+  for (let r = 0; r < 5; r++) {
+    const cells = [];
+    for (let c = 0; c < 5; c++) {
+      const v = card[r][c];
+      const isFree = r === 2 && c === 2;
+      const isWinning = winningSet.has(k(r, c));
+
+      let cellText;
+      if (isFree) cellText = "★";
+      else if (isWinning) cellText = `[${v}]`;
+      else cellText = String(v);
+
+      cells.push(padCenter(cellText, W));
+    }
+    lines.push("│" + cells.join("│") + "│");
+  }
+
+  lines.push(bottomBorder);
+  return lines.join("\n");
+}
+
+// ═══════════════════════════════════════════════════════
+// 🏆 ለ 50 እና 100 ጨዋታዎች ብቻ የግሩፕ ማሳወቂያ
+// ═══════════════════════════════════════════════════════
+async function notifyWinnersGroup(game, winnersPanelData) {
+  // ለ 50 እና 100 ጨዋታዎች ብቻ
+  if (game.entryFee !== 50 && game.entryFee !== 100) return;
+
+  const groupChatId = process.env.WINNERS_GROUP_CHAT_ID;
+  if (!groupChatId) {
+    console.log("[notify] WINNERS_GROUP_CHAT_ID not set — skip");
+    return;
+  }
+
+  try {
+    const { bot } = require("../bot");
+    if (!bot) return;
+
+    const roomCode = game.roomCode;
+    const prizePool = game.prizePool;
+    const winnerCount = winnersPanelData.length;
+    const date = new Date().toLocaleString("en-US", {
+      timeZone: "Africa/Addis_Ababa",
+    });
+    const patternLabel = (game.winPattern || "any-row").toUpperCase();
+
+    let message =
+      `🎉🎊 <b>እንኳን ደስ አለዎት!</b> 🎊🎉\n\n` +
+      `🏆 <b>Fetan Bingo — ${roomCode}</b>\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `💰 ጠቅላላ ሽልማት: <b>${prizePool} ETB</b>\n` +
+      `👥 አሸናፊዎች: <b>${winnerCount}</b>\n` +
+      `🎯 ፓተርን: <b>${patternLabel}</b>\n` +
+      `🕐 ሰዓት: ${date}\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n`;
+
+    for (let i = 0; i < winnersPanelData.length; i++) {
+      const w = winnersPanelData[i];
+      const user = await User.findOne({ telegramId: w.telegramId }).select(
+        "phone firstName username telegramId"
+      );
+
+      const tgName = w.name || "Player";
+      const phone = user?.phone || "—";
+      const prize = w.prize;
+
+      message += `\n🏅 <b>${tgName}</b>\n`;
+      message += `├ 📱 ስልክ: <code>${phone}</code>\n`;
+      message += `├ 🆔 Telegram: <code>${w.telegramId}</code>\n`;
+      message += `├ 🎴 ካርቴላ: ${w.cartelas
+        .map((c) => `#${c}`)
+        .join(", ")}\n`;
+      message += `└ 💰 ሽልማት: <b>${prize} ETB</b>\n`;
+
+      // 👈 የዚህ ተጠቃሚ ያሸነፉትን ካርቴላዎች አሳይ
+      const userCartelas = (game.winningCartelas || []).filter(
+        (wc) => String(wc.telegramId) === String(w.telegramId)
+      );
+
+      for (const wc of userCartelas) {
+        const cartelaArt = renderCartela(wc.card, wc.marked, wc.pattern);
+        if (!cartelaArt) continue;
+
+        message +=
+          `\n<pre>🏆 CARD #${wc.cardId} — ${String(wc.pattern).toUpperCase()}\n` +
+          `${cartelaArt}</pre>\n`;
+      }
+
+      if (i < winnersPanelData.length - 1) {
+        message += `━━━━━━━━━━━━━━━━━━━━\n`;
+      }
+    }
+
+    message +=
+      `\n━━━━━━━━━━━━━━━━━━━━\n🎱 <b>Fetan Bingo</b> — ያሸንፉ! 💎`;
+
+    // Telegram 4096 char limit
+    if (message.length > 4000) {
+      message = message.slice(0, 4000) + "\n\n... (truncated)";
+    }
+
+    await bot.telegram.sendMessage(groupChatId, message, {
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
+
+    console.log(
+      `[notify] ✅ Winners sent to group for ${roomCode} (${winnerCount} winners)`
+    );
+  } catch (err) {
+    console.error("[notify] ❌ Failed to send to group:", err.message);
+  }
+}
+
 function initGameSocket(io) {
   const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 1000);
 
-  // ═══════════════════════════════════════════════════════
-  // 👈 TIMING CONSTANTS — ትክክለኛ
-  // ═══════════════════════════════════════════════════════
-  const CALL_INTERVAL_MS = 400; // 🎯 ተጫዋቾች ሲኖሩ
-  const EMPTY_GAME_INTERVAL_MS = 300; // ⚡ ተጫዋቾች ከሌሉ
-  const FIRST_CALL_DELAY_MS = 300; // 👈 መጀመሪያ
-  const WINNER_DISPLAY_MS = 5000; // 🎉 የአሸናፊ ማሳያ
-  const EMPTY_GAME_RESET_MS = 1500; // 🔄 ባዶ ጨዋታ reset
+  const CALL_INTERVAL_MS = 400;
+  const EMPTY_GAME_INTERVAL_MS = 300;
+  const FIRST_CALL_DELAY_MS = 300;
+  const WINNER_DISPLAY_MS = 5000;
+  const EMPTY_GAME_RESET_MS = 1500;
   const SELECTION_TIMER_MS = Number(process.env.SELECTION_TIMER_MS || 50000);
 
   io.use((socket, next) => {
@@ -149,7 +320,7 @@ function initGameSocket(io) {
         g.finishedAt = undefined;
         g.winPattern = getPatternForRoom(g.entryFee);
         if (g.isWeeklyGame) {
-          g.scheduledStart = getNextWeeklyStart(getWeeklyFee(g.roomCode));
+          g.scheduledStart = getNextDailyStart(getWeeklyFee(g.roomCode));
           g.selectionEndsAt = undefined;
         } else {
           g.selectionEndsAt = new Date(Date.now() + SELECTION_TIMER_MS);
@@ -297,7 +468,7 @@ function initGameSocket(io) {
             winPattern: getPatternForRoom(fee),
           };
           if (weekly) {
-            newGame.scheduledStart = getNextWeeklyStart(fee);
+            newGame.scheduledStart = getNextDailyStart(fee);
           } else {
             newGame.selectionEndsAt = new Date(Date.now() + SELECTION_TIMER_MS);
           }
@@ -525,7 +696,7 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // PROCESS WINNERS — 5s display
+  // PROCESS WINNERS — 5s display + Group notification
   // ═══════════════════════════════════════════════════════
   async function processWinners(io, game, winners) {
     stopCaller(game.roomCode);
@@ -621,6 +792,13 @@ function initGameSocket(io) {
       `[processWinners] ${game.roomCode} — ${winnersPanelData.length} winner(s)`
     );
 
+    // 🏆 ለ 50 እና 100 ጨዋታዎች ብቻ ወደ ግሩፕ ላክ (background — non-blocking)
+    if (game.entryFee === 50 || game.entryFee === 100) {
+      notifyWinnersGroup(game, winnersPanelData).catch((err) =>
+        console.error("[notify] Unhandled:", err.message)
+      );
+    }
+
     // 🎯 5s → reset → back to cartela
     setTimeout(
       () => resetRoom(io, game.roomCode, "winner", WINNER_DISPLAY_MS),
@@ -629,7 +807,7 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // 👈 RESET ROOM
+  // RESET ROOM
   // ═══════════════════════════════════════════════════════
   async function resetRoom(io, roomCode, reason = "unknown", delayMs = 0) {
     const doReset = async () => {
@@ -637,19 +815,16 @@ function initGameSocket(io) {
         const fresh = await Game.findOne({ roomCode });
         if (!fresh) return;
 
-        // Finished first
         if (fresh.status !== "finished") {
           fresh.status = "finished";
           fresh.finishedAt = new Date();
           await fresh.save();
         }
 
-        // Increment gamesPlayed
         for (const p of fresh.players) {
           await User.findByIdAndUpdate(p.user, { $inc: { gamesPlayed: 1 } });
         }
 
-        // Emit game_over
         io.to(roomCode).emit("game_over", {
           winners: (fresh.winningCartelas || []).map((w) => ({
             telegramId: w.telegramId,
@@ -666,7 +841,6 @@ function initGameSocket(io) {
           nextGameAt: new Date(Date.now() + 500),
         });
 
-        // Reset
         fresh.status = "waiting";
         fresh.calledNumbers = [];
         fresh.prizePool = 0;
@@ -679,7 +853,7 @@ function initGameSocket(io) {
         fresh.winPattern = getPatternForRoom(fresh.entryFee);
 
         if (fresh.isWeeklyGame) {
-          fresh.scheduledStart = getNextWeeklyStart(
+          fresh.scheduledStart = getNextDailyStart(
             getWeeklyFee(fresh.roomCode)
           );
           fresh.selectionEndsAt = undefined;
@@ -691,9 +865,7 @@ function initGameSocket(io) {
         io.to(roomCode).emit("next_game_ready", { roomCode });
         io.to(roomCode).emit("room_state", buildRoomState(fresh));
 
-        console.log(
-          `[resetRoom] ${roomCode} — reason: ${reason} — done`
-        );
+        console.log(`[resetRoom] ${roomCode} — reason: ${reason} — done`);
       } catch (err) {
         console.error(`[resetRoom:${roomCode}]`, err);
       }
@@ -726,7 +898,6 @@ function initGameSocket(io) {
       const playerCount = game.players.length;
       const hasPlayers = playerCount > 0;
 
-      // 👈 ትክክለኛ interval by player count
       const intervalMs = hasPlayers
         ? CALL_INTERVAL_MS
         : EMPTY_GAME_INTERVAL_MS;
@@ -768,24 +939,20 @@ function initGameSocket(io) {
             return;
           }
 
-          // Check player count for interval
           const currentInterval =
             g.players.length > 0 ? CALL_INTERVAL_MS : EMPTY_GAME_INTERVAL_MS;
 
           const num = randomUncalled(g.calledNumbers, g.maxNumber);
           if (num === null) {
-            // 👈 ሁሉም 75 ተጠርተዋል — አሸናፊ የለም
             active = false;
             activeCallers.delete(roomCode);
             console.log(
               `[caller:${roomCode}] All 75 called — no winner — reset`
             );
-            // 👈 ባዶ ጨዋታ — ፈጣን reset (1.5s)
             resetRoom(io, roomCode, "all-called", EMPTY_GAME_RESET_MS);
             return;
           }
 
-          // Duplicate guard
           if (g.calledNumbers.includes(num)) {
             const h = setTimeout(runCaller, currentInterval);
             activeCallers.set(roomCode, h);
@@ -809,7 +976,6 @@ function initGameSocket(io) {
               ? "G"
               : "O";
 
-          // Auto-mark — send per user
           if (g.players.length > 0) {
             const grouped = {};
             for (const p of g.players) {
@@ -827,7 +993,6 @@ function initGameSocket(io) {
             }
           }
 
-          // Broadcast number
           io.to(roomCode).emit("number_called", {
             number: num,
             letter,
@@ -835,7 +1000,6 @@ function initGameSocket(io) {
             winPattern: g.winPattern,
           });
 
-          // Auto-detect winners
           const hasWinner = await autoDetectWinners(io, g);
           if (hasWinner) {
             active = false;
@@ -847,10 +1011,9 @@ function initGameSocket(io) {
         }
 
         if (active) {
-          const currentInterval =
-            await Game.findOne({ roomCode }).then((g) =>
-              g?.players.length > 0 ? CALL_INTERVAL_MS : EMPTY_GAME_INTERVAL_MS
-            );
+          const currentInterval = await Game.findOne({ roomCode }).then((g) =>
+            g?.players.length > 0 ? CALL_INTERVAL_MS : EMPTY_GAME_INTERVAL_MS
+          );
           const h = setTimeout(runCaller, currentInterval);
           activeCallers.set(roomCode, h);
         }
