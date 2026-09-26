@@ -1,32 +1,122 @@
-* { box-sizing: border-box; }
+/* ═══════════════════════════════════════════════════════
+   🎨 Fetan Bingo — Global Styles
+   ═══════════════════════════════════════════════════════ */
 
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: #0f1420;
-  color: #f2f2f2;
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
+html,
+body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+body {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+  background: #0a0a14;
+  color: #f2f2f2;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: contain;
+}
+
+/* ═══════════════════════════════════════════════════════
+   APP CONTAINER
+   ═══════════════════════════════════════════════════════ */
 .app {
   max-width: 480px;
   margin: 0 auto;
   padding: 12px;
   padding-bottom: 110px;
   min-height: 100vh;
+  background: linear-gradient(180deg, #0a0a14 0%, #150a2e 50%, #0a0a14 100%);
+  position: relative;
 }
 
+.app::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(243, 156, 18, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 80% 90%, rgba(139, 92, 246, 0.08) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.app > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ═══════════════════════════════════════════════════════
+   HEADER
+   ═══════════════════════════════════════════════════════ */
 .app-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+  padding: 12px 4px;
 }
 
-.app-header h1 { font-size: 20px; margin: 0; }
+.app-header h1 {
+  font-size: 20px;
+  margin: 0;
+  font-weight: 900;
+  background: linear-gradient(135deg, #f39c12 0%, #ffd43b 50%, #f39c12 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: 0.5px;
+  filter: drop-shadow(0 2px 8px rgba(243, 156, 18, 0.3));
+}
 
-button { cursor: pointer; font-family: inherit; }
-button:disabled { opacity: 0.6; cursor: default; }
+.app-header span {
+  color: #a0a0b0;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  background: rgba(26, 26, 46, 0.8);
+  border: 1px solid rgba(243, 156, 18, 0.3);
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+}
 
+/* ═══════════════════════════════════════════════════════
+   BUTTONS
+   ═══════════════════════════════════════════════════════ */
+button {
+  cursor: pointer;
+  font-family: inherit;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  outline: none;
+  user-select: none;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════
+   BOTTOM NAVIGATION — Modern Glassmorphism
+   ═══════════════════════════════════════════════════════ */
 .bottom-nav {
   position: fixed;
   left: 0;
@@ -35,30 +125,161 @@ button:disabled { opacity: 0.6; cursor: default; }
   max-width: 480px;
   margin: 0 auto;
   display: flex;
-  background: #151b2b;
-  border-top: 1px solid #232b40;
+  background: rgba(15, 20, 32, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(243, 156, 18, 0.2);
   padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
   z-index: 100;
+  box-shadow: 0 -4px 30px rgba(0, 0, 0, 0.5);
 }
 
 .nav-item {
   flex: 1;
   background: transparent;
-  color: #9aa3b5;
+  color: #7a8499;
   border: none;
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 8px 2px;
   font-size: 11px;
+  font-weight: 700;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
+  transition: all 0.2s ease;
+  position: relative;
 }
 
-.nav-item.active { color: #4c6ef5; }
+.nav-item span:first-child {
+  font-size: 20px;
+  transition: transform 0.2s ease;
+}
 
-.page-view { text-align: center; padding: 40px 12px; color: #9aa3b5; }
+.nav-item.active {
+  color: #f39c12;
+}
+
+.nav-item.active span:first-child {
+  transform: scale(1.15) translateY(-2px);
+  filter: drop-shadow(0 0 8px rgba(243, 156, 18, 0.6));
+}
+
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 30px;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #f39c12, transparent);
+  border-radius: 3px;
+}
+
+/* ═══════════════════════════════════════════════════════
+   SCROLLBAR
+   ═══════════════════════════════════════════════════════ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(26, 26, 46, 0.4);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #f39c12, #e67e22);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #ffd43b, #f39c12);
+}
+
+/* ═══════════════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════════════ */
+@keyframes shine {
+  0% {
+    left: -100%;
+  }
+  50%,
+  100% {
+    left: 200%;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(1.3); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+/* Utility classes */
+.fade-in-up {
+  animation: fadeInUp 0.4s ease-out;
+}
+
+.pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════════
+   PAGE VIEW
+   ═══════════════════════════════════════════════════════ */
+.page-view {
+  text-align: center;
+  padding: 40px 12px;
+  color: #7a8499;
+}
+
+/* ═══════════════════════════════════════════════════════
+   TEXT SELECTION
+   ═══════════════════════════════════════════════════════ */
+::selection {
+  background: rgba(243, 156, 18, 0.4);
+  color: #fff;
 }

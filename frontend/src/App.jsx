@@ -126,58 +126,40 @@ function Login({ onLoggedIn }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// GAME LOBBY — 🎨 ልክ እንደ ፎቶው + Daily Countdown
+// GAME LOBBY — ⚡ ፈጣን + "Opening..." የለም
 // ═══════════════════════════════════════════════════════
 function GameLobby({ onPlayStake }) {
-  const [loading, setLoading] = useState(null);
-  const [error, setError] = useState("");
   const [daily50, setDaily50] = useState("00:00:00");
   const [daily100, setDaily100] = useState("00:00:00");
 
-  // 🕐 Live countdown to 12:00 & 12:05 EAT
+  // 🕐 Live countdown to 12:00 & 12:05 EAT (ማታ)
   useEffect(() => {
     const update = () => {
-      setDaily50(formatCountdown(getTimeUntilNextDaily(12, 0)));
-      setDaily100(formatCountdown(getTimeUntilNextDaily(12, 5)));
+      setDaily50(formatCountdown(getTimeUntilNextDaily(0, 0)));
+      setDaily100(formatCountdown(getTimeUntilNextDaily(0, 5)));
     };
     update();
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
   }, []);
 
-  async function play(fee) {
-    if (loading !== null) return;
-    setLoading(fee);
-    setError("");
-
+  // ⚡ ወዲያውኑ ወደ ካርቴላ
+  function play(fee) {
     const fallbackCode = SHARED_ROOMS[fee] || `ROOM${fee}`;
 
-    const timeoutPromise = new Promise((resolve) =>
-      setTimeout(() => resolve({ roomCode: fallbackCode, _timeout: true }), 8000)
-    );
+    // 👈 ወዲያውኑ ወደ ካርቴላ ሂድ
+    onPlayStake(fee, fallbackCode);
 
-    try {
-      const roomPromise = createRoom(fee, fallbackCode).catch((err) => {
-        console.warn("[GameLobby] createRoom failed:", err.message);
-        return { roomCode: fallbackCode, _error: true };
-      });
-
-      const room = await Promise.race([roomPromise, timeoutPromise]);
-      onPlayStake(fee, room.roomCode || fallbackCode);
-    } catch (err) {
-      console.error("[GameLobby] Fatal:", err);
-      onPlayStake(fee, fallbackCode);
-    } finally {
-      setLoading(null);
-    }
+    // 👈 Backend ን በ background ጥራ (user ሳይጠብቅ)
+    createRoom(fee, fallbackCode).catch((err) => {
+      console.warn("[GameLobby] createRoom background failed:", err.message);
+    });
   }
 
   // 🎨 ውብ የቁልፍ አካል
   const GameButton = ({ fee, color1, color2, glowColor }) => {
-    const isLoading = loading === fee;
     return (
       <button
-        disabled={loading !== null}
         onClick={() => play(fee)}
         style={{
           width: "100%",
@@ -186,7 +168,7 @@ function GameLobby({ onPlayStake }) {
           border: "none",
           borderRadius: 14,
           padding: "18px 24px",
-          cursor: loading !== null ? "wait" : "pointer",
+          cursor: "pointer",
           boxShadow: `0 8px 24px ${glowColor}66, 0 4px 12px ${glowColor}44, inset 0 1px 0 rgba(255,255,255,0.2)`,
           display: "flex",
           alignItems: "center",
@@ -194,9 +176,20 @@ function GameLobby({ onPlayStake }) {
           gap: 10,
           position: "relative",
           overflow: "hidden",
-          opacity: isLoading ? 0.7 : 1,
-          transition: "all 0.2s ease",
+          transition: "transform 0.1s ease",
           fontFamily: "inherit",
+        }}
+        onMouseDown={(e) => {
+          e.currentTarget.style.transform = "scale(0.98)";
+        }}
+        onMouseUp={(e) => {
+          e.currentTarget.style.transform = "scale(1)";
+        }}
+        onTouchStart={(e) => {
+          e.currentTarget.style.transform = "scale(0.98)";
+        }}
+        onTouchEnd={(e) => {
+          e.currentTarget.style.transform = "scale(1)";
         }}
       >
         <div
@@ -231,7 +224,7 @@ function GameLobby({ onPlayStake }) {
             zIndex: 1,
           }}
         >
-          {isLoading ? "Opening..." : `Play ${fee} ETB`}
+          Play {fee} ETB
         </span>
       </button>
     );
@@ -248,23 +241,6 @@ function GameLobby({ onPlayStake }) {
         background: "linear-gradient(180deg, #0f1420 0%, #1a0f2e 100%)",
       }}
     >
-      {error && (
-        <div
-          style={{
-            background: "linear-gradient(135deg, #e74c3c, #c0392b)",
-            color: "#fff",
-            padding: 12,
-            borderRadius: 12,
-            marginBottom: 15,
-            fontSize: 13,
-            textAlign: "center",
-            fontWeight: "bold",
-          }}
-        >
-          {error}
-        </div>
-      )}
-
       {/* HEADER */}
       <div style={{ textAlign: "center", marginBottom: 20, marginTop: 10 }}>
         <h1
@@ -447,7 +423,7 @@ function GameLobby({ onPlayStake }) {
                   fontWeight: "bold",
                 }}
               >
-                (12:00 EAT)
+                (ማታ 12:00 EAT)
               </span>
             </div>
           </div>
@@ -494,7 +470,7 @@ function GameLobby({ onPlayStake }) {
                   fontWeight: "bold",
                 }}
               >
-                (12:05 EAT)
+                (ማታ 12:05 EAT)
               </span>
             </div>
           </div>
@@ -601,34 +577,76 @@ function Profile({ user, balance, onUserUpdate }) {
         paddingBottom: 100,
       }}
     >
-      <div style={{ textAlign: "center", marginBottom: 20 }}>
-        <div
+            <div style={{ textAlign: "center", marginBottom: 22, marginTop: 8 }}>
+        <div style={{ position: "relative", width: 100, height: 100, margin: "0 auto 12px" }}>
+          {/* Outer glow ring */}
+          <div
+            style={{
+              position: "absolute",
+              inset: -6,
+              borderRadius: "50%",
+              background:
+                "conic-gradient(from 0deg, #f39c12, #ffd43b, #f39c12, #e67e22, #f39c12)",
+              animation: "spin 8s linear infinite",
+              opacity: 0.7,
+              filter: "blur(2px)",
+            }}
+          />
+          {/* Avatar */}
+          <div
+            style={{
+              position: "relative",
+              width: 100,
+              height: 100,
+              borderRadius: "50%",
+              background:
+                "linear-gradient(135deg, #3498db 0%, #2980b9 50%, #1c5f8f 100%)",
+              color: "#fff",
+              fontSize: 42,
+              fontWeight: "900",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "3px solid #0a0a14",
+              boxShadow: "0 8px 30px rgba(52,152,219,0.5)",
+              zIndex: 1,
+            }}
+          >
+            {initial}
+          </div>
+        </div>
+        <h2
           style={{
-            width: 80,
-            height: 80,
-            borderRadius: "50%",
-            background: "linear-gradient(135deg,#3498db,#2980b9)",
+            margin: "5px 0 4px",
             color: "#fff",
-            fontSize: 36,
-            fontWeight: "bold",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            margin: "0 auto 10px",
-            border: "2px solid #f39c12",
+            fontSize: 20,
+            fontWeight: "900",
+            letterSpacing: 0.3,
           }}
         >
-          {initial}
-        </div>
-        <h2 style={{ margin: "5px 0", color: "#fff" }}>
           {profile?.firstName || "User"} {profile?.lastName || ""}
         </h2>
-        <p style={{ color: "#f39c12", margin: 0 }}>
+        <p
+          style={{
+            color: "#f39c12",
+            margin: 0,
+            fontSize: 12,
+            fontWeight: "700",
+            letterSpacing: 0.5,
+          }}
+        >
           {profile?.username
             ? `@${profile.username}`
             : `@id_${profile?.telegramId}`}
         </p>
       </div>
+
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
 
       <div
         style={{
@@ -914,16 +932,52 @@ function Card({ icon, label, value, color }) {
   return (
     <div
       style={{
-        background: "#1a1a2e",
-        border: `1px solid ${color}40`,
-        borderRadius: 12,
-        padding: 14,
+        background: `linear-gradient(135deg, ${color}22, rgba(15,20,32,0.9))`,
+        border: `1px solid ${color}55`,
+        borderRadius: 14,
+        padding: 16,
         textAlign: "center",
+        boxShadow: `0 4px 15px ${color}22, inset 0 1px 0 rgba(255,255,255,0.05)`,
+        position: "relative",
+        overflow: "hidden",
       }}
     >
-      <div style={{ fontSize: 24 }}>{icon}</div>
-      <div style={{ color: "#aaa", fontSize: 11, marginTop: 4 }}>{label}</div>
-      <div style={{ color, fontSize: 16, fontWeight: "bold", marginTop: 2 }}>
+      <div
+        style={{
+          position: "absolute",
+          top: -10,
+          right: -10,
+          width: 50,
+          height: 50,
+          borderRadius: "50%",
+          background: `${color}15`,
+        }}
+      />
+      <div style={{ fontSize: 26, marginBottom: 4, position: "relative" }}>
+        {icon}
+      </div>
+      <div
+        style={{
+          color: "#888",
+          fontSize: 10,
+          marginTop: 4,
+          fontWeight: "700",
+          letterSpacing: 1,
+          textTransform: "uppercase",
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          color,
+          fontSize: 18,
+          fontWeight: "900",
+          marginTop: 4,
+          textShadow: `0 0 15px ${color}66`,
+          position: "relative",
+        }}
+      >
         {value}
       </div>
     </div>

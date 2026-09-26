@@ -5,6 +5,7 @@ const API_BASE_URL =
   process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.onrender.com";
 
 const TOTAL_CARDS = 1250;
+const FALLBACK_TIMER_SEC = 50;
 
 export default function CartelaSelection({
   roomCode,
@@ -15,8 +16,10 @@ export default function CartelaSelection({
 }) {
   const [selectedCards, setSelectedCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
-  const [countdown, setCountdown] = useState(null);
-  const [deadlineAt, setDeadlineAt] = useState(null);
+  const [countdown, setCountdown] = useState(FALLBACK_TIMER_SEC);
+  const [deadlineAt, setDeadlineAt] = useState(
+    Date.now() + FALLBACK_TIMER_SEC * 1000
+  );
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [isWeekly, setIsWeekly] = useState(false);
@@ -31,8 +34,8 @@ export default function CartelaSelection({
     triggeredRef.current = false;
     fetchedRef.current = false;
     confirmLockRef.current = false;
-    setDeadlineAt(null);
-    setCountdown(null);
+    setDeadlineAt(Date.now() + FALLBACK_TIMER_SEC * 1000);
+    setCountdown(FALLBACK_TIMER_SEC);
     setSelectedCards([]);
     setTakenCards([]);
     setError("");
@@ -44,16 +47,23 @@ export default function CartelaSelection({
     fetchedRef.current = true;
     let cancelled = false;
 
-    (async () => {
+    const fetchRoom = async (attempt = 1) => {
       try {
         const token = localStorage.getItem("bingo_token");
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+
         const res = await fetch(`${API_BASE_URL}/api/game/rooms/${roomCode}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
+
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (cancelled) return;
 
+        setError("");
         if (data.takenCards) setTakenCards(data.takenCards);
         if (data.reservedCards) {
           setTakenCards((prev) => [
@@ -68,7 +78,7 @@ export default function CartelaSelection({
           return;
         }
 
-        let remaining = 0;
+        let remaining = FALLBACK_TIMER_SEC;
         let localDeadline = null;
         if (data.selectionEndsAt && data.serverTime) {
           const sd = new Date(data.selectionEndsAt).getTime();
@@ -86,17 +96,29 @@ export default function CartelaSelection({
           remaining = Math.max(0, data.remainingSeconds);
           if (remaining > 0) localDeadline = Date.now() + remaining * 1000;
         }
-        if (localDeadline !== null) {
-          setDeadlineAt(localDeadline);
-          setCountdown(remaining);
-        } else if (remaining === 0) {
-          setCountdown(0);
+        if (localDeadline === null) {
+          localDeadline = Date.now() + FALLBACK_TIMER_SEC * 1000;
+          remaining = FALLBACK_TIMER_SEC;
         }
+        setDeadlineAt(localDeadline);
+        setCountdown(remaining);
       } catch (e) {
         if (cancelled) return;
-        setError("⚠️ Could not connect to server");
+        if (e.name === "AbortError" && attempt < 3) {
+          setTimeout(() => fetchRoom(attempt + 1), 1000);
+          return;
+        }
+        if (attempt < 3) {
+          setTimeout(() => fetchRoom(attempt + 1), 1500 * attempt);
+          return;
+        }
+        setError("⚠️ Offline — connecting...");
+        setDeadlineAt(Date.now() + FALLBACK_TIMER_SEC * 1000);
+        setCountdown(FALLBACK_TIMER_SEC);
       }
-    })();
+    };
+
+    fetchRoom();
 
     (async () => {
       try {
@@ -121,11 +143,10 @@ export default function CartelaSelection({
       setCountdown(rem);
     };
     tick();
-    const timer = setInterval(tick, 1000);
+    const timer = setInterval(tick, 100);
     return () => clearInterval(timer);
   }, [deadlineAt, isWeekly]);
 
-  // 👈 Timer 0 → ወደ Live Game (2 ሰከንድ ውስጥ)
   useEffect(() => {
     if (isWeekly) return;
     if (countdown === null || countdown > 0) return;
@@ -171,18 +192,15 @@ export default function CartelaSelection({
 
   const handleSelect = (id) => {
     if (confirmLockRef.current) return;
-
     if (takenCards.includes(id) && !selectedCards.includes(id)) {
       return setError(`❌ Card #${id} taken!`);
     }
-
     if (selectedCards.includes(id)) {
       getSocket().emit("deselect_card", { roomCode, cardId: id });
       setSelectedCards((p) => p.filter((x) => x !== id));
       setError("");
       return;
     }
-
     getSocket().emit("select_card", { roomCode, cardId: id });
     setSelectedCards((p) => [...p, id]);
     setError("");
@@ -198,57 +216,113 @@ export default function CartelaSelection({
   const numbers = Array.from({ length: TOTAL_CARDS }, (_, i) => i + 1);
   const total = selectedCards.length * stake;
 
+  // ⏱ Time color based on remaining
+  const timeColor =
+    countdown === null
+      ? "#f39c12"
+      : countdown <= 10
+      ? "#e74c3c"
+      : countdown <= 20
+      ? "#f59e0b"
+      : "#2ecc71";
+
   return (
     <div
       style={{
-        padding: 10,
+        padding: 12,
         maxWidth: 480,
         margin: "0 auto",
         color: "#fff",
         minHeight: "100vh",
-        background: "linear-gradient(180deg, #0f1420 0%, #1a0f2e 100%)",
+        background: "linear-gradient(180deg, #0a0a14 0%, #150a2e 100%)",
         display: "flex",
         flexDirection: "column",
+        position: "relative",
       }}
     >
+      {/* Back button */}
       <button
         onClick={onCancel}
         style={{
           alignSelf: "flex-start",
-          background: "#1a1a2e",
-          border: "1px solid #4c6ef5",
+          background: "rgba(26,26,46,0.8)",
+          border: "1px solid rgba(76,110,245,0.5)",
           color: "#fff",
-          borderRadius: 10,
+          borderRadius: 12,
           padding: "8px 16px",
           cursor: "pointer",
-          marginBottom: 8,
+          marginBottom: 10,
           fontWeight: "bold",
           fontSize: 12,
+          backdropFilter: "blur(10px)",
         }}
       >
         ← Back
       </button>
 
+      {/* 👑 Header */}
+      <div
+        style={{
+          textAlign: "center",
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 22,
+            fontWeight: "900",
+            background:
+              "linear-gradient(135deg, #f39c12, #ffd43b, #f39c12)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+            letterSpacing: 0.5,
+          }}
+        >
+          🎴 CHOOSE CARDS
+        </div>
+        <div
+          style={{
+            color: "#888",
+            fontSize: 10,
+            letterSpacing: 3,
+            fontWeight: "700",
+            marginTop: 4,
+          }}
+        >
+          {roomCode} • STAKE {stake} ETB
+        </div>
+      </div>
+
+      {/* Stats Cards */}
       <div
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(4, 1fr)",
-          gap: 4,
-          background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
-          border: "1px solid #f39c12",
-          borderRadius: 10,
-          padding: "8px 6px",
-          marginBottom: 8,
+          gap: 6,
+          marginBottom: 10,
         }}
       >
-        <InfoCell label="Wallet" value={currentBalance} color="#2ecc71" />
-        <InfoCell label="Stake" value={stake} color="#f39c12" />
-        <InfoCell
+        <StatBox
+          icon="💰"
+          label="Wallet"
+          value={currentBalance}
+          color="#2ecc71"
+        />
+        <StatBox
+          icon="🎯"
+          label="Stake"
+          value={stake}
+          color="#f39c12"
+        />
+        <StatBox
+          icon="🎴"
           label="Selected"
           value={selectedCards.length}
           color="#3498db"
         />
-        <InfoCell
+        <StatBox
+          icon={isWeekly ? "🗓" : "⏱"}
           label={isWeekly ? "Draw" : "Time"}
           value={
             isWeekly
@@ -259,34 +333,60 @@ export default function CartelaSelection({
               ? `${countdown}s`
               : "…"
           }
-          color={
-            isWeekly
-              ? "#f39c12"
-              : countdown !== null && countdown <= 10
-              ? "#e74c3c"
-              : "#ffd43b"
-          }
+          color={isWeekly ? "#f39c12" : timeColor}
+          pulse={!isWeekly && countdown !== null && countdown <= 10}
         />
       </div>
 
+      {/* Progress bar for time */}
+      {!isWeekly && countdown !== null && (
+        <div
+          style={{
+            width: "100%",
+            height: 4,
+            background: "rgba(26,26,46,0.8)",
+            borderRadius: 2,
+            marginBottom: 10,
+            overflow: "hidden",
+            border: "1px solid rgba(42,42,64,0.6)",
+          }}
+        >
+          <div
+            style={{
+              height: "100%",
+              width: `${Math.min(100, (countdown / 50) * 100)}%`,
+              background: `linear-gradient(90deg, ${timeColor}, ${timeColor}cc)`,
+              borderRadius: 2,
+              boxShadow: `0 0 10px ${timeColor}`,
+              transition: "width 0.3s linear",
+            }}
+          />
+        </div>
+      )}
+
+      {/* Total display */}
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
-          background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
-          border: "1px solid #2a2a40",
-          borderRadius: 10,
-          padding: "8px 12px",
-          marginBottom: 8,
-          fontSize: 12,
-          fontWeight: "bold",
+          alignItems: "center",
+          background:
+            "linear-gradient(135deg, rgba(26,26,46,0.7), rgba(15,20,32,0.9))",
+          border: "1px solid rgba(243,156,18,0.3)",
+          borderRadius: 12,
+          padding: "10px 14px",
+          marginBottom: 10,
         }}
       >
-        <span>
-          Selected: <b style={{ color: "#2ecc71" }}>{selectedCards.length}</b>
+        <span style={{ fontSize: 12, color: "#aaa", fontWeight: "700" }}>
+          🎴 SELECTED:{" "}
+          <b style={{ color: "#2ecc71", fontSize: 14 }}>
+            {selectedCards.length}
+          </b>
         </span>
-        <span>
-          Total: <b style={{ color: "#f39c12" }}>{total} ETB</b>
+        <span style={{ fontSize: 12, color: "#aaa", fontWeight: "700" }}>
+          💵 TOTAL:{" "}
+          <b style={{ color: "#f39c12", fontSize: 14 }}>{total} ETB</b>
         </span>
       </div>
 
@@ -295,18 +395,21 @@ export default function CartelaSelection({
           style={{
             background: "linear-gradient(135deg, #e74c3c, #c0392b)",
             color: "#fff",
-            padding: 8,
-            borderRadius: 8,
-            marginBottom: 8,
-            fontSize: 11,
+            padding: 10,
+            borderRadius: 10,
+            marginBottom: 10,
+            fontSize: 12,
             textAlign: "center",
             fontWeight: "bold",
+            boxShadow: "0 4px 15px rgba(231,76,60,0.4)",
+            animation: "fadeInUp 0.3s ease-out",
           }}
         >
           {error}
         </div>
       )}
 
+      {/* Numbers Grid */}
       <div
         style={{
           flex: 1,
@@ -314,10 +417,10 @@ export default function CartelaSelection({
           display: "grid",
           gridTemplateColumns: "repeat(8, 1fr)",
           gap: 4,
-          marginBottom: 8,
+          marginBottom: 10,
           paddingRight: 4,
           alignContent: "start",
-          maxHeight: "calc(100vh - 260px)",
+          maxHeight: "calc(100vh - 340px)",
           WebkitOverflowScrolling: "touch",
         }}
       >
@@ -330,10 +433,12 @@ export default function CartelaSelection({
               onClick={() => handleSelect(n)}
               disabled={isTaken}
               style={{
-                padding: "9px 0",
-                borderRadius: 6,
+                padding: "10px 0",
+                borderRadius: 8,
                 border: isSelected
                   ? "2px solid #2ecc71"
+                  : isTaken
+                  ? "1px solid #8e1f1f"
                   : "1px solid #2a2a40",
                 background: isTaken
                   ? "linear-gradient(135deg, #c0392b, #8e1f1f)"
@@ -341,13 +446,15 @@ export default function CartelaSelection({
                   ? "linear-gradient(135deg, #2ecc71, #27ae60)"
                   : "linear-gradient(135deg, #1b2233, #151b2b)",
                 color: "#fff",
-                fontWeight: "bold",
-                fontSize: 10,
+                fontWeight: "900",
+                fontSize: 11,
                 cursor: isTaken ? "not-allowed" : "pointer",
-                opacity: isTaken ? 0.6 : 1,
+                opacity: isTaken ? 0.5 : 1,
                 boxShadow: isSelected
-                  ? "0 0 10px rgba(46,204,113,0.6)"
-                  : "none",
+                  ? "0 0 12px rgba(46,204,113,0.7), inset 0 1px 0 rgba(255,255,255,0.2)"
+                  : "inset 0 1px 0 rgba(255,255,255,0.05)",
+                transition: "all 0.1s ease",
+                fontFamily: "inherit",
               }}
             >
               {n}
@@ -356,6 +463,7 @@ export default function CartelaSelection({
         })}
       </div>
 
+      {/* Weekly confirm */}
       {isWeekly && (
         <button
           onClick={confirmWeekly}
@@ -367,33 +475,68 @@ export default function CartelaSelection({
               : "linear-gradient(135deg,#f39c12,#e67e22)",
             color: "#fff",
             border: "none",
-            borderRadius: 10,
-            padding: 12,
-            fontSize: 13,
-            fontWeight: "bold",
+            borderRadius: 14,
+            padding: 16,
+            fontSize: 15,
+            fontWeight: "900",
             cursor: !selectedCards.length ? "not-allowed" : "pointer",
             marginBottom: 8,
+            boxShadow: !selectedCards.length
+              ? "none"
+              : "0 6px 20px rgba(243,156,18,0.5), inset 0 1px 0 rgba(255,255,255,0.2)",
+            letterSpacing: 0.5,
           }}
         >
-          ✅ Confirm ({selectedCards.length} cards, {total} ETB)
+          ✅ CONFIRM ({selectedCards.length} cards, {total} ETB)
         </button>
       )}
+
+      <style>{`
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.6; }
+        }
+      `}</style>
     </div>
   );
 }
 
-function InfoCell({ label, value, color = "#fff" }) {
+function StatBox({ icon, label, value, color, pulse }) {
   return (
-    <div style={{ textAlign: "center" }}>
-      <div style={{ color: "#aaa", fontSize: 8, marginBottom: 2 }}>
+    <div
+      style={{
+        background: `linear-gradient(135deg, ${color}22, ${color}08)`,
+        border: `1px solid ${color}66`,
+        borderRadius: 12,
+        padding: "10px 4px",
+        textAlign: "center",
+        position: "relative",
+        boxShadow: `0 2px 10px ${color}22`,
+        animation: pulse ? "pulse 1s ease-in-out infinite" : "none",
+      }}
+    >
+      <div style={{ fontSize: 14, marginBottom: 2 }}>{icon}</div>
+      <div
+        style={{
+          color: "#aaa",
+          fontSize: 8,
+          fontWeight: "700",
+          letterSpacing: 0.5,
+          marginBottom: 2,
+        }}
+      >
         {label}
       </div>
       <div
         style={{
           color,
           fontSize: 13,
-          fontWeight: "bold",
-          lineHeight: 1.2,
+          fontWeight: "900",
+          textShadow: `0 0 10px ${color}66`,
         }}
       >
         {value}
