@@ -3,29 +3,35 @@ const Game = require("../models/Game");
 const User = require("../models/User");
 const auth = require("./auth");
 const { requireAuth } = auth;
-const { generate1000Cards } = require("../utils/bingoCard");
+const { generate1250Cards, TOTAL_CARDS } = require("../utils/bingoCard");
 
 const router = express.Router();
 router.use(requireAuth);
 
 const TIMER_MS = Number(process.env.SELECTION_TIMER_MS || 50000);
 
-function getNextWeeklyStart(fee) {
+// ═══════════════════════════════════════════════════════
+// 🕐 DAILY — በየቀኑ 12:00 / 12:05 EAT (ማታ)
+// ═══════════════════════════════════════════════════════
+function getNextDailyStart(fee) {
   const ETHIOPIA_OFFSET_MS = 3 * 60 * 60 * 1000;
   const now = new Date();
   const et = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
-  const targetDay = 6;
-  const targetHour = 0;
+
+  const targetHour = 0; // 👈 ማታ 12:00 (midnight)
   const targetMinute = fee === 50 ? 0 : 5;
-  let daysUntil = (targetDay - et.getUTCDay() + 7) % 7;
-  if (daysUntil === 0) {
-    const today = new Date(et);
-    today.setUTCHours(targetHour, targetMinute, 0, 0);
-    if (et >= today) daysUntil = 7;
+
+  const today = new Date(et);
+  today.setUTCHours(targetHour, targetMinute, 0, 0);
+
+  let next;
+  if (et.getTime() < today.getTime()) {
+    next = today;
+  } else {
+    next = new Date(today);
+    next.setUTCDate(next.getUTCDate() + 1);
   }
-  const next = new Date(et);
-  next.setUTCDate(next.getUTCDate() + daysUntil);
-  next.setUTCHours(targetHour, targetMinute, 0, 0);
+
   return new Date(next.getTime() - ETHIOPIA_OFFSET_MS);
 }
 
@@ -38,32 +44,53 @@ function getRoomFeeConfig(roomCode, fallbackFee) {
   };
 }
 
+// ═══════════════════════════════════════════════════════
+// GET /rooms/:roomCode
+// ═══════════════════════════════════════════════════════
 router.get("/rooms/:roomCode", async (req, res) => {
   try {
     const roomCode = req.params.roomCode.trim().toUpperCase();
-    const game = await Game.findOne({ roomCode });
+    let game = await Game.findOne({ roomCode });
     if (!game) return res.status(404).json({ error: "Room not found" });
 
     // ═══════════════════════════════════════════════════════
-    // 🕐 TIMER — for both weekly & regular games
+    // 🕐 AUTO-FIX: Weekly room without scheduledStart
+    // ═══════════════════════════════════════════════════════
+    if (
+      game.isWeeklyGame &&
+      !game.scheduledStart &&
+      game.status === "waiting"
+    ) {
+      game.scheduledStart = getNextDailyStart(game.entryFee);
+      game.selectionEndsAt = undefined;
+      await game.save();
+      console.log(
+        `[GET] Fixed ${roomCode} scheduledStart=${game.scheduledStart.toISOString()}`
+      );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 🕐 COMPUTE remainingSeconds (server-side)
     // ═══════════════════════════════════════════════════════
     let targetTime = null;
 
     if (game.isWeeklyGame && game.scheduledStart) {
-      // 50/100 games → use scheduledStart (12:00/12:05 EAT)
       targetTime = new Date(game.scheduledStart);
     } else if (game.selectionEndsAt) {
-      // 10/20 games → use selectionEndsAt
       targetTime = new Date(game.selectionEndsAt);
     }
 
     let remainingSeconds = 0;
-    if (targetTime) {
-      remainingSeconds = Math.max(
-        0,
-        Math.floor((targetTime.getTime() - Date.now()) / 1000)
-      );
+    if (targetTime && game.status === "waiting") {
+      const diff = targetTime.getTime() - Date.now();
+      remainingSeconds = Math.max(0, Math.floor(diff / 1000));
     }
+
+    console.log(
+      `[GET] ${roomCode} — weekly=${game.isWeeklyGame} status=${
+        game.status
+      } target=${targetTime?.toISOString()} remaining=${remainingSeconds}s`
+    );
 
     res.json({
       roomCode: game.roomCode,
@@ -88,6 +115,9 @@ router.get("/rooms/:roomCode", async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// GET /stats
+// ═══════════════════════════════════════════════════════
 router.get("/stats", async (req, res) => {
   try {
     const totalUsers = await User.countDocuments();
@@ -98,6 +128,9 @@ router.get("/stats", async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// POST /rooms — ክፍል ፍጠር / አስመልስ
+// ═══════════════════════════════════════════════════════
 router.post("/rooms", async (req, res) => {
   try {
     let { roomCode, entryFee } = req.body;
@@ -110,23 +143,46 @@ router.post("/rooms", async (req, res) => {
         roomCode,
         entryFee: fee,
         maxNumber: Number(process.env.BINGO_MAX_NUMBER || 75),
-        allCards: generate1000Cards(),
+        allCards: generate1250Cards(), // 👈 1250
         isWeeklyGame: isWeekly,
+        status: "waiting",
       };
+
       if (isWeekly) {
-        data.scheduledStart = getNextWeeklyStart(fee);
+        data.scheduledStart = getNextDailyStart(fee); // 👈 DAILY
       } else {
         data.selectionEndsAt = new Date(Date.now() + TIMER_MS);
       }
+
       game = await Game.create(data);
+      console.log(
+        `[POST] Created ${roomCode} — weekly=${isWeekly} fee=${fee}`
+      );
+    } else if (
+      !game.allCards?.length ||
+      game.allCards.length < TOTAL_CARDS
+    ) {
+      // 👈 ካርዶች ካነሱ እንደገና ፍጠር
+      game.allCards = generate1250Cards();
+      await game.save();
+      console.log(`[POST] Refilled cards for ${roomCode}`);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 🕐 COMPUTE remainingSeconds
+    // ═══════════════════════════════════════════════════════
+    let targetTime = null;
+
+    if (game.isWeeklyGame && game.scheduledStart) {
+      targetTime = new Date(game.scheduledStart);
+    } else if (game.selectionEndsAt) {
+      targetTime = new Date(game.selectionEndsAt);
     }
 
     let remainingSeconds = 0;
-    if (!game.isWeeklyGame && game.selectionEndsAt) {
-      remainingSeconds = Math.max(
-        0,
-        Math.floor((new Date(game.selectionEndsAt) - Date.now()) / 1000)
-      );
+    if (targetTime && game.status === "waiting") {
+      const diff = targetTime.getTime() - Date.now();
+      remainingSeconds = Math.max(0, Math.floor(diff / 1000));
     }
 
     res.status(201).json({
@@ -135,13 +191,14 @@ router.post("/rooms", async (req, res) => {
       entryFee: game.entryFee,
       prizePool: game.prizePool,
       playerCount: game.players.length,
-      selectionEndsAt: game.selectionEndsAt,
+      selectionEndsAt: targetTime,
+      scheduledStart: game.scheduledStart,
       serverTime: new Date().toISOString(),
       remainingSeconds,
-      scheduledStart: game.scheduledStart,
       isWeeklyGame: game.isWeeklyGame || false,
     });
   } catch (err) {
+    console.error("[POST /rooms]", err);
     res.status(500).json({ error: "Could not create room" });
   }
 });
