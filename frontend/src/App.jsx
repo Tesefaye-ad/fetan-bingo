@@ -126,37 +126,20 @@ function Login({ onLoggedIn }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// GAME LOBBY — ⚡ ፈጣን + "Opening..." የለም
+// GAME LOBBY — ያለ countdown
 // ═══════════════════════════════════════════════════════
 function GameLobby({ onPlayStake }) {
-  const [daily50, setDaily50] = useState("00:00:00");
-  const [daily100, setDaily100] = useState("00:00:00");
-
-  // 🕐 Live countdown to 12:00 & 12:05 EAT (ማታ)
-  useEffect(() => {
-    const update = () => {
-      setDaily50(formatCountdown(getTimeUntilNextDaily(0, 0)));
-      setDaily100(formatCountdown(getTimeUntilNextDaily(0, 5)));
-    };
-    update();
-    const id = setInterval(update, 1000);
-    return () => clearInterval(id);
-  }, []);
-
   // ⚡ ወዲያውኑ ወደ ካርቴላ
   function play(fee) {
     const fallbackCode = SHARED_ROOMS[fee] || `ROOM${fee}`;
-
-    // 👈 ወዲያውኑ ወደ ካርቴላ ሂድ
     onPlayStake(fee, fallbackCode);
 
-    // 👈 Backend ን በ background ጥራ (user ሳይጠብቅ)
+    // Backend ን በ background ጥራ
     createRoom(fee, fallbackCode).catch((err) => {
       console.warn("[GameLobby] createRoom background failed:", err.message);
     });
   }
 
-  // 🎨 ውብ የቁልፍ አካል
   const GameButton = ({ fee, color1, color2, glowColor }) => {
     return (
       <button
@@ -342,7 +325,7 @@ function GameLobby({ onPlayStake }) {
         </div>
       </div>
 
-      {/* 🏆 DAILY JACKPOT — Live Countdown */}
+      {/* 🏆 DAILY JACKPOT */}
       <div
         style={{
           background:
@@ -380,100 +363,19 @@ function GameLobby({ onPlayStake }) {
           <span style={{ fontSize: 16 }}>🏆</span>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* Play 50 — 12:00 */}
-          <div>
-            <GameButton
-              fee={50}
-              color1="#8b5cf6"
-              color2="#7c3aed"
-              glowColor="#8b5cf6"
-            />
-            <div
-              style={{
-                textAlign: "center",
-                marginTop: 8,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-              }}
-            >
-              <span style={{ fontSize: 13 }}>🕐</span>
-              <span
-                style={{
-                  color: "#8b5cf6",
-                  fontSize: 13,
-                  fontWeight: "900",
-                  fontFamily: "monospace",
-                  letterSpacing: 1,
-                  textShadow: "0 0 10px rgba(139,92,246,0.5)",
-                  background: "rgba(139,92,246,0.15)",
-                  padding: "3px 10px",
-                  borderRadius: 8,
-                  border: "1px solid rgba(139,92,246,0.4)",
-                }}
-              >
-                {daily50}
-              </span>
-              <span
-                style={{
-                  color: "#888",
-                  fontSize: 10,
-                  fontWeight: "bold",
-                }}
-              >
-                (ማታ 12:00 EAT)
-              </span>
-            </div>
-          </div>
-
-          {/* Play 100 — 12:05 */}
-          <div>
-            <GameButton
-              fee={100}
-              color1="#f59e0b"
-              color2="#d97706"
-              glowColor="#f59e0b"
-            />
-            <div
-              style={{
-                textAlign: "center",
-                marginTop: 8,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-              }}
-            >
-              <span style={{ fontSize: 13 }}>🕐</span>
-              <span
-                style={{
-                  color: "#f59e0b",
-                  fontSize: 13,
-                  fontWeight: "900",
-                  fontFamily: "monospace",
-                  letterSpacing: 1,
-                  textShadow: "0 0 10px rgba(245,158,11,0.5)",
-                  background: "rgba(245,158,11,0.15)",
-                  padding: "3px 10px",
-                  borderRadius: 8,
-                  border: "1px solid rgba(245,158,11,0.4)",
-                }}
-              >
-                {daily100}
-              </span>
-              <span
-                style={{
-                  color: "#888",
-                  fontSize: 10,
-                  fontWeight: "bold",
-                }}
-              >
-                (ማታ 12:05 EAT)
-              </span>
-            </div>
-          </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <GameButton
+            fee={50}
+            color1="#8b5cf6"
+            color2="#7c3aed"
+            glowColor="#8b5cf6"
+          />
+          <GameButton
+            fee={100}
+            color1="#f59e0b"
+            color2="#d97706"
+            glowColor="#f59e0b"
+          />
         </div>
       </div>
 

@@ -897,10 +897,36 @@ function initGameSocket(io) {
         return;
       }
 
+     // ═══════════════════════════════════════════════════════
+      // 🎴 PROMOTE reservedCards → players (for 50/100 games)
+      // ═══════════════════════════════════════════════════════
+      if (game.isWeeklyGame && (game.reservedCards || []).length > 0) {
+        for (const r of game.reservedCards) {
+          const cardData = game.allCards.find((c) => c.cardId === r.cardId);
+          if (!cardData) continue;
+
+          const alreadyPlayer = game.players.some(
+            (p) =>
+              p.user.toString() === r.user.toString() &&
+              p.cardId === r.cardId
+          );
+          if (alreadyPlayer) continue;
+
+          game.players.push({
+            user: r.user,
+            telegramId: r.telegramId,
+            cardId: cardData.cardId,
+            card: cardData.card,
+            marked: cardData.marked.map((row) => [...row]),
+            hasWon: false,
+          });
+          game.prizePool += Math.floor(game.entryFee * 0.8);
+        }
+        game.reservedCards = [];
+      }
+
       const playerCount = game.players.length;
       const hasPlayers = playerCount > 0;
-
-      const intervalMs = hasPlayers ? CALL_INTERVAL_MS : EMPTY_GAME_INTERVAL_MS;
 
       game.status = "active";
       game.startedAt = new Date();
@@ -910,7 +936,6 @@ function initGameSocket(io) {
       game.winPattern = getPatternForRoom(game.entryFee);
       game.selectionEndsAt = undefined;
       await game.save();
-
       console.log(
         `[startGame] ${roomCode} — ${playerCount} player(s) — ${
           hasPlayers ? "400ms" : "300ms"

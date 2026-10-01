@@ -44,11 +44,24 @@ router.get("/rooms/:roomCode", async (req, res) => {
     const game = await Game.findOne({ roomCode });
     if (!game) return res.status(404).json({ error: "Room not found" });
 
+    // ═══════════════════════════════════════════════════════
+    // 🕐 TIMER — for both weekly & regular games
+    // ═══════════════════════════════════════════════════════
+    let targetTime = null;
+
+    if (game.isWeeklyGame && game.scheduledStart) {
+      // 50/100 games → use scheduledStart (12:00/12:05 EAT)
+      targetTime = new Date(game.scheduledStart);
+    } else if (game.selectionEndsAt) {
+      // 10/20 games → use selectionEndsAt
+      targetTime = new Date(game.selectionEndsAt);
+    }
+
     let remainingSeconds = 0;
-    if (!game.isWeeklyGame && game.selectionEndsAt) {
+    if (targetTime) {
       remainingSeconds = Math.max(
         0,
-        Math.floor((new Date(game.selectionEndsAt) - Date.now()) / 1000)
+        Math.floor((targetTime.getTime() - Date.now()) / 1000)
       );
     }
 
@@ -62,14 +75,15 @@ router.get("/rooms/:roomCode", async (req, res) => {
       maxNumber: game.maxNumber,
       takenCards: game.players.map((p) => p.cardId),
       reservedCards: (game.reservedCards || []).map((r) => r.cardId),
-      selectionEndsAt: game.selectionEndsAt,
+      selectionEndsAt: targetTime,
+      scheduledStart: game.scheduledStart,
       serverTime: new Date().toISOString(),
       remainingSeconds,
-      scheduledStart: game.scheduledStart,
       isWeeklyGame: game.isWeeklyGame || false,
       winnersCount: game.winners?.length || 0,
     });
   } catch (err) {
+    console.error("[GET /rooms/:roomCode]", err);
     res.status(500).json({ error: "Could not load room" });
   }
 });
