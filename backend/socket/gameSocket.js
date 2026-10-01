@@ -39,34 +39,31 @@ function stopCaller(roomCode) {
 // 🕛 DAILY — በየቀኑ ማታ 12:00 (00:00) / 12:05 (00:05) EAT
 // ═══════════════════════════════════════════════════════
 function getNextDailyStart(fee) {
-  const ETHIOPIA_OFFSET_MS = 3 * 60 * 60 * 1000; // EAT = UTC+3
+  const ETHIOPIA_OFFSET_MS = 3 * 60 * 60 * 1000;
   const now = new Date();
-
-  // Shift to EAT "virtual" time
   const et = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
 
-  const targetHour = 0; // 👈 ማታ 12:00 (midnight)
+  const targetHour = 0; // 👈 ማታ 12:00 EAT (midnight)
   const targetMinute = fee === 50 ? 0 : 5;
 
-  // Today's target in EAT virtual space
   const today = new Date(et);
   today.setUTCHours(targetHour, targetMinute, 0, 0);
 
   let next;
   if (et.getTime() < today.getTime()) {
-    // ዛሬ ገና ሰዓቱ አልደረሰም
     next = today;
   } else {
-    // ነገ
     next = new Date(today);
     next.setUTCDate(next.getUTCDate() + 1);
   }
 
-  // Convert back to real UTC
   const result = new Date(next.getTime() - ETHIOPIA_OFFSET_MS);
 
   console.log(
-    `[getNextDailyStart] fee=${fee} → EAT ${next.toISOString().slice(0, 16).replace("T", " ")} (UTC: ${result.toISOString()})`
+    `[getNextDailyStart] fee=${fee} → EAT ${next
+      .toISOString()
+      .slice(0, 16)
+      .replace("T", " ")} (UTC: ${result.toISOString()})`
   );
 
   return result;
@@ -897,7 +894,7 @@ function initGameSocket(io) {
         return;
       }
 
-     // ═══════════════════════════════════════════════════════
+      // ═══════════════════════════════════════════════════════
       // 🎴 PROMOTE reservedCards → players (for 50/100 games)
       // ═══════════════════════════════════════════════════════
       if (game.isWeeklyGame && (game.reservedCards || []).length > 0) {
@@ -936,6 +933,7 @@ function initGameSocket(io) {
       game.winPattern = getPatternForRoom(game.entryFee);
       game.selectionEndsAt = undefined;
       await game.save();
+
       console.log(
         `[startGame] ${roomCode} — ${playerCount} player(s) — ${
           hasPlayers ? "400ms" : "300ms"
