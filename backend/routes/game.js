@@ -12,17 +12,17 @@ const router = express.Router();
 router.use(requireAuth);
 
 const TIMER_MS = Number(process.env.SELECTION_TIMER_MS || 50000);
-const EXPIRY_GRACE_MS = 3000; // 👈 3s ከሆነ በኋላ reset ያደርጋል
+const EXPIRY_GRACE_MS = 3000;
 
 // ═══════════════════════════════════════════════════════
-// 🕐 DAILY — በየ24 ሰዓቱ አንድ ጊዜ (12:00/12:05 EAT)
+// 🕛 DAILY — ማታ 12:00 / 12:05 EAT
 // ═══════════════════════════════════════════════════════
 function getNextDailyStart(fee) {
   const ETHIOPIA_OFFSET_MS = 3 * 60 * 60 * 1000;
   const now = new Date();
   const et = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
 
-  const targetHour = 0; // 👈 ማታ 12:00 EAT (midnight)
+  const targetHour = 0;
   const targetMinute = fee === 50 ? 0 : 5;
 
   const today = new Date(et);
@@ -48,9 +48,6 @@ function getRoomFeeConfig(roomCode, fallbackFee) {
   };
 }
 
-// ═══════════════════════════════════════════════════════
-// 👈 አዲስ: Room factory (ሁሉም ቦታ ይጠቀምበታል)
-// ═══════════════════════════════════════════════════════
 function buildNewRoom(roomCode, isWeekly, fee) {
   const data = {
     roomCode,
@@ -66,32 +63,22 @@ function buildNewRoom(roomCode, isWeekly, fee) {
     reservedCards: [],
     winners: [],
     winningCartelas: [],
-    startedAt: undefined,
-    finishedAt: undefined,
   };
   if (isWeekly) {
     data.scheduledStart = getNextDailyStart(fee);
-    data.selectionEndsAt = undefined;
   } else {
     data.selectionEndsAt = new Date(Date.now() + TIMER_MS);
-    data.scheduledStart = undefined;
   }
   return data;
 }
 
-// ═══════════════════════════════════════════════════════
-// 👈 አዲስ: Reset expired room (ሁሉንም አጽዳ + አዲስ ሰዓት)
-// ═══════════════════════════════════════════════════════
 async function resetExpiredRoom(game) {
   const now = Date.now();
-  const isWeekly = game.isWeeklyGame;
-
-  // ጨዋታ የሚጫወት ሰው ካለ → አትንካ
   const hasPlayers =
     game.players.length > 0 || (game.reservedCards || []).length > 0;
   if (hasPlayers) return false;
 
-  if (isWeekly) {
+  if (game.isWeeklyGame) {
     const sched = game.scheduledStart
       ? new Date(game.scheduledStart).getTime()
       : 0;
@@ -104,9 +91,6 @@ async function resetExpiredRoom(game) {
       game.winners = [];
       game.winningCartelas = [];
       await game.save();
-      console.log(
-        `[reset] ${game.roomCode} weekly expired → ${game.scheduledStart.toISOString()}`
-      );
       return true;
     }
   } else {
@@ -115,25 +99,18 @@ async function resetExpiredRoom(game) {
       : 0;
     if (sel > 0 && sel < now - EXPIRY_GRACE_MS) {
       game.selectionEndsAt = new Date(now + TIMER_MS);
-      game.scheduledStart = undefined;
       game.status = "waiting";
       game.calledNumbers = [];
       game.prizePool = 0;
       game.winners = [];
       game.winningCartelas = [];
       await game.save();
-      console.log(
-        `[reset] ${game.roomCode} timer expired → ${TIMER_MS / 1000}s`
-      );
       return true;
     }
   }
   return false;
 }
 
-// ═══════════════════════════════════════════════════════
-// 👈 አዲስ: Compute remaining
-// ═══════════════════════════════════════════════════════
 function computeRemaining(game) {
   let targetTime = null;
   if (game.isWeeklyGame && game.scheduledStart) {
@@ -152,25 +129,19 @@ function computeRemaining(game) {
   return { targetTime, remainingSeconds };
 }
 
-// ═══════════════════════════════════════════════════════
-// GET /rooms/:roomCode — Auto-create + auto-reset + timer
-// ═══════════════════════════════════════════════════════
 router.get("/rooms/:roomCode", async (req, res) => {
   try {
     const roomCode = req.params.roomCode.trim().toUpperCase();
     let game = await Game.findOne({ roomCode });
 
-    // ─── 1. Auto-create ካልተገኘ ───
     if (!game) {
       const { isWeekly, fee } = getRoomFeeConfig(roomCode);
       game = await Game.create(buildNewRoom(roomCode, isWeekly, fee));
-      console.log(`[GET] Auto-created ${roomCode} weekly=${isWeekly}`);
     } else if (!game.allCards?.length || game.allCards.length < 1250) {
       game.allCards = generate1250Cards();
       await game.save();
     }
 
-    // ─── 2. Weekly without scheduledStart — fix ───
     if (
       game.isWeeklyGame &&
       !game.scheduledStart &&
@@ -181,12 +152,10 @@ router.get("/rooms/:roomCode", async (req, res) => {
       await game.save();
     }
 
-    // ─── 3. Auto-reset expired ───
     if (game.status === "waiting") {
       await resetExpiredRoom(game);
     }
 
-    // ─── 4. Compute remaining ───
     const { targetTime, remainingSeconds } = computeRemaining(game);
 
     res.json({
@@ -222,9 +191,6 @@ router.get("/stats", async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// POST /rooms — Create if not exists
-// ═══════════════════════════════════════════════════════
 router.post("/rooms", async (req, res) => {
   try {
     let { roomCode, entryFee } = req.body;

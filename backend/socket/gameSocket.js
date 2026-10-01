@@ -57,16 +57,7 @@ function getNextDailyStart(fee) {
     next.setUTCDate(next.getUTCDate() + 1);
   }
 
-  const result = new Date(next.getTime() - ETHIOPIA_OFFSET_MS);
-
-  console.log(
-    `[getNextDailyStart] fee=${fee} → EAT ${next
-      .toISOString()
-      .slice(0, 16)
-      .replace("T", " ")} (UTC: ${result.toISOString()})`
-  );
-
-  return result;
+  return new Date(next.getTime() - ETHIOPIA_OFFSET_MS);
 }
 
 function isWeeklyRoom(roomCode) {
@@ -95,12 +86,11 @@ function buildRoomState(game) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🎴 Render Bingo Cartela as text art
+// 🎴 Render cartela as ASCII
 // ═══════════════════════════════════════════════════════
 function renderCartela(card, marked, pattern) {
   if (!card || !Array.isArray(card) || card.length !== 5) return "";
   const W = 8;
-
   const padCenter = (text, width) => {
     text = String(text);
     if (text.length >= width) return text.slice(0, width);
@@ -112,7 +102,6 @@ function renderCartela(card, marked, pattern) {
 
   const winningSet = new Set();
   const k = (r, c) => `${r}-${c}`;
-
   if (pattern) {
     if (pattern.startsWith("row-")) {
       const r = parseInt(pattern.split("-")[1], 10) - 1;
@@ -135,15 +124,14 @@ function renderCartela(card, marked, pattern) {
     }
   }
 
-  const topBorder = "┌" + Array(5).fill("─".repeat(W)).join("┬") + "┐";
-  const midBorder = "├" + Array(5).fill("─".repeat(W)).join("┼") + "┤";
-  const bottomBorder = "└" + Array(5).fill("─".repeat(W)).join("┴") + "┘";
+  const top = "┌" + Array(5).fill("─".repeat(W)).join("┬") + "┐";
+  const mid = "├" + Array(5).fill("─".repeat(W)).join("┼") + "┤";
+  const bottom = "└" + Array(5).fill("─".repeat(W)).join("┴") + "┘";
 
-  const lines = [topBorder];
-
+  const lines = [top];
   const headers = ["B", "I", "N", "G", "O"];
   lines.push("│" + headers.map((h) => padCenter(h, W)).join("│") + "│");
-  lines.push(midBorder);
+  lines.push(mid);
 
   for (let r = 0; r < 5; r++) {
     const cells = [];
@@ -151,40 +139,31 @@ function renderCartela(card, marked, pattern) {
       const v = card[r][c];
       const isFree = r === 2 && c === 2;
       const isWinning = winningSet.has(k(r, c));
-
-      let cellText;
-      if (isFree) cellText = "★";
-      else if (isWinning) cellText = `[${v}]`;
-      else cellText = String(v);
-
-      cells.push(padCenter(cellText, W));
+      let t;
+      if (isFree) t = "★";
+      else if (isWinning) t = `[${v}]`;
+      else t = String(v);
+      cells.push(padCenter(t, W));
     }
     lines.push("│" + cells.join("│") + "│");
   }
-
-  lines.push(bottomBorder);
+  lines.push(bottom);
   return lines.join("\n");
 }
 
 // ═══════════════════════════════════════════════════════
-// 🏆 ለ 50 እና 100 ጨዋታዎች ብቻ የግሩፕ ማሳወቂያ
+// 🏆 Notify group for 50/100
 // ═══════════════════════════════════════════════════════
 async function notifyWinnersGroup(game, winnersPanelData) {
   if (game.entryFee !== 50 && game.entryFee !== 100) return;
 
   const groupChatId = process.env.WINNERS_GROUP_CHAT_ID;
-  if (!groupChatId) {
-    console.log("[notify] WINNERS_GROUP_CHAT_ID not set — skip");
-    return;
-  }
+  if (!groupChatId) return;
 
   try {
     const { bot } = require("../bot");
     if (!bot) return;
 
-    const roomCode = game.roomCode;
-    const prizePool = game.prizePool;
-    const winnerCount = winnersPanelData.length;
     const date = new Date().toLocaleString("en-US", {
       timeZone: "Africa/Addis_Ababa",
     });
@@ -192,10 +171,10 @@ async function notifyWinnersGroup(game, winnersPanelData) {
 
     let message =
       `🎉🎊 <b>እንኳን ደስ አለዎት!</b> 🎊🎉\n\n` +
-      `🏆 <b>Fetan Bingo — ${roomCode}</b>\n` +
+      `🏆 <b>Fetan Bingo — ${game.roomCode}</b>\n` +
       `━━━━━━━━━━━━━━━━━━━━\n` +
-      `💰 ጠቅላላ ሽልማት: <b>${prizePool} ETB</b>\n` +
-      `👥 አሸናፊዎች: <b>${winnerCount}</b>\n` +
+      `💰 ጠቅላላ ሽልማት: <b>${game.prizePool} ETB</b>\n` +
+      `👥 አሸናፊዎች: <b>${winnersPanelData.length}</b>\n` +
       `🎯 ፓተርን: <b>${patternLabel}</b>\n` +
       `🕐 ሰዓት: ${date}\n` +
       `━━━━━━━━━━━━━━━━━━━━\n`;
@@ -206,29 +185,19 @@ async function notifyWinnersGroup(game, winnersPanelData) {
         "phone firstName username telegramId"
       );
 
-      const tgName = w.name || "Player";
-      const phone = user?.phone || "—";
-      const prize = w.prize;
-
-      message += `\n🏅 <b>${tgName}</b>\n`;
-      message += `├ 📱 ስልክ: <code>${phone}</code>\n`;
+      message += `\n🏅 <b>${w.name}</b>\n`;
+      message += `├ 📱 ስልክ: <code>${user?.phone || "—"}</code>\n`;
       message += `├ 🆔 Telegram: <code>${w.telegramId}</code>\n`;
-      message += `├ 🎴 ካርቴላ: ${w.cartelas
-        .map((c) => `#${c}`)
-        .join(", ")}\n`;
-      message += `└ 💰 ሽልማት: <b>${prize} ETB</b>\n`;
+      message += `├ 🎴 ካርቴላ: ${w.cartelas.map((c) => `#${c}`).join(", ")}\n`;
+      message += `└ 💰 ሽልማት: <b>${w.prize} ETB</b>\n`;
 
       const userCartelas = (game.winningCartelas || []).filter(
         (wc) => String(wc.telegramId) === String(w.telegramId)
       );
-
       for (const wc of userCartelas) {
-        const cartelaArt = renderCartela(wc.card, wc.marked, wc.pattern);
-        if (!cartelaArt) continue;
-
-        message +=
-          `\n<pre>🏆 CARD #${wc.cardId} — ${String(wc.pattern).toUpperCase()}\n` +
-          `${cartelaArt}</pre>\n`;
+        const art = renderCartela(wc.card, wc.marked, wc.pattern);
+        if (!art) continue;
+        message += `\n<pre>🏆 CARD #${wc.cardId} — ${String(wc.pattern).toUpperCase()}\n${art}</pre>\n`;
       }
 
       if (i < winnersPanelData.length - 1) {
@@ -246,20 +215,19 @@ async function notifyWinnersGroup(game, winnersPanelData) {
       parse_mode: "HTML",
       disable_web_page_preview: true,
     });
-
-    console.log(
-      `[notify] ✅ Winners sent to group for ${roomCode} (${winnerCount} winners)`
-    );
+    console.log(`[notify] ✅ Sent to group for ${game.roomCode}`);
   } catch (err) {
-    console.error("[notify] ❌ Failed to send to group:", err.message);
+    console.error("[notify] Failed:", err.message);
   }
 }
 
 function initGameSocket(io) {
   const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 1000);
 
-  const CALL_INTERVAL_MS = 400;
-  const EMPTY_GAME_INTERVAL_MS = 300;
+  // ═══════════════════════════════════════════════════════
+  // 🎯 TIMING — በ1 ሰከንድ (1000ms)
+  // ═══════════════════════════════════════════════════════
+  const CALL_INTERVAL_MS = 1000; // 👈 1 ሰከንድ
   const FIRST_CALL_DELAY_MS = 300;
   const WINNER_DISPLAY_MS = 5000;
   const EMPTY_GAME_RESET_MS = 1500;
@@ -306,7 +274,7 @@ function initGameSocket(io) {
       // Stale cleanup
       const stale = await Game.find({
         status: "active",
-        startedAt: { $lt: new Date(Date.now() - 3 * 60 * 1000) },
+        startedAt: { $lt: new Date(Date.now() - 5 * 60 * 1000) },
       });
       for (const g of stale) {
         console.log(`[auto-starter] Stale reset: ${g.roomCode}`);
@@ -332,7 +300,7 @@ function initGameSocket(io) {
     } catch (err) {
       console.error("[auto-starter]", err.message);
     }
-  }, 2000);
+  }, 1000);
 
   io.on("connection", (socket) => {
     activeUserIds.add(socket.userId);
@@ -358,6 +326,7 @@ function initGameSocket(io) {
             r.cardId === cardId &&
             String(r.telegramId) === String(socket.telegramId)
         );
+
         if (taken || reservedByOther) {
           return socket.emit("error_message", {
             message: `❌ Card #${cardId} taken!`,
@@ -582,7 +551,7 @@ function initGameSocket(io) {
               socket.data.roomCode = roomCode;
               socket.data.isSpectator = true;
               socket.emit("error_message", {
-                message: `❌ Insufficient balance — watching`,
+                message: `❌ Insufficient balance`,
               });
               socket.emit("spectator_mode", {
                 roomCode,
@@ -864,27 +833,21 @@ function initGameSocket(io) {
         io.to(roomCode).emit("next_game_ready", { roomCode });
         io.to(roomCode).emit("room_state", buildRoomState(fresh));
 
-        console.log(`[resetRoom] ${roomCode} — reason: ${reason} — done`);
+        console.log(`[resetRoom] ${roomCode} — ${reason} — done`);
       } catch (err) {
         console.error(`[resetRoom:${roomCode}]`, err);
       }
     };
 
-    if (delayMs > 0) {
-      setTimeout(doReset, delayMs);
-    } else {
-      await doReset();
-    }
+    if (delayMs > 0) setTimeout(doReset, delayMs);
+    else await doReset();
   }
 
   // ═══════════════════════════════════════════════════════
   // START GAME
   // ═══════════════════════════════════════════════════════
   async function startGame(io, roomCode) {
-    if (activeCallers.has(roomCode)) {
-      console.log(`[startGame] ${roomCode} already active — skip`);
-      return;
-    }
+    if (activeCallers.has(roomCode)) return;
     activeCallers.set(roomCode, null);
 
     try {
@@ -894,18 +857,14 @@ function initGameSocket(io) {
         return;
       }
 
-      // ═══════════════════════════════════════════════════════
-      // 🎴 PROMOTE reservedCards → players (for 50/100 games)
-      // ═══════════════════════════════════════════════════════
+      // Promote reservedCards → players for weekly games
       if (game.isWeeklyGame && (game.reservedCards || []).length > 0) {
         for (const r of game.reservedCards) {
           const cardData = game.allCards.find((c) => c.cardId === r.cardId);
           if (!cardData) continue;
-
           const alreadyPlayer = game.players.some(
             (p) =>
-              p.user.toString() === r.user.toString() &&
-              p.cardId === r.cardId
+              p.user.toString() === r.user.toString() && p.cardId === r.cardId
           );
           if (alreadyPlayer) continue;
 
@@ -923,7 +882,6 @@ function initGameSocket(io) {
       }
 
       const playerCount = game.players.length;
-      const hasPlayers = playerCount > 0;
 
       game.status = "active";
       game.startedAt = new Date();
@@ -935,9 +893,7 @@ function initGameSocket(io) {
       await game.save();
 
       console.log(
-        `[startGame] ${roomCode} — ${playerCount} player(s) — ${
-          hasPlayers ? "400ms" : "300ms"
-        } — pattern: ${game.winPattern}`
+        `[startGame] ${roomCode} — ${playerCount} player(s) — 1000ms — pattern: ${game.winPattern}`
       );
 
       io.to(roomCode).emit("game_started", {
@@ -962,22 +918,17 @@ function initGameSocket(io) {
             return;
           }
 
-          const currentInterval =
-            g.players.length > 0 ? CALL_INTERVAL_MS : EMPTY_GAME_INTERVAL_MS;
-
           const num = randomUncalled(g.calledNumbers, g.maxNumber);
           if (num === null) {
             active = false;
             activeCallers.delete(roomCode);
-            console.log(
-              `[caller:${roomCode}] All 75 called — no winner — reset`
-            );
+            console.log(`[caller:${roomCode}] All called — no winner`);
             resetRoom(io, roomCode, "all-called", EMPTY_GAME_RESET_MS);
             return;
           }
 
           if (g.calledNumbers.includes(num)) {
-            const h = setTimeout(runCaller, currentInterval);
+            const h = setTimeout(runCaller, CALL_INTERVAL_MS);
             activeCallers.set(roomCode, h);
             return;
           }
@@ -999,6 +950,7 @@ function initGameSocket(io) {
               ? "G"
               : "O";
 
+          // Auto-mark → per user
           if (g.players.length > 0) {
             const grouped = {};
             for (const p of g.players) {
@@ -1034,10 +986,7 @@ function initGameSocket(io) {
         }
 
         if (active) {
-          const currentInterval = await Game.findOne({ roomCode }).then((g) =>
-            g?.players.length > 0 ? CALL_INTERVAL_MS : EMPTY_GAME_INTERVAL_MS
-          );
-          const h = setTimeout(runCaller, currentInterval);
+          const h = setTimeout(runCaller, CALL_INTERVAL_MS);
           activeCallers.set(roomCode, h);
         }
       };

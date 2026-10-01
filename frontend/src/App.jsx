@@ -25,7 +25,12 @@ const ADMIN_IDS =
   ENV_ADMIN_IDS.length > 0 ? ENV_ADMIN_IDS : DEFAULT_ADMIN_IDS;
 
 const LOGIN_TIMEOUT_MS = 10000;
-const SHARED_ROOMS = { 10: "ROOM10", 20: "ROOM20", 50: "ROOM50", 100: "ROOM100" };
+const SHARED_ROOMS = {
+  10: "ROOM10",
+  20: "ROOM20",
+  50: "ROOM50",
+  100: "ROOM100",
+};
 
 // ═══════════════════════════════════════════════════════
 // LOGIN
@@ -95,15 +100,12 @@ function Login({ onLoggedIn }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// GAME LOBBY — ያለ countdown
+// GAME LOBBY
 // ═══════════════════════════════════════════════════════
 function GameLobby({ onPlayStake }) {
-  // ⚡ ወዲያውኑ ወደ ካርቴላ
   function play(fee) {
     const fallbackCode = SHARED_ROOMS[fee] || `ROOM${fee}`;
     onPlayStake(fee, fallbackCode);
-
-    // Backend ን በ background ጥራ
     createRoom(fee, fallbackCode).catch((err) => {
       console.warn("[GameLobby] createRoom background failed:", err.message);
     });
@@ -131,12 +133,6 @@ function GameLobby({ onPlayStake }) {
           transition: "transform 0.1s ease",
           fontFamily: "inherit",
         }}
-        onMouseDown={(e) => {
-          e.currentTarget.style.transform = "scale(0.98)";
-        }}
-        onMouseUp={(e) => {
-          e.currentTarget.style.transform = "scale(1)";
-        }}
         onTouchStart={(e) => {
           e.currentTarget.style.transform = "scale(0.98)";
         }}
@@ -157,22 +153,12 @@ function GameLobby({ onPlayStake }) {
             pointerEvents: "none",
           }}
         />
-        <span
-          style={{
-            fontSize: 14,
-            opacity: 0.95,
-            textShadow: "0 1px 2px rgba(0,0,0,0.3)",
-            zIndex: 1,
-          }}
-        >
-          ▶
-        </span>
+        <span style={{ fontSize: 14, zIndex: 1 }}>▶</span>
         <span
           style={{
             fontSize: 18,
             fontWeight: "900",
             letterSpacing: 0.3,
-            textShadow: "0 2px 4px rgba(0,0,0,0.3)",
             zIndex: 1,
           }}
         >
@@ -193,7 +179,6 @@ function GameLobby({ onPlayStake }) {
         background: "linear-gradient(180deg, #0f1420 0%, #1a0f2e 100%)",
       }}
     >
-      {/* HEADER */}
       <div style={{ textAlign: "center", marginBottom: 20, marginTop: 10 }}>
         <h1
           style={{
@@ -203,7 +188,6 @@ function GameLobby({ onPlayStake }) {
             margin: 0,
             lineHeight: 1.15,
             letterSpacing: 0.5,
-            textShadow: "0 2px 10px rgba(0,0,0,0.3)",
           }}
         >
           Welcome to{" "}
@@ -214,13 +198,11 @@ function GameLobby({ onPlayStake }) {
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
               backgroundClip: "text",
-              filter: "drop-shadow(0 2px 8px rgba(243,156,18,0.5))",
             }}
           >
             Fetan Bingo
           </span>
         </h1>
-
         <div
           style={{
             marginTop: 12,
@@ -240,7 +222,6 @@ function GameLobby({ onPlayStake }) {
         </div>
       </div>
 
-      {/* ⚡ INSTANT GAMES */}
       <div
         style={{
           background:
@@ -249,35 +230,21 @@ function GameLobby({ onPlayStake }) {
           borderRadius: 20,
           padding: "20px 16px 18px",
           marginBottom: 16,
-          boxShadow:
-            "0 4px 20px rgba(46,204,113,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
+          boxShadow: "0 4px 20px rgba(46,204,113,0.1)",
         }}
       >
         <div
           style={{
             textAlign: "center",
             marginBottom: 18,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
+            color: "#2ecc71",
+            fontSize: 14,
+            fontWeight: "900",
+            letterSpacing: 3,
           }}
         >
-          <span style={{ fontSize: 16, color: "#2ecc71" }}>⚡</span>
-          <span
-            style={{
-              color: "#2ecc71",
-              fontSize: 14,
-              fontWeight: "900",
-              letterSpacing: 3,
-              textShadow: "0 0 12px rgba(46,204,113,0.5)",
-            }}
-          >
-            INSTANT GAMES
-          </span>
-          <span style={{ fontSize: 16, color: "#2ecc71" }}>⚡</span>
+          ⚡ INSTANT GAMES ⚡
         </div>
-
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <GameButton
             fee={10}
@@ -294,7 +261,6 @@ function GameLobby({ onPlayStake }) {
         </div>
       </div>
 
-      {/* 🏆 DAILY JACKPOT */}
       <div
         style={{
           background:
@@ -302,36 +268,21 @@ function GameLobby({ onPlayStake }) {
           border: "1px solid rgba(243,156,18,0.3)",
           borderRadius: 20,
           padding: "20px 16px 18px",
-          marginBottom: 16,
-          boxShadow:
-            "0 4px 20px rgba(243,156,18,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
+          boxShadow: "0 4px 20px rgba(243,156,18,0.1)",
         }}
       >
         <div
           style={{
             textAlign: "center",
             marginBottom: 18,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
+            color: "#f39c12",
+            fontSize: 14,
+            fontWeight: "900",
+            letterSpacing: 3,
           }}
         >
-          <span style={{ fontSize: 16 }}>🏆</span>
-          <span
-            style={{
-              color: "#f39c12",
-              fontSize: 14,
-              fontWeight: "900",
-              letterSpacing: 3,
-              textShadow: "0 0 12px rgba(243,156,18,0.5)",
-            }}
-          >
-            DAILY JACKPOT
-          </span>
-          <span style={{ fontSize: 16 }}>🏆</span>
+          🏆 DAILY JACKPOT 🏆
         </div>
-
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <GameButton
             fee={50}
@@ -362,12 +313,12 @@ function GameLobby({ onPlayStake }) {
 // PROFILE
 // ═══════════════════════════════════════════════════════
 const ALL_ACHIEVEMENTS = [
-  { id: "first_game", label: "First Game", icon: "🎮", desc: "Play first game" },
-  { id: "first_win", label: "First Win", icon: "🏆", desc: "Win first game" },
-  { id: "10_games", label: "10 Games", icon: "🎯", desc: "Play 10 games" },
-  { id: "10_wins", label: "10 Wins", icon: "👑", desc: "Win 10 games" },
-  { id: "1000_won", label: "1K Winnings", icon: "💰", desc: "Earn 1000 ETB" },
-  { id: "referrer", label: "Referrer", icon: "🔗", desc: "Invite a friend" },
+  { id: "first_game", label: "First Game", icon: "🎮" },
+  { id: "first_win", label: "First Win", icon: "🏆" },
+  { id: "10_games", label: "10 Games", icon: "🎯" },
+  { id: "10_wins", label: "10 Wins", icon: "👑" },
+  { id: "1000_won", label: "1K Winnings", icon: "💰" },
+  { id: "referrer", label: "Referrer", icon: "🔗" },
 ];
 
 function Profile({ user, balance, onUserUpdate }) {
@@ -448,81 +399,34 @@ function Profile({ user, balance, onUserUpdate }) {
         paddingBottom: 100,
       }}
     >
-      <div style={{ textAlign: "center", marginBottom: 22, marginTop: 8 }}>
+      <div style={{ textAlign: "center", marginBottom: 20 }}>
         <div
           style={{
-            position: "relative",
-            width: 100,
-            height: 100,
-            margin: "0 auto 12px",
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              inset: -6,
-              borderRadius: "50%",
-              background:
-                "conic-gradient(from 0deg, #f39c12, #ffd43b, #f39c12, #e67e22, #f39c12)",
-              animation: "spin 8s linear infinite",
-              opacity: 0.7,
-              filter: "blur(2px)",
-            }}
-          />
-          <div
-            style={{
-              position: "relative",
-              width: 100,
-              height: 100,
-              borderRadius: "50%",
-              background:
-                "linear-gradient(135deg, #3498db 0%, #2980b9 50%, #1c5f8f 100%)",
-              color: "#fff",
-              fontSize: 42,
-              fontWeight: "900",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              border: "3px solid #0a0a14",
-              boxShadow: "0 8px 30px rgba(52,152,219,0.5)",
-              zIndex: 1,
-            }}
-          >
-            {initial}
-          </div>
-        </div>
-        <h2
-          style={{
-            margin: "5px 0 4px",
+            width: 80,
+            height: 80,
+            borderRadius: "50%",
+            background: "linear-gradient(135deg,#3498db,#2980b9)",
             color: "#fff",
-            fontSize: 20,
-            fontWeight: "900",
-            letterSpacing: 0.3,
+            fontSize: 36,
+            fontWeight: "bold",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 10px",
+            border: "2px solid #f39c12",
           }}
         >
+          {initial}
+        </div>
+        <h2 style={{ margin: "5px 0" }}>
           {profile?.firstName || "User"} {profile?.lastName || ""}
         </h2>
-        <p
-          style={{
-            color: "#f39c12",
-            margin: 0,
-            fontSize: 12,
-            fontWeight: "700",
-            letterSpacing: 0.5,
-          }}
-        >
+        <p style={{ color: "#f39c12", margin: 0 }}>
           {profile?.username
             ? `@${profile.username}`
             : `@id_${profile?.telegramId}`}
         </p>
       </div>
-
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
 
       <div
         style={{
@@ -630,9 +534,7 @@ function Profile({ user, balance, onUserUpdate }) {
                   marginBottom: 4,
                 }}
               >
-                <div
-                  style={{ color: "#fff", fontWeight: "bold", fontSize: 13 }}
-                >
+                <div style={{ fontWeight: "bold", fontSize: 13 }}>
                   {g.roomCode} {g.won && "🏆"}
                 </div>
                 <div
@@ -808,52 +710,16 @@ function Card({ icon, label, value, color }) {
   return (
     <div
       style={{
-        background: `linear-gradient(135deg, ${color}22, rgba(15,20,32,0.9))`,
-        border: `1px solid ${color}55`,
-        borderRadius: 14,
-        padding: 16,
+        background: "#1a1a2e",
+        border: `1px solid ${color}40`,
+        borderRadius: 12,
+        padding: 14,
         textAlign: "center",
-        boxShadow: `0 4px 15px ${color}22, inset 0 1px 0 rgba(255,255,255,0.05)`,
-        position: "relative",
-        overflow: "hidden",
       }}
     >
-      <div
-        style={{
-          position: "absolute",
-          top: -10,
-          right: -10,
-          width: 50,
-          height: 50,
-          borderRadius: "50%",
-          background: `${color}15`,
-        }}
-      />
-      <div style={{ fontSize: 26, marginBottom: 4, position: "relative" }}>
-        {icon}
-      </div>
-      <div
-        style={{
-          color: "#888",
-          fontSize: 10,
-          marginTop: 4,
-          fontWeight: "700",
-          letterSpacing: 1,
-          textTransform: "uppercase",
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          color,
-          fontSize: 18,
-          fontWeight: "900",
-          marginTop: 4,
-          textShadow: `0 0 15px ${color}66`,
-          position: "relative",
-        }}
-      >
+      <div style={{ fontSize: 24 }}>{icon}</div>
+      <div style={{ color: "#aaa", fontSize: 11, marginTop: 4 }}>{label}</div>
+      <div style={{ color, fontSize: 16, fontWeight: "bold", marginTop: 2 }}>
         {value}
       </div>
     </div>
@@ -893,6 +759,8 @@ function App() {
   const [activeTab, setActiveTab] = useState("Game");
   const [showWalletHistory, setShowWalletHistory] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  // 👈 ጨዋታ ሁኔታ
+  const [gameStatus, setGameStatus] = useState("waiting");
 
   const isAdmin =
     user?.isAdmin === true ||
@@ -932,11 +800,20 @@ function App() {
     setStakeAmount(fee);
     setRoomCode(code);
     setShowCartela(true);
+    setGameStatus("waiting");
   };
 
   const handleCartelaConfirm = (ids) => {
     setCardIds(ids);
     setShowCartela(false);
+  };
+
+  // 👈 ጨዋታ ሁኔታ ሲቀየር
+  const handleGameStatusChange = (status) => {
+    setGameStatus(status);
+    if (status === "active") {
+      setShowCartela(false);
+    }
   };
 
   const handleLeave = () => {
@@ -946,25 +823,28 @@ function App() {
     setShowCartela(false);
     setStakeAmount(10);
     setActiveTab("Game");
+    setGameStatus("waiting");
   };
 
   const handleGameEnded = () => {
     disconnectSocket();
     setCardIds([]);
     setShowCartela(true);
+    setGameStatus("waiting");
   };
 
   return (
     <div className="app" style={{ paddingBottom: 80 }}>
       {activeTab === "Game" && (
         <>
-          {showCartela ? (
+          {showCartela && gameStatus === "waiting" ? (
             <CartelaSelection
               roomCode={roomCode}
               balance={balance}
               stake={stakeAmount}
               onConfirm={handleCartelaConfirm}
               onCancel={handleLeave}
+              onGameStatusChange={handleGameStatusChange}
             />
           ) : roomCode ? (
             <LiveGame

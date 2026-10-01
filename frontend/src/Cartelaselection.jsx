@@ -9,9 +9,6 @@ const FETCH_TIMEOUT_MS = 60000;
 const DEFAULT_TIMER_SEC = 50;
 const RESYNC_INTERVAL_MS = 10000;
 
-// ═══════════════════════════════════════════════════════
-// 🕐 HH:MM:SS (ለ 50/100)
-// ═══════════════════════════════════════════════════════
 function formatHHMMSS(totalSeconds) {
   if (totalSeconds == null || totalSeconds < 0) return "00:00:00";
   const s = Math.floor(totalSeconds);
@@ -24,9 +21,6 @@ function formatHHMMSS(totalSeconds) {
   )}:${String(sec).padStart(2, "0")}`;
 }
 
-// ═══════════════════════════════════════════════════════
-// 🕐 ሰከንድ ብቻ (ለ 10/20)
-// ═══════════════════════════════════════════════════════
 function formatSecondsOnly(totalSeconds) {
   if (totalSeconds == null || totalSeconds < 0) return "0s";
   return `${Math.floor(totalSeconds)}s`;
@@ -38,6 +32,7 @@ export default function CartelaSelection({
   stake = 10,
   onConfirm,
   onCancel,
+  onGameStatusChange,
 }) {
   const isWeeklyRoom = roomCode === "ROOM50" || roomCode === "ROOM100";
 
@@ -52,16 +47,12 @@ export default function CartelaSelection({
   const triggeredRef = useRef(false);
   const fetchedRef = useRef(false);
   const confirmLockRef = useRef(false);
-  const retryRef = useRef(0);
 
-  // ═══════════════════════════════════════════════════════
   // Reset on room change
-  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     triggeredRef.current = false;
     fetchedRef.current = false;
     confirmLockRef.current = false;
-    retryRef.current = 0;
     setDeadlineAt(null);
     setCountdown(null);
     setSelectedCards([]);
@@ -98,8 +89,6 @@ export default function CartelaSelection({
         if (cancelled) return;
 
         setError("");
-
-        // Taken cards
         if (data.takenCards) setTakenCards(data.takenCards);
         if (data.reservedCards) {
           setTakenCards((prev) => [
@@ -107,20 +96,21 @@ export default function CartelaSelection({
           ]);
         }
 
-        // ─── ጨዋታ አስቀድሞ ከተጀመረ → ወዲያውኑ LiveGame ───
+        // ═══════════════════════════════════════════════════════
+        // 👈 ጨዋታ አስቀድሞ ከተጀመረ → ወዲያውኑ LiveGame
+        // ═══════════════════════════════════════════════════════
         if (data.status === "active" || data.status === "finished") {
           if (!triggeredRef.current && !confirmLockRef.current) {
             triggeredRef.current = true;
             confirmLockRef.current = true;
             console.log("[Cartela] Game active — jumping to LiveGame");
+            onGameStatusChange?.("active");
             return onConfirm([]);
           }
           return;
         }
 
-        // ─── remaining from server ───
         let remaining = 0;
-
         if (typeof data.remainingSeconds === "number") {
           remaining = Math.max(0, data.remainingSeconds);
         } else if (data.selectionEndsAt && data.serverTime) {
@@ -136,19 +126,13 @@ export default function CartelaSelection({
           }
         }
 
-        // ─── remaining = 0 ከሆነ, ፈጣን retry (500ms) ───
         if (remaining === 0 && data.status === "waiting" && attempt < 5) {
-          console.log(
-            `[Cartela] remaining=0 — retry ${attempt}/5 in 500ms`
-          );
-          retryRef.current = attempt;
+          console.log(`[Cartela] remaining=0 — retry ${attempt}/5`);
           setTimeout(() => fetchRoom(attempt + 1), 500);
           return;
         }
 
-        // ─── remaining = 0 እና retry ካለቀ → offline fallback ───
         if (remaining === 0 && !isWeeklyRoom) {
-          console.warn("[Cartela] Fallback to 50s");
           remaining = DEFAULT_TIMER_SEC;
         }
 
@@ -156,14 +140,11 @@ export default function CartelaSelection({
           `[Cartela] ${roomCode} — remaining=${remaining}s weekly=${data.isWeeklyGame}`
         );
 
-        // Set deadline
-        const localDeadline = Date.now() + remaining * 1000;
-        setDeadlineAt(localDeadline);
+        setDeadlineAt(Date.now() + remaining * 1000);
         setCountdown(remaining);
         setIsReady(true);
       } catch (e) {
         if (cancelled) return;
-
         if (e.name === "AbortError" && attempt < 3) {
           setTimeout(() => fetchRoom(attempt + 1), 1000);
           return;
@@ -172,9 +153,6 @@ export default function CartelaSelection({
           setTimeout(() => fetchRoom(attempt + 1), 1500 * attempt);
           return;
         }
-
-        // Final fallback
-        console.warn("[Cartela] Offline fallback");
         setError("⚠️ Offline mode");
         const fallback = isWeeklyRoom ? 0 : DEFAULT_TIMER_SEC;
         setDeadlineAt(Date.now() + fallback * 1000);
@@ -185,7 +163,6 @@ export default function CartelaSelection({
 
     fetchRoom();
 
-    // Balance
     (async () => {
       try {
         const token = localStorage.getItem("bingo_token");
@@ -200,10 +177,11 @@ export default function CartelaSelection({
     return () => {
       cancelled = true;
     };
-  }, [roomCode, isWeeklyRoom, onConfirm]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomCode, isWeeklyRoom]);
 
   // ═══════════════════════════════════════════════════════
-  // Periodic resync (10s)
+  // Periodic resync
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!deadlineAt) return;
@@ -220,6 +198,7 @@ export default function CartelaSelection({
           if (!triggeredRef.current && !confirmLockRef.current) {
             triggeredRef.current = true;
             confirmLockRef.current = true;
+            onGameStatusChange?.("active");
             return onConfirm([]);
           }
           return;
@@ -231,10 +210,11 @@ export default function CartelaSelection({
       } catch {}
     }, RESYNC_INTERVAL_MS);
     return () => clearInterval(resync);
-  }, [roomCode, deadlineAt, onConfirm]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomCode, deadlineAt]);
 
   // ═══════════════════════════════════════════════════════
-  // Countdown tick (100ms)
+  // Countdown tick
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!deadlineAt) return;
@@ -257,8 +237,8 @@ export default function CartelaSelection({
 
     triggeredRef.current = true;
     confirmLockRef.current = true;
-
     console.log("[Cartela] Timer 0 → LiveGame");
+    onGameStatusChange?.("active");
 
     if (selectedCards.length > 0) return onConfirm(selectedCards);
 
@@ -272,7 +252,8 @@ export default function CartelaSelection({
       return onConfirm([pick]);
     }
     onConfirm([]);
-  }, [countdown, isReady, selectedCards, takenCards, onConfirm]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countdown, isReady, selectedCards, takenCards]);
 
   // ═══════════════════════════════════════════════════════
   // Socket
@@ -318,9 +299,6 @@ export default function CartelaSelection({
   const numbers = Array.from({ length: TOTAL_CARDS }, (_, i) => i + 1);
   const total = selectedCards.length * stake;
 
-  // ═══════════════════════════════════════════════════════
-  // 🕐 Time format by room
-  // ═══════════════════════════════════════════════════════
   const timeStr =
     countdown !== null
       ? isWeeklyRoom
@@ -363,7 +341,6 @@ export default function CartelaSelection({
         ← Back
       </button>
 
-      {/* Header */}
       <div style={{ textAlign: "center", marginBottom: 10 }}>
         <div
           style={{
@@ -388,7 +365,6 @@ export default function CartelaSelection({
         </div>
       </div>
 
-      {/* Info Grid */}
       <div
         style={{
           display: "grid",
@@ -423,7 +399,6 @@ export default function CartelaSelection({
         />
       </div>
 
-      {/* Totals */}
       <div
         style={{
           display: "flex",
@@ -462,7 +437,6 @@ export default function CartelaSelection({
         </div>
       )}
 
-      {/* Numbers Grid */}
       <div
         style={{
           flex: 1,
@@ -504,7 +478,6 @@ export default function CartelaSelection({
                 boxShadow: isSelected
                   ? "0 0 10px rgba(46,204,113,0.6)"
                   : "none",
-                transition: "all 0.08s ease",
               }}
             >
               {n}
