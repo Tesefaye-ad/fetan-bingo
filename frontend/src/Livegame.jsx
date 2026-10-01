@@ -297,7 +297,6 @@ export default function LiveGame({
 
     const onConnect = () => {
       setIsConnected(true);
-      // 👈 ሁልጊዜ re-join
       if (roomCode) {
         socket.emit("join_room", { roomCode, cardIds: cardIds || [] });
         joinedRef.current = true;
@@ -527,6 +526,25 @@ export default function LiveGame({
             }}
           >
             ⚠️ Network lost — reconnecting...
+          </div>
+        )}
+
+        {/* 👈 waitingMsg / error ማሳያ */}
+        {waitingMsg && (
+          <div
+            style={{
+              background: "linear-gradient(135deg, #f39c12, #e67e22)",
+              color: "#fff",
+              padding: "8px 12px",
+              borderRadius: 8,
+              marginBottom: 6,
+              textAlign: "center",
+              fontSize: 11,
+              fontWeight: "bold",
+              boxShadow: "0 2px 10px rgba(243,156,18,0.4)",
+            }}
+          >
+            {waitingMsg}
           </div>
         )}
 
