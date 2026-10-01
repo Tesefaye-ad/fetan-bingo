@@ -10,9 +10,8 @@ const DEFAULT_TIMER_SEC = 50;
 const RESYNC_INTERVAL_MS = 10000;
 
 // ═══════════════════════════════════════════════════════
-// 🕐 ሁለት formats
+// 🕐 HH:MM:SS (ለ 50/100)
 // ═══════════════════════════════════════════════════════
-// ለ 50/100 ጨዋታዎች — HH:MM:SS
 function formatHHMMSS(totalSeconds) {
   if (totalSeconds == null || totalSeconds < 0) return "00:00:00";
   const s = Math.floor(totalSeconds);
@@ -25,7 +24,9 @@ function formatHHMMSS(totalSeconds) {
   )}:${String(sec).padStart(2, "0")}`;
 }
 
-// ለ 10/20 ጨዋታዎች — በሰከንድ ብቻ
+// ═══════════════════════════════════════════════════════
+// 🕐 ሰከንድ ብቻ (ለ 10/20)
+// ═══════════════════════════════════════════════════════
 function formatSecondsOnly(totalSeconds) {
   if (totalSeconds == null || totalSeconds < 0) return "0s";
   return `${Math.floor(totalSeconds)}s`;
@@ -46,21 +47,27 @@ export default function CartelaSelection({
   const [deadlineAt, setDeadlineAt] = useState(null);
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
+  const [isReady, setIsReady] = useState(false);
 
   const triggeredRef = useRef(false);
   const fetchedRef = useRef(false);
   const confirmLockRef = useRef(false);
+  const retryRef = useRef(0);
 
+  // ═══════════════════════════════════════════════════════
   // Reset on room change
+  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     triggeredRef.current = false;
     fetchedRef.current = false;
     confirmLockRef.current = false;
+    retryRef.current = 0;
     setDeadlineAt(null);
     setCountdown(null);
     setSelectedCards([]);
     setTakenCards([]);
     setError("");
+    setIsReady(false);
   }, [roomCode]);
 
   // ═══════════════════════════════════════════════════════
@@ -91,6 +98,8 @@ export default function CartelaSelection({
         if (cancelled) return;
 
         setError("");
+
+        // Taken cards
         if (data.takenCards) setTakenCards(data.takenCards);
         if (data.reservedCards) {
           setTakenCards((prev) => [
@@ -98,8 +107,20 @@ export default function CartelaSelection({
           ]);
         }
 
-        // Compute remaining from server
+        // ─── ጨዋታ አስቀድሞ ከተጀመረ → ወዲያውኑ LiveGame ───
+        if (data.status === "active" || data.status === "finished") {
+          if (!triggeredRef.current && !confirmLockRef.current) {
+            triggeredRef.current = true;
+            confirmLockRef.current = true;
+            console.log("[Cartela] Game active — jumping to LiveGame");
+            return onConfirm([]);
+          }
+          return;
+        }
+
+        // ─── remaining from server ───
         let remaining = 0;
+
         if (typeof data.remainingSeconds === "number") {
           remaining = Math.max(0, data.remainingSeconds);
         } else if (data.selectionEndsAt && data.serverTime) {
@@ -115,11 +136,34 @@ export default function CartelaSelection({
           }
         }
 
+        // ─── remaining = 0 ከሆነ, ፈጣን retry (500ms) ───
+        if (remaining === 0 && data.status === "waiting" && attempt < 5) {
+          console.log(
+            `[Cartela] remaining=0 — retry ${attempt}/5 in 500ms`
+          );
+          retryRef.current = attempt;
+          setTimeout(() => fetchRoom(attempt + 1), 500);
+          return;
+        }
+
+        // ─── remaining = 0 እና retry ካለቀ → offline fallback ───
+        if (remaining === 0 && !isWeeklyRoom) {
+          console.warn("[Cartela] Fallback to 50s");
+          remaining = DEFAULT_TIMER_SEC;
+        }
+
+        console.log(
+          `[Cartela] ${roomCode} — remaining=${remaining}s weekly=${data.isWeeklyGame}`
+        );
+
+        // Set deadline
         const localDeadline = Date.now() + remaining * 1000;
         setDeadlineAt(localDeadline);
         setCountdown(remaining);
+        setIsReady(true);
       } catch (e) {
         if (cancelled) return;
+
         if (e.name === "AbortError" && attempt < 3) {
           setTimeout(() => fetchRoom(attempt + 1), 1000);
           return;
@@ -128,15 +172,20 @@ export default function CartelaSelection({
           setTimeout(() => fetchRoom(attempt + 1), 1500 * attempt);
           return;
         }
+
+        // Final fallback
+        console.warn("[Cartela] Offline fallback");
         setError("⚠️ Offline mode");
         const fallback = isWeeklyRoom ? 0 : DEFAULT_TIMER_SEC;
         setDeadlineAt(Date.now() + fallback * 1000);
         setCountdown(fallback);
+        setIsReady(true);
       }
     };
 
     fetchRoom();
 
+    // Balance
     (async () => {
       try {
         const token = localStorage.getItem("bingo_token");
@@ -151,9 +200,11 @@ export default function CartelaSelection({
     return () => {
       cancelled = true;
     };
-  }, [roomCode, isWeeklyRoom]);
+  }, [roomCode, isWeeklyRoom, onConfirm]);
 
-  // Periodic resync
+  // ═══════════════════════════════════════════════════════
+  // Periodic resync (10s)
+  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!deadlineAt) return;
     const resync = setInterval(async () => {
@@ -164,15 +215,27 @@ export default function CartelaSelection({
         });
         if (!res.ok) return;
         const data = await res.json();
+
+        if (data.status === "active" || data.status === "finished") {
+          if (!triggeredRef.current && !confirmLockRef.current) {
+            triggeredRef.current = true;
+            confirmLockRef.current = true;
+            return onConfirm([]);
+          }
+          return;
+        }
+
         if (typeof data.remainingSeconds === "number") {
           setDeadlineAt(Date.now() + data.remainingSeconds * 1000);
         }
       } catch {}
     }, RESYNC_INTERVAL_MS);
     return () => clearInterval(resync);
-  }, [roomCode, deadlineAt]);
+  }, [roomCode, deadlineAt, onConfirm]);
 
-  // Countdown tick
+  // ═══════════════════════════════════════════════════════
+  // Countdown tick (100ms)
+  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!deadlineAt) return;
     const tick = () => {
@@ -184,14 +247,18 @@ export default function CartelaSelection({
     return () => clearInterval(timer);
   }, [deadlineAt]);
 
-  // Timer = 0 → Live Game
+  // ═══════════════════════════════════════════════════════
+  // Timer = 0 → LiveGame
+  // ═══════════════════════════════════════════════════════
   useEffect(() => {
+    if (!isReady) return;
     if (countdown === null || countdown > 0) return;
     if (triggeredRef.current || confirmLockRef.current) return;
+
     triggeredRef.current = true;
     confirmLockRef.current = true;
 
-    console.log("[Cartela] Timer 0 → Live Game");
+    console.log("[Cartela] Timer 0 → LiveGame");
 
     if (selectedCards.length > 0) return onConfirm(selectedCards);
 
@@ -205,9 +272,11 @@ export default function CartelaSelection({
       return onConfirm([pick]);
     }
     onConfirm([]);
-  }, [countdown, selectedCards, takenCards, onConfirm]);
+  }, [countdown, isReady, selectedCards, takenCards, onConfirm]);
 
+  // ═══════════════════════════════════════════════════════
   // Socket
+  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     const s = getSocket();
     const onSel = ({ cardId }) =>
@@ -250,10 +319,8 @@ export default function CartelaSelection({
   const total = selectedCards.length * stake;
 
   // ═══════════════════════════════════════════════════════
-  // 🕐 Time format by room type
+  // 🕐 Time format by room
   // ═══════════════════════════════════════════════════════
-  // 50/100 → HH:MM:SS
-  // 10/20  → Seconds only
   const timeStr =
     countdown !== null
       ? isWeeklyRoom
