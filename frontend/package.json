@@ -15,12 +15,12 @@
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
-  "eslintConfig": {
-    "extends": ["react-app"],
-    "rules": {
-      "no-unused-vars": "warn",
-      "react-hooks/exhaustive-deps": "warn"
-    }
+ "eslintConfig": {
+  "extends": ["react-app"],
+  "rules": {
+    "no-unused-vars": "warn",
+    "react-hooks/exhaustive-deps": "warn"
+  }
   },
   "browserslist": {
     "production": [">0.2%", "not dead", "not op_mini all"],

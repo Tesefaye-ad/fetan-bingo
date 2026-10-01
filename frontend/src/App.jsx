@@ -28,37 +28,6 @@ const LOGIN_TIMEOUT_MS = 10000;
 const SHARED_ROOMS = { 10: "ROOM10", 20: "ROOM20", 50: "ROOM50", 100: "ROOM100" };
 
 // ═══════════════════════════════════════════════════════
-// 🕐 DAILY COUNTDOWN HELPERS
-// ═══════════════════════════════════════════════════════
-function getTimeUntilNextDaily(targetHour, targetMinute) {
-  // Ethiopia = UTC+3
-  const ETHIOPIA_OFFSET_HOURS = 3;
-  const targetUTCHour = targetHour - ETHIOPIA_OFFSET_HOURS;
-
-  const now = new Date();
-  const nowUTC = now.getTime();
-
-  const target = new Date();
-  target.setUTCHours(targetUTCHour, targetMinute, 0, 0);
-
-  let targetTime = target.getTime();
-  if (targetTime <= nowUTC) {
-    targetTime += 24 * 60 * 60 * 1000; // Next day
-  }
-
-  return targetTime - nowUTC;
-}
-
-function formatCountdown(ms) {
-  if (ms < 0) ms = 0;
-  const totalSec = Math.floor(ms / 1000);
-  const hours = Math.floor(totalSec / 3600);
-  const minutes = Math.floor((totalSec % 3600) / 60);
-  const seconds = totalSec % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-// ═══════════════════════════════════════════════════════
 // LOGIN
 // ═══════════════════════════════════════════════════════
 function Login({ onLoggedIn }) {
@@ -479,9 +448,15 @@ function Profile({ user, balance, onUserUpdate }) {
         paddingBottom: 100,
       }}
     >
-            <div style={{ textAlign: "center", marginBottom: 22, marginTop: 8 }}>
-        <div style={{ position: "relative", width: 100, height: 100, margin: "0 auto 12px" }}>
-          {/* Outer glow ring */}
+      <div style={{ textAlign: "center", marginBottom: 22, marginTop: 8 }}>
+        <div
+          style={{
+            position: "relative",
+            width: 100,
+            height: 100,
+            margin: "0 auto 12px",
+          }}
+        >
           <div
             style={{
               position: "absolute",
@@ -494,7 +469,6 @@ function Profile({ user, balance, onUserUpdate }) {
               filter: "blur(2px)",
             }}
           />
-          {/* Avatar */}
           <div
             style={{
               position: "relative",
