@@ -6,8 +6,7 @@ const API_BASE_URL =
 
 const TOTAL_CARDS = 1250;
 const FETCH_TIMEOUT_MS = 60000;
-const DEFAULT_TIMER_SEC = 50;
-const RESYNC_INTERVAL_MS = 10000;
+const RESYNC_INTERVAL_MS = 5000;
 
 function formatHHMMSS(totalSeconds) {
   if (totalSeconds == null || totalSeconds < 0) return "00:00:00";
@@ -43,26 +42,29 @@ export default function CartelaSelection({
   const [error, setError] = useState("");
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [isReady, setIsReady] = useState(false);
+  const [debugInfo, setDebugInfo] = useState("");
 
   const triggeredRef = useRef(false);
   const fetchedRef = useRef(false);
   const confirmLockRef = useRef(false);
+  const retryRef = useRef(0);
 
-  // Reset on room change
   useEffect(() => {
     triggeredRef.current = false;
     fetchedRef.current = false;
     confirmLockRef.current = false;
+    retryRef.current = 0;
     setDeadlineAt(null);
     setCountdown(null);
     setSelectedCards([]);
     setTakenCards([]);
     setError("");
     setIsReady(false);
+    setDebugInfo("");
   }, [roomCode]);
 
   // ═══════════════════════════════════════════════════════
-  // FETCH ROOM
+  // FETCH — retry እስከ ትክክለኛ ሰዓት
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (fetchedRef.current) return;
@@ -96,20 +98,19 @@ export default function CartelaSelection({
           ]);
         }
 
-        // ═══════════════════════════════════════════════════════
-        // 👈 ጨዋታ አስቀድሞ ከተጀመረ → ወዲያውኑ LiveGame
-        // ═══════════════════════════════════════════════════════
+        // ─── ጨዋታ active — ወዲያውኑ LiveGame ───
         if (data.status === "active" || data.status === "finished") {
           if (!triggeredRef.current && !confirmLockRef.current) {
             triggeredRef.current = true;
             confirmLockRef.current = true;
-            console.log("[Cartela] Game active — jumping to LiveGame");
+            console.log("[Cartela] Game active — jumping");
             onGameStatusChange?.("active");
             return onConfirm([]);
           }
           return;
         }
 
+        // ─── remaining ───
         let remaining = 0;
         if (typeof data.remainingSeconds === "number") {
           remaining = Math.max(0, data.remainingSeconds);
@@ -126,14 +127,29 @@ export default function CartelaSelection({
           }
         }
 
-        if (remaining === 0 && data.status === "waiting" && attempt < 5) {
-          console.log(`[Cartela] remaining=0 — retry ${attempt}/5`);
-          setTimeout(() => fetchRoom(attempt + 1), 500);
+        setDebugInfo(
+          `attempt=${attempt} remaining=${remaining}s status=${data.status}`
+        );
+
+        // ═══════════════════════════════════════════════════════
+        // 👈 remaining = 0 ከሆነ → እስከ 20 ጊዜ retry (200ms × 20 = 4s)
+        // ═══════════════════════════════════════════════════════
+        if (remaining === 0 && data.status === "waiting" && attempt <= 20) {
+          console.log(`[Cartela] remaining=0, retry ${attempt}/20`);
+          setTimeout(() => fetchRoom(attempt + 1), 200);
           return;
         }
 
+        // ─── Fallback: 50s ───
         if (remaining === 0 && !isWeeklyRoom) {
-          remaining = DEFAULT_TIMER_SEC;
+          console.warn("[Cartela] Fallback to 50s");
+          remaining = 50;
+        }
+
+        // ─── Weekly ከሆነ retry ከሌለ ፈጽሞ 0 — wait more ───
+        if (remaining === 0 && isWeeklyRoom && attempt <= 20) {
+          setTimeout(() => fetchRoom(attempt + 1), 300);
+          return;
         }
 
         console.log(
@@ -145,16 +161,16 @@ export default function CartelaSelection({
         setIsReady(true);
       } catch (e) {
         if (cancelled) return;
-        if (e.name === "AbortError" && attempt < 3) {
+        if (e.name === "AbortError" && attempt < 5) {
           setTimeout(() => fetchRoom(attempt + 1), 1000);
           return;
         }
-        if (attempt < 3) {
-          setTimeout(() => fetchRoom(attempt + 1), 1500 * attempt);
+        if (attempt < 5) {
+          setTimeout(() => fetchRoom(attempt + 1), 1000 * attempt);
           return;
         }
         setError("⚠️ Offline mode");
-        const fallback = isWeeklyRoom ? 0 : DEFAULT_TIMER_SEC;
+        const fallback = isWeeklyRoom ? 0 : 50;
         setDeadlineAt(Date.now() + fallback * 1000);
         setCountdown(fallback);
         setIsReady(true);
@@ -181,7 +197,7 @@ export default function CartelaSelection({
   }, [roomCode, isWeeklyRoom]);
 
   // ═══════════════════════════════════════════════════════
-  // Periodic resync
+  // Periodic resync (5s)
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!deadlineAt) return;
@@ -214,7 +230,7 @@ export default function CartelaSelection({
   }, [roomCode, deadlineAt]);
 
   // ═══════════════════════════════════════════════════════
-  // Countdown tick
+  // Countdown tick (100ms)
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!deadlineAt) return;
@@ -485,6 +501,19 @@ export default function CartelaSelection({
           );
         })}
       </div>
+
+      {debugInfo && (
+        <div
+          style={{
+            fontSize: 9,
+            color: "#444",
+            textAlign: "center",
+            padding: 4,
+          }}
+        >
+          {debugInfo}
+        </div>
+      )}
     </div>
   );
 }
