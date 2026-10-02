@@ -117,7 +117,7 @@ function PatternPreview({ pattern }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// MINI CARD (My Cards tracker)
+// MINI CARD
 // ═══════════════════════════════════════════════════════
 function MiniCard({ card, marked, cardId, lastNumber }) {
   return (
@@ -302,7 +302,6 @@ export default function LiveGame({
   const [flashNumber, setFlashNumber] = useState(false);
   const [bingoPopup, setBingoPopup] = useState(null);
   const [soundOn, setSoundOn] = useState(true);
-  const [isConnected, setIsConnected] = useState(true);
   const [numberAnimKey, setNumberAnimKey] = useState(0);
 
   useEffect(() => {
@@ -317,9 +316,12 @@ export default function LiveGame({
     const socket = getSocket();
     socketRef.current = socket;
 
-    const onDisconnect = () => setIsConnected(false);
+    const onDisconnect = () => {
+      console.log("[LiveGame] Disconnected");
+    };
+
     const onConnect = () => {
-      setIsConnected(true);
+      console.log("[LiveGame] Reconnected!");
       if (joinedRef.current && roomCode) {
         socket.emit("join_room", { roomCode, cardIds });
       }
@@ -485,9 +487,6 @@ export default function LiveGame({
       0% { box-shadow: 0 0 0 0 rgba(255,152,0,0.9); }
       100% { box-shadow: 0 0 0 12px rgba(255,152,0,0); }
     }
-    /* ═══════════════════════════════════════════════ */
-    /* 👑 አዲስ ውብ አኒሜሽኖች ለ CURRENT */
-    /* ═══════════════════════════════════════════════ */
     @keyframes numberBigPop {
       0% { transform: scale(0) rotate(-180deg); opacity: 0; filter: blur(10px); }
       40% { transform: scale(1.4) rotate(10deg); opacity: 1; filter: blur(0); }
@@ -505,10 +504,6 @@ export default function LiveGame({
     @keyframes shimmer {
       0% { background-position: -200% center; }
       100% { background-position: 200% center; }
-    }
-    @keyframes glowPulse {
-      0%, 100% { box-shadow: 0 0 20px currentColor; }
-      50% { box-shadow: 0 0 45px currentColor, 0 0 70px currentColor; }
     }
     @keyframes floatBadge {
       0%, 100% { transform: translateY(0); }
@@ -530,7 +525,6 @@ export default function LiveGame({
           paddingBottom: 75,
         }}
       >
-        
         {/* STATS */}
         <div
           style={{
@@ -706,9 +700,7 @@ export default function LiveGame({
 
           {/* RIGHT — Current + Pattern + Tracker */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {/* ═══════════════════════════════════════════
-                👑 ውብ CURRENT BOX — አዲስ!
-               ═══════════════════════════════════════════ */}
+            {/* CURRENT BOX */}
             <div
               style={{
                 background: lastInfo
@@ -730,7 +722,6 @@ export default function LiveGame({
                 transition: "all 0.3s ease",
               }}
             >
-              {/* Background glow when active */}
               {lastInfo && (
                 <div
                   style={{
@@ -742,7 +733,6 @@ export default function LiveGame({
                 />
               )}
 
-              {/* Sound toggle */}
               <button
                 onClick={() => setSoundOn((s) => !s)}
                 style={{
@@ -768,7 +758,6 @@ export default function LiveGame({
                 {soundOn ? "🔊" : "🔇"}
               </button>
 
-              {/* CURRENT label */}
               <div
                 style={{
                   color: lastInfo?.color || "#aaa",
@@ -785,7 +774,6 @@ export default function LiveGame({
                 ⚡ CURRENT
               </div>
 
-              {/* Number display */}
               {lastInfo ? (
                 <div
                   style={{
@@ -795,7 +783,6 @@ export default function LiveGame({
                     margin: "0 auto",
                   }}
                 >
-                  {/* Outer pulse ring */}
                   <div
                     style={{
                       position: "absolute",
@@ -806,7 +793,6 @@ export default function LiveGame({
                       pointerEvents: "none",
                     }}
                   />
-                  {/* Rotating dashed ring */}
                   <div
                     style={{
                       position: "absolute",
@@ -818,7 +804,6 @@ export default function LiveGame({
                     }}
                   />
 
-                  {/* Main number circle */}
                   <div
                     key={numberAnimKey}
                     style={{
@@ -841,7 +826,6 @@ export default function LiveGame({
                       overflow: "hidden",
                     }}
                   >
-                    {/* Letter part */}
                     <span
                       style={{
                         fontSize: 15,
@@ -852,7 +836,6 @@ export default function LiveGame({
                     >
                       {lastLetter || lastInfo.letter}
                     </span>
-                    {/* Number part */}
                     <span
                       style={{
                         fontSize: 30,
@@ -864,7 +847,6 @@ export default function LiveGame({
                     </span>
                   </div>
 
-                  {/* Shimmer overlay */}
                   <div
                     style={{
                       position: "absolute",
@@ -903,7 +885,6 @@ export default function LiveGame({
                 </div>
               )}
 
-              {/* Called count badge */}
               <div
                 style={{
                   marginTop: 10,
