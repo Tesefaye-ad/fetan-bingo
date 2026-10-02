@@ -7,6 +7,7 @@ const API_BASE_URL =
 const TOTAL_CARDS = 1250;
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_RETRY = 20;
+const DEFAULT_TIMER_SEC = 50;
 
 function formatHHMMSS(totalSeconds) {
   if (totalSeconds == null || totalSeconds < 0) return "00:00:00";
@@ -22,6 +23,28 @@ function formatSecondsOnly(totalSeconds) {
   return `${Math.floor(totalSeconds)}s`;
 }
 
+// ═══════════════════════════════════════════════════════
+// 🕐 ወደ 12:00 / 12:05 EAT የሚወስደውን ሰከንድ አስላ
+// ═══════════════════════════════════════════════════════
+function getSecondsUntilDaily(fee) {
+  const ETHIOPIA_OFFSET_MS = 3 * 60 * 60 * 1000;
+  const now = new Date();
+  const et = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
+
+  const targetHour = 0; // ማታ 12:00 EAT
+  const targetMinute = fee === 50 ? 0 : 5;
+
+  const today = new Date(et);
+  today.setUTCHours(targetHour, targetMinute, 0, 0);
+
+  let target = today.getTime();
+  if (et.getTime() >= target) {
+    target += 24 * 60 * 60 * 1000;
+  }
+
+  return Math.max(0, Math.floor((target - et.getTime()) / 1000));
+}
+
 export default function CartelaSelection({
   roomCode,
   balance,
@@ -32,10 +55,19 @@ export default function CartelaSelection({
 }) {
   const isWeeklyRoom = roomCode === "ROOM50" || roomCode === "ROOM100";
 
+  // ═══════════════════════════════════════════════════════
+  // 👈 ወዲያውኑ የመጀመሪያ ሰዓት አስላ
+  // ═══════════════════════════════════════════════════════
+  const initialSeconds = isWeeklyRoom
+    ? getSecondsUntilDaily(stake)
+    : DEFAULT_TIMER_SEC;
+
   const [selectedCards, setSelectedCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
-  const [countdown, setCountdown] = useState(null);
-  const [deadlineAt, setDeadlineAt] = useState(null);
+  const [countdown, setCountdown] = useState(initialSeconds);
+  const [deadlineAt, setDeadlineAt] = useState(
+    Date.now() + initialSeconds * 1000
+  );
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [isReady, setIsReady] = useState(false);
 
@@ -43,15 +75,21 @@ export default function CartelaSelection({
   const fetchedRef = useRef(false);
   const confirmLockRef = useRef(false);
 
+  // ═══════════════════════════════════════════════════════
+  // Room change — ወዲያውኑ ሰዓቱን አስላ
+  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     triggeredRef.current = false;
     fetchedRef.current = false;
     confirmLockRef.current = false;
-    setDeadlineAt(null);
-    setCountdown(null);
+
+    const secs = isWeeklyRoom ? getSecondsUntilDaily(stake) : DEFAULT_TIMER_SEC;
+    setDeadlineAt(Date.now() + secs * 1000);
+    setCountdown(secs);
     setSelectedCards([]);
     setTakenCards([]);
     setIsReady(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode]);
 
   // ═══════════════════════════════════════════════════════
@@ -115,7 +153,6 @@ export default function CartelaSelection({
             setTimeout(() => fetchRoom(attempt + 1), 300);
             return;
           }
-          // Gave up waiting — force transition
           if (!triggeredRef.current) {
             triggeredRef.current = true;
             confirmLockRef.current = true;
@@ -125,8 +162,11 @@ export default function CartelaSelection({
           return;
         }
 
-        setDeadlineAt(Date.now() + remaining * 1000);
-        setCountdown(remaining);
+        // 👈 ሰርቨር ሰዓቱን ሲልክ ብቻ ተካ
+        if (remaining > 0) {
+          setDeadlineAt(Date.now() + remaining * 1000);
+          setCountdown(remaining);
+        }
         setIsReady(true);
       } catch (e) {
         if (cancelled) return;
@@ -134,7 +174,6 @@ export default function CartelaSelection({
           setTimeout(() => fetchRoom(attempt + 1), 400);
           return;
         }
-        // Fail silently — do nothing
       }
     };
 
@@ -175,7 +214,6 @@ export default function CartelaSelection({
   // Timer 0 → LiveGame
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
-    if (!isReady) return;
     if (countdown === null || countdown > 0) return;
     if (triggeredRef.current || confirmLockRef.current) return;
 
@@ -197,7 +235,7 @@ export default function CartelaSelection({
     }
     onConfirm([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [countdown, isReady, selectedCards, takenCards]);
+  }, [countdown, selectedCards, takenCards]);
 
   // ═══════════════════════════════════════════════════════
   // Socket
@@ -236,7 +274,7 @@ export default function CartelaSelection({
   const numbers = Array.from({ length: TOTAL_CARDS }, (_, i) => i + 1);
   const total = selectedCards.length * stake;
 
-  // 👈 Display — null until server responds
+  // 👈 ወዲያውኑ ይታያል — null አይሆንም
   let timeStr = "…";
   if (countdown !== null) {
     timeStr = isWeeklyRoom
