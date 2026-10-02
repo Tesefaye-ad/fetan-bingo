@@ -194,9 +194,6 @@ router.get("/stats", async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// POST /rooms — 🎯 Safe creation
-// ═══════════════════════════════════════════════════════
 router.post("/rooms", async (req, res) => {
   try {
     let { roomCode, entryFee } = req.body;
@@ -206,7 +203,7 @@ router.post("/rooms", async (req, res) => {
     let game = await Game.findOne({ roomCode });
 
     if (!game) {
-      // Create new
+      // 👈 አዲስ ክፍል ፍጠር
       game = await Game.create({
         roomCode,
         entryFee: fee,
@@ -220,13 +217,40 @@ router.post("/rooms", async (req, res) => {
           : { selectionEndsAt: new Date(Date.now() + TIMER_MS) }),
       });
       console.log(`[POST] ${roomCode} created`);
-    } else if (game.status === "waiting" && game.players.length === 0) {
-      // Empty waiting room → reset to fresh state (new timer)
-      await resetRoomToWaiting(game, isWeekly, fee);
-      console.log(`[POST] ${roomCode} reset (empty waiting)`);
     } else {
-      // Active / finished / has players → don't touch
-      console.log(`[POST] ${roomCode} in-progress — keeping`);
+      // 👈 ክፍሉ አለ — ጊዜው ያልቀየረ መሆኑን አረጋግጥ
+      const isEmpty =
+        game.players.length === 0 && (game.reservedCards || []).length === 0;
+      const now = Date.now();
+
+      if (game.status === "waiting" && isEmpty) {
+        // Timer ያለ ወይም ያለፈ ከሆነ → reset
+        const targetTime = game.isWeeklyGame
+          ? game.scheduledStart
+            ? new Date(game.scheduledStart).getTime()
+            : 0
+          : game.selectionEndsAt
+          ? new Date(game.selectionEndsAt).getTime()
+          : 0;
+
+        if (!targetTime || targetTime <= now) {
+          await resetRoomToWaiting(game, isWeekly, fee);
+          console.log(`[POST] ${roomCode} reset (timer expired)`);
+        } else {
+          // ✅ Timer ትክክል ነው — አትንካ (ሁሉም ዩዘሮች አንድ ዓይነት ያያሉ)
+          console.log(
+            `[POST] ${roomCode} keeping existing timer (${Math.floor(
+              (targetTime - now) / 1000
+            )}s left)`
+          );
+        }
+      } else if (game.status === "active" || game.status === "finished") {
+        // ጨዋታ ተጀምሯል — አትንካ
+        console.log(`[POST] ${roomCode} in-progress — keeping`);
+      } else {
+        // ተጫዋቾች አሉ (waiting) — አትንካ
+        console.log(`[POST] ${roomCode} has players — keeping`);
+      }
     }
 
     const { targetTime, remainingSeconds } = computeRemaining(game);

@@ -233,11 +233,11 @@ async function notifyWinnersGroup(game, winnersPanelData) {
 function initGameSocket(io) {
   const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 1000);
 
+    // ═══════════════════════════════════════════════════════
+  // ⚡ TIMING — ፈጣን
   // ═══════════════════════════════════════════════════════
-  // 🎯 TIMING — 1 ሰከንድ
-  // ═══════════════════════════════════════════════════════
-  const CALL_INTERVAL_MS = 1000;
-  const FIRST_CALL_DELAY_MS = 300;
+  const CALL_INTERVAL_MS = 1000; // 👈 ቁጥር በየ 1 ሰከንዱ
+  const FIRST_CALL_DELAY_MS = 100; // ⚡ ወዲያውኑ ይጀምራል
   const WINNER_DISPLAY_MS = 5000;
   const EMPTY_GAME_RESET_MS = 1500;
   const SELECTION_TIMER_MS = Number(process.env.SELECTION_TIMER_MS || 50000);
@@ -312,7 +312,7 @@ function initGameSocket(io) {
     } catch (err) {
       console.error("[auto-starter]", err.message);
     }
-  }, 1000);
+  }, 500);
 
   io.on("connection", (socket) => {
     activeUserIds.add(socket.userId);

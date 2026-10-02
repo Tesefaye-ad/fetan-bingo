@@ -530,23 +530,7 @@ export default function LiveGame({
           paddingBottom: 75,
         }}
       >
-        {!isConnected && (
-          <div
-            style={{
-              background: "linear-gradient(135deg, #e74c3c, #c0392b)",
-              color: "#fff",
-              padding: "6px",
-              borderRadius: 8,
-              marginBottom: 6,
-              textAlign: "center",
-              fontSize: 11,
-              fontWeight: "bold",
-            }}
-          >
-            ⚠️ Network lost — reconnecting...
-          </div>
-        )}
-
+        
         {/* STATS */}
         <div
           style={{
