@@ -100,12 +100,15 @@ function Login({ onLoggedIn }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// GAME LOBBY
+// GAME LOBBY — ያለ countdown
 // ═══════════════════════════════════════════════════════
 function GameLobby({ onPlayStake }) {
+  // ⚡ ወዲያውኑ ወደ ካርቴላ
   function play(fee) {
     const fallbackCode = SHARED_ROOMS[fee] || `ROOM${fee}`;
     onPlayStake(fee, fallbackCode);
+
+    // Backend ን በ background ጥራ
     createRoom(fee, fallbackCode).catch((err) => {
       console.warn("[GameLobby] createRoom background failed:", err.message);
     });
@@ -133,6 +136,12 @@ function GameLobby({ onPlayStake }) {
           transition: "transform 0.1s ease",
           fontFamily: "inherit",
         }}
+        onMouseDown={(e) => {
+          e.currentTarget.style.transform = "scale(0.98)";
+        }}
+        onMouseUp={(e) => {
+          e.currentTarget.style.transform = "scale(1)";
+        }}
         onTouchStart={(e) => {
           e.currentTarget.style.transform = "scale(0.98)";
         }}
@@ -153,12 +162,22 @@ function GameLobby({ onPlayStake }) {
             pointerEvents: "none",
           }}
         />
-        <span style={{ fontSize: 14, zIndex: 1 }}>▶</span>
+        <span
+          style={{
+            fontSize: 14,
+            opacity: 0.95,
+            textShadow: "0 1px 2px rgba(0,0,0,0.3)",
+            zIndex: 1,
+          }}
+        >
+          ▶
+        </span>
         <span
           style={{
             fontSize: 18,
             fontWeight: "900",
             letterSpacing: 0.3,
+            textShadow: "0 2px 4px rgba(0,0,0,0.3)",
             zIndex: 1,
           }}
         >
@@ -179,6 +198,7 @@ function GameLobby({ onPlayStake }) {
         background: "linear-gradient(180deg, #0f1420 0%, #1a0f2e 100%)",
       }}
     >
+      {/* HEADER */}
       <div style={{ textAlign: "center", marginBottom: 20, marginTop: 10 }}>
         <h1
           style={{
@@ -188,6 +208,7 @@ function GameLobby({ onPlayStake }) {
             margin: 0,
             lineHeight: 1.15,
             letterSpacing: 0.5,
+            textShadow: "0 2px 10px rgba(0,0,0,0.3)",
           }}
         >
           Welcome to{" "}
@@ -198,11 +219,13 @@ function GameLobby({ onPlayStake }) {
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
               backgroundClip: "text",
+              filter: "drop-shadow(0 2px 8px rgba(243,156,18,0.5))",
             }}
           >
             Fetan Bingo
           </span>
         </h1>
+
         <div
           style={{
             marginTop: 12,
@@ -222,6 +245,7 @@ function GameLobby({ onPlayStake }) {
         </div>
       </div>
 
+      {/* ⚡ INSTANT GAMES */}
       <div
         style={{
           background:
@@ -230,21 +254,35 @@ function GameLobby({ onPlayStake }) {
           borderRadius: 20,
           padding: "20px 16px 18px",
           marginBottom: 16,
-          boxShadow: "0 4px 20px rgba(46,204,113,0.1)",
+          boxShadow:
+            "0 4px 20px rgba(46,204,113,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
         }}
       >
         <div
           style={{
             textAlign: "center",
             marginBottom: 18,
-            color: "#2ecc71",
-            fontSize: 14,
-            fontWeight: "900",
-            letterSpacing: 3,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
           }}
         >
-          ⚡ INSTANT GAMES ⚡
+          <span style={{ fontSize: 16, color: "#2ecc71" }}>⚡</span>
+          <span
+            style={{
+              color: "#2ecc71",
+              fontSize: 14,
+              fontWeight: "900",
+              letterSpacing: 3,
+              textShadow: "0 0 12px rgba(46,204,113,0.5)",
+            }}
+          >
+            INSTANT GAMES
+          </span>
+          <span style={{ fontSize: 16, color: "#2ecc71" }}>⚡</span>
         </div>
+
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <GameButton
             fee={10}
@@ -261,6 +299,7 @@ function GameLobby({ onPlayStake }) {
         </div>
       </div>
 
+      {/* 🏆 DAILY JACKPOT */}
       <div
         style={{
           background:
@@ -268,21 +307,36 @@ function GameLobby({ onPlayStake }) {
           border: "1px solid rgba(243,156,18,0.3)",
           borderRadius: 20,
           padding: "20px 16px 18px",
-          boxShadow: "0 4px 20px rgba(243,156,18,0.1)",
+          marginBottom: 16,
+          boxShadow:
+            "0 4px 20px rgba(243,156,18,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
         }}
       >
         <div
           style={{
             textAlign: "center",
             marginBottom: 18,
-            color: "#f39c12",
-            fontSize: 14,
-            fontWeight: "900",
-            letterSpacing: 3,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
           }}
         >
-          🏆 DAILY JACKPOT 🏆
+          <span style={{ fontSize: 16 }}>🏆</span>
+          <span
+            style={{
+              color: "#f39c12",
+              fontSize: 14,
+              fontWeight: "900",
+              letterSpacing: 3,
+              textShadow: "0 0 12px rgba(243,156,18,0.5)",
+            }}
+          >
+            DAILY JACKPOT
+          </span>
+          <span style={{ fontSize: 16 }}>🏆</span>
         </div>
+
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <GameButton
             fee={50}

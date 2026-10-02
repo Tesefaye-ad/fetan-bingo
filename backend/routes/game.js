@@ -48,9 +48,9 @@ function getRoomFeeConfig(roomCode, fallbackFee) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 👈 Force-reset: ሁሉንም አጽዳ + አዲስ ሰዓት
+// Reset room to waiting state
 // ═══════════════════════════════════════════════════════
-async function forceResetRoom(game, isWeekly, fee) {
+async function resetRoomToWaiting(game, isWeekly, fee) {
   game.entryFee = fee;
   game.isWeeklyGame = isWeekly;
   game.winPattern = getPatternForRoom(fee);
@@ -75,7 +75,7 @@ async function forceResetRoom(game, isWeekly, fee) {
 }
 
 // ═══════════════════════════════════════════════════════
-// Compute remaining
+// Compute remaining time
 // ═══════════════════════════════════════════════════════
 function computeRemaining(game) {
   let targetTime = null;
@@ -96,7 +96,7 @@ function computeRemaining(game) {
 }
 
 // ═══════════════════════════════════════════════════════
-// GET /rooms/:roomCode — Auto-create + auto-fix + timer
+// GET /rooms/:roomCode
 // ═══════════════════════════════════════════════════════
 router.get("/rooms/:roomCode", async (req, res) => {
   try {
@@ -104,7 +104,7 @@ router.get("/rooms/:roomCode", async (req, res) => {
     const { isWeekly, fee } = getRoomFeeConfig(roomCode);
     let game = await Game.findOne({ roomCode });
 
-    // ─── 1. Auto-create ───
+    // 1. Auto-create if missing
     if (!game) {
       game = await Game.create({
         roomCode,
@@ -124,62 +124,39 @@ router.get("/rooms/:roomCode", async (req, res) => {
       await game.save();
     }
 
-    // ═══════════════════════════════════════════════════════
-    // 👈 FORCE RESET — ሁሉንም ሁኔታዎች
-    // ═══════════════════════════════════════════════════════
+    // 2. Auto-fix timer only if waiting + empty
     const now = Date.now();
-    const status = game.status;
-    const emptyPlayers =
+    const isEmpty =
       game.players.length === 0 && (game.reservedCards || []).length === 0;
 
-    // (a) Waiting + Empty + timer expired → FORCE reset
-    if (status === "waiting" && emptyPlayers) {
-      let expired = false;
-      if (game.isWeeklyGame) {
-        const sched = game.scheduledStart
+    if (game.status === "waiting" && isEmpty) {
+      const targetTime = game.isWeeklyGame
+        ? game.scheduledStart
           ? new Date(game.scheduledStart).getTime()
-          : 0;
-        expired = !sched || sched <= now;
-      } else {
-        const sel = game.selectionEndsAt
-          ? new Date(game.selectionEndsAt).getTime()
-          : 0;
-        expired = !sel || sel <= now;
-      }
+          : 0
+        : game.selectionEndsAt
+        ? new Date(game.selectionEndsAt).getTime()
+        : 0;
 
-      if (expired) {
-        await forceResetRoom(game, isWeekly, fee);
-        console.log(`[GET] ${roomCode} force-reset (empty + expired)`);
+      // Missing or expired timer → reset
+      if (!targetTime || targetTime <= now) {
+        await resetRoomToWaiting(game, isWeekly, fee);
+        console.log(`[GET] ${roomCode} auto-reset (empty + no valid timer)`);
       }
     }
+    // Waiting with players → do nothing, leave as is
+    // Active / finished → do nothing
 
-    // (b) Waiting + Empty + NO valid timer → FORCE reset
-    if (status === "waiting" && emptyPlayers) {
-      const hasValidTimer = game.isWeeklyGame
-        ? game.scheduledStart && new Date(game.scheduledStart).getTime() > now
-        : game.selectionEndsAt && new Date(game.selectionEndsAt).getTime() > now;
-
-      if (!hasValidTimer) {
-        await forceResetRoom(game, isWeekly, fee);
-        console.log(`[GET] ${roomCode} force-reset (no timer)`);
-      }
-    }
-
-    // (c) Weekly + scheduledStart in far past → fix
-    if (game.isWeeklyGame && game.scheduledStart) {
-      const sched = new Date(game.scheduledStart).getTime();
-      if (sched < now - 60000) {
-        game.scheduledStart = getNextDailyStart(game.entryFee);
-        await game.save();
-        console.log(`[GET] ${roomCode} fixed past scheduledStart`);
-      }
-    }
-
-    // (d) Non-weekly + selectionEndsAt missing → fix
-    if (!game.isWeeklyGame && !game.selectionEndsAt && game.status === "waiting") {
-      game.selectionEndsAt = new Date(now + TIMER_MS);
+    // 3. Fix past scheduledStart for weekly (but keep if active)
+    if (
+      game.isWeeklyGame &&
+      game.status === "waiting" &&
+      game.scheduledStart &&
+      new Date(game.scheduledStart).getTime() < now - 60000
+    ) {
+      game.scheduledStart = getNextDailyStart(game.entryFee);
       await game.save();
-      console.log(`[GET] ${roomCode} added missing selectionEndsAt`);
+      console.log(`[GET] ${roomCode} fixed past scheduledStart`);
     }
 
     const { targetTime, remainingSeconds } = computeRemaining(game);
@@ -218,7 +195,7 @@ router.get("/stats", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// POST /rooms — 👈 ሁልጊዜ force-reset (ጨዋታ ካልተጀመረ)
+// POST /rooms — 🎯 Safe creation
 // ═══════════════════════════════════════════════════════
 router.post("/rooms", async (req, res) => {
   try {
@@ -229,6 +206,7 @@ router.post("/rooms", async (req, res) => {
     let game = await Game.findOne({ roomCode });
 
     if (!game) {
+      // Create new
       game = await Game.create({
         roomCode,
         entryFee: fee,
@@ -243,15 +221,11 @@ router.post("/rooms", async (req, res) => {
       });
       console.log(`[POST] ${roomCode} created`);
     } else if (game.status === "waiting" && game.players.length === 0) {
-      // 👈 waiting + empty → force reset ሁልጊዜ
-      await forceResetRoom(game, isWeekly, fee);
-      console.log(`[POST] ${roomCode} force-reset`);
-    } else if (
-      game.status === "active" ||
-      game.status === "finished" ||
-      game.players.length > 0
-    ) {
-      // 👈 active ካለ አትንካ — spectator ይሆናሉ
+      // Empty waiting room → reset to fresh state (new timer)
+      await resetRoomToWaiting(game, isWeekly, fee);
+      console.log(`[POST] ${roomCode} reset (empty waiting)`);
+    } else {
+      // Active / finished / has players → don't touch
       console.log(`[POST] ${roomCode} in-progress — keeping`);
     }
 

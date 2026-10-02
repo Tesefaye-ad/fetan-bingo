@@ -36,14 +36,14 @@ function stopCaller(roomCode) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🕛 DAILY — በየቀኑ ማታ 12:00 (00:00) / 12:05 (00:05) EAT
+// 🕛 DAILY — ማታ 12:00 / 12:05 EAT (midnight)
 // ═══════════════════════════════════════════════════════
 function getNextDailyStart(fee) {
   const ETHIOPIA_OFFSET_MS = 3 * 60 * 60 * 1000;
   const now = new Date();
   const et = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
 
-  const targetHour = 0; // 👈 ማታ 12:00 EAT (midnight)
+  const targetHour = 0;
   const targetMinute = fee === 50 ? 0 : 5;
 
   const today = new Date(et);
@@ -86,11 +86,12 @@ function buildRoomState(game) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🎴 Render cartela as ASCII
+// 🎴 Render cartela as ASCII art
 // ═══════════════════════════════════════════════════════
 function renderCartela(card, marked, pattern) {
   if (!card || !Array.isArray(card) || card.length !== 5) return "";
   const W = 8;
+
   const padCenter = (text, width) => {
     text = String(text);
     if (text.length >= width) return text.slice(0, width);
@@ -102,6 +103,7 @@ function renderCartela(card, marked, pattern) {
 
   const winningSet = new Set();
   const k = (r, c) => `${r}-${c}`;
+
   if (pattern) {
     if (pattern.startsWith("row-")) {
       const r = parseInt(pattern.split("-")[1], 10) - 1;
@@ -152,13 +154,16 @@ function renderCartela(card, marked, pattern) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🏆 Notify group for 50/100
+// 🏆 Notify group for 50/100 games
 // ═══════════════════════════════════════════════════════
 async function notifyWinnersGroup(game, winnersPanelData) {
   if (game.entryFee !== 50 && game.entryFee !== 100) return;
 
   const groupChatId = process.env.WINNERS_GROUP_CHAT_ID;
-  if (!groupChatId) return;
+  if (!groupChatId) {
+    console.log("[notify] WINNERS_GROUP_CHAT_ID not set — skip");
+    return;
+  }
 
   try {
     const { bot } = require("../bot");
@@ -188,7 +193,9 @@ async function notifyWinnersGroup(game, winnersPanelData) {
       message += `\n🏅 <b>${w.name}</b>\n`;
       message += `├ 📱 ስልክ: <code>${user?.phone || "—"}</code>\n`;
       message += `├ 🆔 Telegram: <code>${w.telegramId}</code>\n`;
-      message += `├ 🎴 ካርቴላ: ${w.cartelas.map((c) => `#${c}`).join(", ")}\n`;
+      message += `├ 🎴 ካርቴላ: ${w.cartelas
+        .map((c) => `#${c}`)
+        .join(", ")}\n`;
       message += `└ 💰 ሽልማት: <b>${w.prize} ETB</b>\n`;
 
       const userCartelas = (game.winningCartelas || []).filter(
@@ -197,7 +204,9 @@ async function notifyWinnersGroup(game, winnersPanelData) {
       for (const wc of userCartelas) {
         const art = renderCartela(wc.card, wc.marked, wc.pattern);
         if (!art) continue;
-        message += `\n<pre>🏆 CARD #${wc.cardId} — ${String(wc.pattern).toUpperCase()}\n${art}</pre>\n`;
+        message += `\n<pre>🏆 CARD #${wc.cardId} — ${String(
+          wc.pattern
+        ).toUpperCase()}\n${art}</pre>\n`;
       }
 
       if (i < winnersPanelData.length - 1) {
@@ -225,9 +234,9 @@ function initGameSocket(io) {
   const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 1000);
 
   // ═══════════════════════════════════════════════════════
-  // 🎯 TIMING — በ1 ሰከንድ (1000ms)
+  // 🎯 TIMING — 1 ሰከንድ
   // ═══════════════════════════════════════════════════════
-  const CALL_INTERVAL_MS = 1000; // 👈 1 ሰከንድ
+  const CALL_INTERVAL_MS = 1000;
   const FIRST_CALL_DELAY_MS = 300;
   const WINNER_DISPLAY_MS = 5000;
   const EMPTY_GAME_RESET_MS = 1500;
@@ -260,7 +269,10 @@ function initGameSocket(io) {
         }
       }
 
-      const weekly = await Game.find({ status: "waiting", isWeeklyGame: true });
+      const weekly = await Game.find({
+        status: "waiting",
+        isWeeklyGame: true,
+      });
       for (const g of weekly) {
         if (
           g.scheduledStart &&
@@ -271,7 +283,7 @@ function initGameSocket(io) {
         }
       }
 
-      // Stale cleanup
+      // Stale cleanup (5 min)
       const stale = await Game.find({
         status: "active",
         startedAt: { $lt: new Date(Date.now() - 5 * 60 * 1000) },
@@ -441,7 +453,9 @@ function initGameSocket(io) {
           if (weekly) {
             newGame.scheduledStart = getNextDailyStart(fee);
           } else {
-            newGame.selectionEndsAt = new Date(Date.now() + SELECTION_TIMER_MS);
+            newGame.selectionEndsAt = new Date(
+              Date.now() + SELECTION_TIMER_MS
+            );
           }
           game = await Game.create(newGame);
         } else if (
@@ -551,7 +565,7 @@ function initGameSocket(io) {
               socket.data.roomCode = roomCode;
               socket.data.isSpectator = true;
               socket.emit("error_message", {
-                message: `❌ Insufficient balance`,
+                message: `❌ Insufficient balance — watching`,
               });
               socket.emit("spectator_mode", {
                 roomCode,
@@ -742,6 +756,7 @@ function initGameSocket(io) {
       });
     }
 
+    // Emit BINGO popup
     io.to(game.roomCode).emit("bingo_claimed", {
       winPattern: game.winPattern,
       prizePool: game.prizePool,
@@ -762,12 +777,14 @@ function initGameSocket(io) {
       `[processWinners] ${game.roomCode} — ${winnersPanelData.length} winner(s)`
     );
 
+    // Group notify for 50/100
     if (game.entryFee === 50 || game.entryFee === 100) {
       notifyWinnersGroup(game, winnersPanelData).catch((err) =>
         console.error("[notify] Unhandled:", err.message)
       );
     }
 
+    // 5s → reset
     setTimeout(
       () => resetRoom(io, game.roomCode, "winner", WINNER_DISPLAY_MS),
       WINNER_DISPLAY_MS
@@ -864,7 +881,8 @@ function initGameSocket(io) {
           if (!cardData) continue;
           const alreadyPlayer = game.players.some(
             (p) =>
-              p.user.toString() === r.user.toString() && p.cardId === r.cardId
+              p.user.toString() === r.user.toString() &&
+              p.cardId === r.cardId
           );
           if (alreadyPlayer) continue;
 
@@ -950,7 +968,7 @@ function initGameSocket(io) {
               ? "G"
               : "O";
 
-          // Auto-mark → per user
+          // Auto-mark per user
           if (g.players.length > 0) {
             const grouped = {};
             for (const p of g.players) {
