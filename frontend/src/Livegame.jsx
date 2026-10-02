@@ -290,6 +290,8 @@ export default function LiveGame({
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
   const soundOnRef = useRef(true);
+  const cardsReceivedRef = useRef(false);
+  const retryTimerRef = useRef(null);
 
   const [cards, setCards] = useState([]);
   const [calledNumbers, setCalledNumbers] = useState([]);
@@ -304,6 +306,9 @@ export default function LiveGame({
   const [soundOn, setSoundOn] = useState(true);
   const [numberAnimKey, setNumberAnimKey] = useState(0);
 
+  // 👈 ለ debug
+  console.log("[LiveGame] Mount — roomCode:", roomCode, "cardIds:", cardIds);
+
   useEffect(() => {
     soundOnRef.current = soundOn;
     sound.enabled = soundOn;
@@ -316,18 +321,48 @@ export default function LiveGame({
     const socket = getSocket();
     socketRef.current = socket;
 
+    // 👈 Normalize cardIds
+    const normalizedCardIds = Array.isArray(cardIds)
+      ? cardIds.map((c) => parseInt(c, 10)).filter((c) => c > 0)
+      : cardIds
+      ? [parseInt(cardIds, 10)].filter((c) => c > 0)
+      : [];
+
+    console.log("[LiveGame] Normalized cardIds:", normalizedCardIds);
+
+    const emitJoin = (reason = "initial") => {
+      if (!socket.connected) {
+        console.log(`[LiveGame] join_room (${reason}) — socket not ready`);
+        return;
+      }
+      if (cardsReceivedRef.current) {
+        console.log(`[LiveGame] join_room (${reason}) — already have cards, skip`);
+        return;
+      }
+      console.log(
+        `[LiveGame] join_room (${reason}) — emit with:`,
+        normalizedCardIds
+      );
+      socket.emit("join_room", {
+        roomCode,
+        cardIds: normalizedCardIds,
+      });
+    };
+
     const onDisconnect = () => {
       console.log("[LiveGame] Disconnected");
     };
 
     const onConnect = () => {
       console.log("[LiveGame] Reconnected!");
-      if (joinedRef.current && roomCode) {
-        socket.emit("join_room", { roomCode, cardIds });
-      }
+      // 👈 Reconnect — always re-emit
+      cardsReceivedRef.current = false;
+      emitJoin("reconnect");
     };
 
     const onStateRestore = (data) => {
+      console.log("[LiveGame] State restored:", data);
+      cardsReceivedRef.current = true;
       setCalledNumbers(data.calledNumbers || []);
       setWinPattern(data.winPattern || "any-row");
       setPrizePool(data.prizePool || 0);
@@ -350,7 +385,15 @@ export default function LiveGame({
     };
 
     const onYourCards = (d) => {
+      console.log("[LiveGame] Received your_cards:", d);
       if (!d.cards) return;
+
+      cardsReceivedRef.current = true;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+
       setCards(
         d.cards.map((card, i) => ({
           cardId: d.cardIds?.[i] || i + 1,
@@ -374,6 +417,7 @@ export default function LiveGame({
     };
 
     const onGameStarted = (data) => {
+      console.log("[LiveGame] Game started:", data);
       setBingoPopup(null);
       if (data.winPattern) setWinPattern(data.winPattern);
     };
@@ -409,6 +453,7 @@ export default function LiveGame({
     };
 
     const onBingoClaimed = (data) => {
+      console.log("[LiveGame] BINGO:", data);
       setBingoPopup(data);
       if (data.winPattern) setWinPattern(data.winPattern);
       if (soundOnRef.current) sound.bingo();
@@ -417,6 +462,7 @@ export default function LiveGame({
     };
 
     const onGameOver = () => {
+      console.log("[LiveGame] Game over — returning in 5s");
       setTimeout(() => {
         if (onGameEnded) onGameEnded();
         else onExit();
@@ -432,6 +478,10 @@ export default function LiveGame({
 
     const onBalanceUpdate = ({ balance: b }) => setBalance(b);
 
+    const onErrorMessage = ({ message }) => {
+      console.warn("[LiveGame] Server error:", message);
+    };
+
     socket.on("disconnect", onDisconnect);
     socket.on("connect", onConnect);
     socket.on("state_restore", onStateRestore);
@@ -443,26 +493,44 @@ export default function LiveGame({
     socket.on("game_over", onGameOver);
     socket.on("next_game_ready", onNextGameReady);
     socket.on("balance_update", onBalanceUpdate);
+    socket.on("error_message", onErrorMessage);
 
-           // Join room
-    let retryId = null;
+    // ═══════════════════════════════════════════════════
+    // 👈 JOIN LOGIC — Robust retry
+    // ═══════════════════════════════════════════════════
     if (!joinedRef.current) {
-      console.log("[LiveGame] Joining room with cards:", cardIds);
-      socket.emit("join_room", { roomCode, cardIds });
+      joinedRef.current = true;
+      cardsReceivedRef.current = false;
 
-      // Retry after 1s if no cards received
-      retryId = setTimeout(() => {
-        console.log("[LiveGame] Retry join_room");
-        socket.emit("join_room", { roomCode, cardIds });
+      // Emit immediately if connected
+      if (socket.connected) {
+        emitJoin("initial");
+      } else {
+        // Wait for connect
+        socket.once("connect", () => emitJoin("onconnect"));
+      }
+
+      // Retry at 1.5s
+      retryTimerRef.current = setTimeout(() => {
+        emitJoin("retry-1.5s");
       }, 1500);
 
-      joinedRef.current = true;
+      // Retry at 3s
+      setTimeout(() => {
+        emitJoin("retry-3s");
+      }, 3000);
+
+      // Retry at 5s
+      setTimeout(() => {
+        emitJoin("retry-5s");
+      }, 5000);
     }
 
     return () => {
-      if (retryId) clearTimeout(retryId);
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       socket.emit("leave_room");
       joinedRef.current = false;
+      cardsReceivedRef.current = false;
       socket.off("disconnect", onDisconnect);
       socket.off("connect", onConnect);
       socket.off("state_restore", onStateRestore);
@@ -474,6 +542,7 @@ export default function LiveGame({
       socket.off("game_over", onGameOver);
       socket.off("next_game_ready", onNextGameReady);
       socket.off("balance_update", onBalanceUpdate);
+      socket.off("error_message", onErrorMessage);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode, setBalance]);
