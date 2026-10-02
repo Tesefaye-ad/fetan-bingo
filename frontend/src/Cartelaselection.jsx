@@ -5,12 +5,9 @@ const API_BASE_URL =
   process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.onrender.com";
 
 const TOTAL_CARDS = 1250;
-const FETCH_TIMEOUT_MS = 15000;
-const MAX_RETRY = 15; // 15 × 300ms = 4.5s
+const FETCH_TIMEOUT_MS = 8000;
+const MAX_RETRY = 20;
 
-// ═══════════════════════════════════════════════════════
-// Time formatters
-// ═══════════════════════════════════════════════════════
 function formatHHMMSS(totalSeconds) {
   if (totalSeconds == null || totalSeconds < 0) return "00:00:00";
   const s = Math.floor(totalSeconds);
@@ -46,9 +43,6 @@ export default function CartelaSelection({
   const fetchedRef = useRef(false);
   const confirmLockRef = useRef(false);
 
-  // ═══════════════════════════════════════════════════════
-  // Reset on room change
-  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     triggeredRef.current = false;
     fetchedRef.current = false;
@@ -61,7 +55,7 @@ export default function CartelaSelection({
   }, [roomCode]);
 
   // ═══════════════════════════════════════════════════════
-  // FETCH ROOM — Server-based timer (same for all users)
+  // FETCH ROOM
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (fetchedRef.current) return;
@@ -69,6 +63,7 @@ export default function CartelaSelection({
     let cancelled = false;
 
     const fetchRoom = async (attempt = 1) => {
+      if (cancelled) return;
       try {
         const token = localStorage.getItem("bingo_token");
         const controller = new AbortController();
@@ -94,92 +89,57 @@ export default function CartelaSelection({
           ]);
         }
 
-        // ─── ጨዋታ active ከሆነ → ወዲያውኑ LiveGame ───
+        // Game already active → jump to LiveGame
         if (data.status === "active" || data.status === "finished") {
           if (!triggeredRef.current && !confirmLockRef.current) {
             triggeredRef.current = true;
             confirmLockRef.current = true;
-            console.log("[Cartela] Game active — jumping to LiveGame");
+            console.log("[Cartela] Game active — jumping");
             onGameStatusChange?.("active");
             return onConfirm([]);
           }
           return;
         }
 
-        // ─── remaining ───
+        // remaining from server
         let remaining = 0;
         if (typeof data.remainingSeconds === "number") {
           remaining = Math.max(0, data.remainingSeconds);
-        } else if (data.selectionEndsAt && data.serverTime) {
-          const sd = new Date(data.selectionEndsAt).getTime();
-          const sn = new Date(data.serverTime).getTime();
-          if (Number.isFinite(sd) && Number.isFinite(sn)) {
-            const offset = sn - Date.now();
-            const localDeadline = sd - offset;
-            remaining = Math.max(
-              0,
-              Math.floor((localDeadline - Date.now()) / 1000)
-            );
-          }
         }
 
-        // ═══════════════════════════════════════════════
-        // 👈 Timer = 0 & waiting → retry እስከ game active
-        // ═══════════════════════════════════════════════
+        console.log(`[Cartela] ${roomCode} remaining=${remaining}s`);
+
+        // If remaining is 0 and game is still waiting → poll until it starts
         if (remaining === 0 && data.status === "waiting") {
           if (attempt < MAX_RETRY) {
             setTimeout(() => fetchRoom(attempt + 1), 300);
             return;
           }
-          // Retry አልተሳካም — ለ Play 10/20 fallback ስጥ
-          if (!isWeeklyRoom) {
-            console.warn("[Cartela] Fallback 50s");
-            remaining = 50;
-          } else {
-            // Weekly — ወዲያውኑ trigger LiveGame
-            if (!triggeredRef.current) {
-              triggeredRef.current = true;
-              confirmLockRef.current = true;
-              onGameStatusChange?.("active");
-              return onConfirm([]);
-            }
+          // Gave up waiting — force transition
+          if (!triggeredRef.current) {
+            triggeredRef.current = true;
+            confirmLockRef.current = true;
+            onGameStatusChange?.("active");
+            return onConfirm([]);
           }
+          return;
         }
-
-        console.log(
-          `[Cartela] ${roomCode} — remaining=${remaining}s weekly=${data.isWeeklyGame}`
-        );
 
         setDeadlineAt(Date.now() + remaining * 1000);
         setCountdown(remaining);
         setIsReady(true);
       } catch (e) {
         if (cancelled) return;
-
-        if (e.name === "AbortError" && attempt < MAX_RETRY) {
-          setTimeout(() => fetchRoom(attempt + 1), 500);
-          return;
-        }
         if (attempt < MAX_RETRY) {
-          setTimeout(() => fetchRoom(attempt + 1), 300);
+          setTimeout(() => fetchRoom(attempt + 1), 400);
           return;
         }
-
-        // Final fallback — silent
-        if (!isWeeklyRoom) {
-          setDeadlineAt(Date.now() + 50000);
-          setCountdown(50);
-        } else {
-          setDeadlineAt(Date.now() + 30000);
-          setCountdown(30);
-        }
-        setIsReady(true);
+        // Fail silently — do nothing
       }
     };
 
     fetchRoom();
 
-    // Balance in parallel
     (async () => {
       try {
         const token = localStorage.getItem("bingo_token");
@@ -195,10 +155,10 @@ export default function CartelaSelection({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode, isWeeklyRoom]);
+  }, [roomCode]);
 
   // ═══════════════════════════════════════════════════════
-  // Countdown tick (100ms)
+  // Countdown tick
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!deadlineAt) return;
@@ -207,12 +167,12 @@ export default function CartelaSelection({
       setCountdown(rem);
     };
     tick();
-    const timer = setInterval(tick, 100);
+    const timer = setInterval(tick, 200);
     return () => clearInterval(timer);
   }, [deadlineAt]);
 
   // ═══════════════════════════════════════════════════════
-  // Timer = 0 → LiveGame (FAST)
+  // Timer 0 → LiveGame
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!isReady) return;
@@ -226,7 +186,6 @@ export default function CartelaSelection({
 
     if (selectedCards.length > 0) return onConfirm(selectedCards);
 
-    // Auto-pick random free card
     const takenSet = new Set(takenCards);
     const free = [];
     for (let i = 1; i <= TOTAL_CARDS; i++) {
@@ -277,15 +236,13 @@ export default function CartelaSelection({
   const numbers = Array.from({ length: TOTAL_CARDS }, (_, i) => i + 1);
   const total = selectedCards.length * stake;
 
-  // 👈 Time display — seconds for 10/20, HH:MM:SS for 50/100
-  const timeStr =
-    countdown !== null
-      ? isWeeklyRoom
-        ? formatHHMMSS(countdown)
-        : formatSecondsOnly(countdown)
-      : isWeeklyRoom
-      ? "00:00:00"
-      : "…";
+  // 👈 Display — null until server responds
+  let timeStr = "…";
+  if (countdown !== null) {
+    timeStr = isWeeklyRoom
+      ? formatHHMMSS(countdown)
+      : formatSecondsOnly(countdown);
+  }
 
   const isUrgent = countdown !== null && countdown <= 10 && countdown > 0;
 
@@ -344,7 +301,6 @@ export default function CartelaSelection({
         </div>
       </div>
 
-      {/* Info Grid */}
       <div
         style={{
           display: "grid",
@@ -363,12 +319,7 @@ export default function CartelaSelection({
           value={currentBalance}
           color="#2ecc71"
         />
-        <InfoCell
-          icon="🎯"
-          label="Stake"
-          value={stake}
-          color="#f39c12"
-        />
+        <InfoCell icon="🎯" label="Stake" value={stake} color="#f39c12" />
         <InfoCell
           icon="🎴"
           label="Selected"
@@ -384,7 +335,6 @@ export default function CartelaSelection({
         />
       </div>
 
-      {/* Totals */}
       <div
         style={{
           display: "flex",
@@ -406,7 +356,6 @@ export default function CartelaSelection({
         </span>
       </div>
 
-      {/* Numbers Grid */}
       <div
         style={{
           flex: 1,
@@ -463,7 +412,14 @@ function InfoCell({ icon, label, value, color = "#fff", size = 14 }) {
   return (
     <div style={{ textAlign: "center" }}>
       <div style={{ fontSize: 12, marginBottom: 1 }}>{icon}</div>
-      <div style={{ color: "#888", fontSize: 8, marginBottom: 2, fontWeight: "bold" }}>
+      <div
+        style={{
+          color: "#888",
+          fontSize: 8,
+          marginBottom: 2,
+          fontWeight: "bold",
+        }}
+      >
         {label}
       </div>
       <div

@@ -36,13 +36,12 @@ function stopCaller(roomCode) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🕛 DAILY — ማታ 12:00 / 12:05 EAT (midnight)
+// 🕛 DAILY
 // ═══════════════════════════════════════════════════════
 function getNextDailyStart(fee) {
   const ETHIOPIA_OFFSET_MS = 3 * 60 * 60 * 1000;
   const now = new Date();
   const et = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
-
   const targetHour = 0;
   const targetMinute = fee === 50 ? 0 : 5;
 
@@ -86,7 +85,7 @@ function buildRoomState(game) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🎴 Render cartela as ASCII art
+// 🎴 Render cartela ASCII
 // ═══════════════════════════════════════════════════════
 function renderCartela(card, marked, pattern) {
   if (!card || !Array.isArray(card) || card.length !== 5) return "";
@@ -154,16 +153,13 @@ function renderCartela(card, marked, pattern) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🏆 Notify group for 50/100 games
+// 🏆 Notify group for 50/100
 // ═══════════════════════════════════════════════════════
 async function notifyWinnersGroup(game, winnersPanelData) {
   if (game.entryFee !== 50 && game.entryFee !== 100) return;
 
   const groupChatId = process.env.WINNERS_GROUP_CHAT_ID;
-  if (!groupChatId) {
-    console.log("[notify] WINNERS_GROUP_CHAT_ID not set — skip");
-    return;
-  }
+  if (!groupChatId) return;
 
   try {
     const { bot } = require("../bot");
@@ -230,14 +226,55 @@ async function notifyWinnersGroup(game, winnersPanelData) {
   }
 }
 
+// ═══════════════════════════════════════════════════════
+// 👈 HELPER: Promote reserved cards to players
+// ═══════════════════════════════════════════════════════
+function promoteReservedCards(game) {
+  if (!game.reservedCards || game.reservedCards.length === 0) {
+    return { promoted: 0, cardsByUser: {} };
+  }
+
+  const cardsByUser = {};
+  let promoted = 0;
+
+  for (const r of game.reservedCards) {
+    const cardData = game.allCards.find((c) => c.cardId === r.cardId);
+    if (!cardData) continue;
+
+    const alreadyPlayer = game.players.some(
+      (p) =>
+        p.user.toString() === r.user.toString() && p.cardId === r.cardId
+    );
+    if (alreadyPlayer) continue;
+
+    game.players.push({
+      user: r.user,
+      telegramId: r.telegramId,
+      cardId: cardData.cardId,
+      card: cardData.card,
+      marked: cardData.marked.map((row) => [...row]),
+      hasWon: false,
+    });
+    game.prizePool += Math.floor(game.entryFee * 0.8);
+    promoted++;
+
+    const uid = r.user.toString();
+    if (!cardsByUser[uid]) {
+      cardsByUser[uid] = { cards: [], markedCards: [], cardIds: [], telegramId: r.telegramId };
+    }
+    cardsByUser[uid].cards.push(cardData.card);
+    cardsByUser[uid].markedCards.push(cardData.marked.map((row) => [...row]));
+    cardsByUser[uid].cardIds.push(cardData.cardId);
+  }
+
+  game.reservedCards = [];
+  return { promoted, cardsByUser };
+}
+
 function initGameSocket(io) {
   const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 1000);
-
-    // ═══════════════════════════════════════════════════════
-  // ⚡ TIMING — ፈጣን
-  // ═══════════════════════════════════════════════════════
-  const CALL_INTERVAL_MS = 1000; // 👈 ቁጥር በየ 1 ሰከንዱ
-  const FIRST_CALL_DELAY_MS = 100; // ⚡ ወዲያውኑ ይጀምራል
+  const CALL_INTERVAL_MS = 1000;
+  const FIRST_CALL_DELAY_MS = 300;
   const WINNER_DISPLAY_MS = 5000;
   const EMPTY_GAME_RESET_MS = 1500;
   const SELECTION_TIMER_MS = Number(process.env.SELECTION_TIMER_MS || 50000);
@@ -283,7 +320,6 @@ function initGameSocket(io) {
         }
       }
 
-      // Stale cleanup (5 min)
       const stale = await Game.find({
         status: "active",
         startedAt: { $lt: new Date(Date.now() - 5 * 60 * 1000) },
@@ -423,7 +459,7 @@ function initGameSocket(io) {
       try {
         if (!roomCode) return;
         roomCode = String(roomCode).trim().toUpperCase();
-        const selectedIds = Array.isArray(cardIds)
+        let selectedIds = Array.isArray(cardIds)
           ? cardIds
           : cardIds
           ? [cardIds]
@@ -432,7 +468,7 @@ function initGameSocket(io) {
         const guard = `${socket.id}:${roomCode}`;
         if (joinGuards.has(guard)) return;
         joinGuards.set(guard, true);
-        setTimeout(() => joinGuards.delete(guard), 3000);
+        setTimeout(() => joinGuards.delete(guard), 2000);
 
         let game = await Game.findOne({ roomCode });
 
@@ -441,7 +477,7 @@ function initGameSocket(io) {
           const fee = weekly
             ? getWeeklyFee(roomCode)
             : Number(process.env.ENTRY_FEE || 10);
-          const newGame = {
+          game = await Game.create({
             roomCode,
             entryFee: fee,
             maxNumber: 75,
@@ -449,35 +485,31 @@ function initGameSocket(io) {
             isWeeklyGame: weekly,
             status: "waiting",
             winPattern: getPatternForRoom(fee),
-          };
-          if (weekly) {
-            newGame.scheduledStart = getNextDailyStart(fee);
-          } else {
-            newGame.selectionEndsAt = new Date(
-              Date.now() + SELECTION_TIMER_MS
-            );
-          }
-          game = await Game.create(newGame);
-        } else if (
-          !game.allCards?.length ||
-          game.allCards.length < TOTAL_CARDS
-        ) {
-          game.allCards = generate1250Cards();
-          await game.save();
+            ...(weekly
+              ? { scheduledStart: getNextDailyStart(fee) }
+              : { selectionEndsAt: new Date(Date.now() + SELECTION_TIMER_MS) }),
+          });
         }
 
         const user = await User.findById(socket.userId);
         if (!user) return;
 
+        // Auto-pull user's reserved cards if not provided
+        const myReserved = (game.reservedCards || []).filter(
+          (r) => String(r.telegramId) === String(socket.telegramId)
+        );
+        if (selectedIds.length === 0 && myReserved.length > 0) {
+          selectedIds = myReserved.map((r) => r.cardId);
+        }
+
+        // Check if user is already a player
         const existing = game.players.filter(
           (p) => p.user.toString() === socket.userId
         );
 
-        const isSpectator =
-          spectate === true ||
-          (selectedIds.length === 0 && existing.length === 0);
-
-        // Reconnect
+        // ═══════════════════════════════════════════════════
+        // 👈 CASE 1: Existing player → restore
+        // ═══════════════════════════════════════════════════
         if (existing.length > 0) {
           socket.join(roomCode);
           socket.data.roomCode = roomCode;
@@ -497,11 +529,105 @@ function initGameSocket(io) {
             })),
           });
           io.to(roomCode).emit("room_state", buildRoomState(game));
+          console.log(
+            `[join_room] ${roomCode} — restore ${existing.length} cards for user`
+          );
           return;
         }
 
+        // ═══════════════════════════════════════════════════
+        // 👈 CASE 2: Active game + has reserved → promote NOW
+        // ═══════════════════════════════════════════════════
+        if (
+          (game.status === "active" || game.status === "finished") &&
+          selectedIds.length > 0
+        ) {
+          // Promote reserved cards for THIS user only
+          const takenSet = new Set(game.players.map((p) => p.cardId));
+          const newCards = [];
+          const newMarked = [];
+          const newIds = [];
+
+          for (const cid of selectedIds) {
+            const id = parseInt(cid, 10);
+            if (!id || id < 1 || id > TOTAL_CARDS) continue;
+            if (takenSet.has(id)) continue;
+
+            const cardData = game.allCards.find((c) => c.cardId === id);
+            if (!cardData) continue;
+
+            // Verify user reserved this card
+            const wasReserved = (game.reservedCards || []).some(
+              (r) =>
+                r.cardId === id &&
+                String(r.telegramId) === String(socket.telegramId)
+            );
+            if (!wasReserved) continue;
+
+            game.players.push({
+              user: user._id,
+              telegramId: socket.telegramId,
+              cardId: cardData.cardId,
+              card: cardData.card,
+              marked: cardData.marked.map((r) => [...r]),
+              hasWon: false,
+            });
+            takenSet.add(id);
+            newCards.push(cardData.card);
+            newMarked.push(cardData.marked.map((r) => [...r]));
+            newIds.push(cardData.cardId);
+          }
+
+          // Remove this user's reserved entries
+          game.reservedCards = (game.reservedCards || []).filter(
+            (r) => String(r.telegramId) !== String(socket.telegramId)
+          );
+          await game.save();
+
+          socket.join(roomCode);
+          socket.data.roomCode = roomCode;
+          socket.data.isSpectator = false;
+
+          if (newCards.length > 0) {
+            socket.emit("your_cards", {
+              cards: newCards,
+              markedCards: newMarked,
+              cardIds: newIds,
+            });
+            console.log(
+              `[join_room] ${roomCode} — LATE-JOIN promoted ${newCards.length} cards`
+            );
+          }
+          socket.emit("room_state", buildRoomState(game));
+          return;
+        }
+
+        // ═══════════════════════════════════════════════════
+        // CASE 3: Active game, no reserved → spectator
+        // ═══════════════════════════════════════════════════
+        if (game.status === "active" || game.status === "finished") {
+          socket.join(roomCode);
+          socket.data.roomCode = roomCode;
+          socket.data.isSpectator = true;
+          socket.emit("spectator_mode", {
+            roomCode,
+            status: game.status,
+            calledNumbers: game.calledNumbers || [],
+            winPattern: game.winPattern,
+            prizePool: game.prizePool,
+            playerCount: game.players.length,
+            entryFee: game.entryFee,
+          });
+          io.to(roomCode).emit("room_state", buildRoomState(game));
+          return;
+        }
+
+        // ═══════════════════════════════════════════════════
+        // CASE 4: Waiting game
+        // ═══════════════════════════════════════════════════
+
         // Spectator
-        if (isSpectator) {
+        if (spectate === true || selectedIds.length === 0) {
           socket.join(roomCode);
           socket.data.roomCode = roomCode;
           socket.data.isSpectator = true;
@@ -518,39 +644,20 @@ function initGameSocket(io) {
           return;
         }
 
-        // Active game — spectator
-        if (game.status === "active" || game.status === "finished") {
-          socket.join(roomCode);
-          socket.data.roomCode = roomCode;
-          socket.data.isSpectator = true;
-          socket.emit("error_message", {
-            message: "🎯 Game started — watching as spectator",
-          });
-          socket.emit("spectator_mode", {
-            roomCode,
-            status: game.status,
-            calledNumbers: game.calledNumbers || [],
-            winPattern: game.winPattern,
-            prizePool: game.prizePool,
-            playerCount: game.players.length,
-            entryFee: game.entryFee,
-          });
-          io.to(roomCode).emit("room_state", buildRoomState(game));
-          return;
-        }
-
         if (game.players.length >= MAX_PLAYERS) {
           return socket.emit("error_message", { message: "Room full" });
         }
 
+        // New player — add cards as players
         const takenSet = new Set(game.players.map((p) => p.cardId));
-        const newCards = [],
-          newMarked = [],
-          newIds = [];
+        const newCards = [];
+        const newMarked = [];
+        const newIds = [];
 
         for (const cid of selectedIds) {
           const id = parseInt(cid, 10);
           if (!id || id < 1 || id > TOTAL_CARDS || takenSet.has(id)) continue;
+
           const cardData = game.allCards.find((c) => c.cardId === id);
           if (!cardData) continue;
 
@@ -559,26 +666,9 @@ function initGameSocket(io) {
               r.cardId === id &&
               String(r.telegramId) === String(socket.telegramId)
           );
+
           if (!reserved) {
-            if (user.balance < game.entryFee) {
-              socket.join(roomCode);
-              socket.data.roomCode = roomCode;
-              socket.data.isSpectator = true;
-              socket.emit("error_message", {
-                message: `❌ Insufficient balance — watching`,
-              });
-              socket.emit("spectator_mode", {
-                roomCode,
-                status: game.status,
-                calledNumbers: game.calledNumbers || [],
-                winPattern: game.winPattern,
-                prizePool: game.prizePool,
-                playerCount: game.players.length,
-                entryFee: game.entryFee,
-              });
-              io.to(roomCode).emit("room_state", buildRoomState(game));
-              return;
-            }
+            if (user.balance < game.entryFee) continue;
             user.balance -= game.entryFee;
             await Transaction.create({
               user: user._id,
@@ -609,34 +699,21 @@ function initGameSocket(io) {
           (r) => String(r.telegramId) !== String(socket.telegramId)
         );
 
-        if (newCards.length === 0) {
-          socket.join(roomCode);
-          socket.data.roomCode = roomCode;
-          socket.data.isSpectator = true;
-          socket.emit("spectator_mode", {
-            roomCode,
-            status: game.status,
-            calledNumbers: game.calledNumbers || [],
-            winPattern: game.winPattern,
-            prizePool: game.prizePool,
-            playerCount: game.players.length,
-            entryFee: game.entryFee,
-          });
-          io.to(roomCode).emit("room_state", buildRoomState(game));
-          return;
-        }
-
         await user.save();
         await game.save();
+
         socket.join(roomCode);
         socket.data.roomCode = roomCode;
         socket.data.isSpectator = false;
+
         socket.emit("balance_update", { balance: user.balance });
-        socket.emit("your_cards", {
-          cards: newCards,
-          markedCards: newMarked,
-          cardIds: newIds,
-        });
+        if (newCards.length > 0) {
+          socket.emit("your_cards", {
+            cards: newCards,
+            markedCards: newMarked,
+            cardIds: newIds,
+          });
+        }
         io.to(roomCode).emit("room_state", buildRoomState(game));
       } catch (err) {
         console.error("[join_room]", err);
@@ -656,11 +733,10 @@ function initGameSocket(io) {
   });
 
   // ═══════════════════════════════════════════════════════
-  // AUTO-DETECT WINNERS
+  // WINNERS
   // ═══════════════════════════════════════════════════════
   async function autoDetectWinners(io, game) {
     if (!game.players || game.players.length === 0) return false;
-
     const targetPattern = game.winPattern || "any-row";
     const winners = [];
 
@@ -674,15 +750,11 @@ function initGameSocket(io) {
     }
 
     if (!winners.length) return false;
-
     game.markModified("players");
     await processWinners(io, game, winners);
     return true;
   }
 
-  // ═══════════════════════════════════════════════════════
-  // PROCESS WINNERS
-  // ═══════════════════════════════════════════════════════
   async function processWinners(io, game, winners) {
     stopCaller(game.roomCode);
     if (!game.winningCartelas) game.winningCartelas = [];
@@ -756,7 +828,6 @@ function initGameSocket(io) {
       });
     }
 
-    // Emit BINGO popup
     io.to(game.roomCode).emit("bingo_claimed", {
       winPattern: game.winPattern,
       prizePool: game.prizePool,
@@ -777,23 +848,18 @@ function initGameSocket(io) {
       `[processWinners] ${game.roomCode} — ${winnersPanelData.length} winner(s)`
     );
 
-    // Group notify for 50/100
     if (game.entryFee === 50 || game.entryFee === 100) {
       notifyWinnersGroup(game, winnersPanelData).catch((err) =>
         console.error("[notify] Unhandled:", err.message)
       );
     }
 
-    // 5s → reset
     setTimeout(
       () => resetRoom(io, game.roomCode, "winner", WINNER_DISPLAY_MS),
       WINNER_DISPLAY_MS
     );
   }
 
-  // ═══════════════════════════════════════════════════════
-  // RESET ROOM
-  // ═══════════════════════════════════════════════════════
   async function resetRoom(io, roomCode, reason = "unknown", delayMs = 0) {
     const doReset = async () => {
       try {
@@ -861,46 +927,33 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // START GAME
+  // START GAME — 👈 Promote BEFORE start
   // ═══════════════════════════════════════════════════════
   async function startGame(io, roomCode) {
     if (activeCallers.has(roomCode)) return;
     activeCallers.set(roomCode, null);
 
     try {
-      const game = await Game.findOne({ roomCode });
+      let game = await Game.findOne({ roomCode });
       if (!game || game.status !== "waiting") {
         activeCallers.delete(roomCode);
         return;
       }
 
-      // Promote reservedCards → players for weekly games
-      if (game.isWeeklyGame && (game.reservedCards || []).length > 0) {
-        for (const r of game.reservedCards) {
-          const cardData = game.allCards.find((c) => c.cardId === r.cardId);
-          if (!cardData) continue;
-          const alreadyPlayer = game.players.some(
-            (p) =>
-              p.user.toString() === r.user.toString() &&
-              p.cardId === r.cardId
-          );
-          if (alreadyPlayer) continue;
-
-          game.players.push({
-            user: r.user,
-            telegramId: r.telegramId,
-            cardId: cardData.cardId,
-            card: cardData.card,
-            marked: cardData.marked.map((row) => [...row]),
-            hasWon: false,
-          });
-          game.prizePool += Math.floor(game.entryFee * 0.8);
-        }
-        game.reservedCards = [];
+      // ═══════════════════════════════════════════════════════
+      // 👈 Promote reserved cards → players BEFORE status change
+      // ═══════════════════════════════════════════════════════
+      const { promoted, cardsByUser } = promoteReservedCards(game);
+      if (promoted > 0) {
+        await game.save();
+        console.log(`[startGame] ${roomCode} — promoted ${promoted} cards`);
       }
 
+      // Re-fetch
+      game = await Game.findOne({ roomCode });
       const playerCount = game.players.length;
 
+      // Set active
       game.status = "active";
       game.startedAt = new Date();
       game.calledNumbers = [];
@@ -911,14 +964,30 @@ function initGameSocket(io) {
       await game.save();
 
       console.log(
-        `[startGame] ${roomCode} — ${playerCount} player(s) — 1000ms — pattern: ${game.winPattern}`
+        `[startGame] ${roomCode} — ${playerCount} players — pattern: ${game.winPattern}`
       );
 
+      // Emit game_started to all
       io.to(roomCode).emit("game_started", {
         roomCode,
         winPattern: game.winPattern,
         playerCount,
       });
+
+      // Send cards to all promoted users
+      for (const uid of Object.keys(cardsByUser)) {
+        const data = cardsByUser[uid];
+        for (const s of io.sockets.sockets.values()) {
+          if (s.userId === uid) {
+            s.emit("your_cards", {
+              cards: data.cards,
+              markedCards: data.markedCards,
+              cardIds: data.cardIds,
+            });
+            console.log(`[startGame] sent ${data.cards.length} cards to ${uid}`);
+          }
+        }
+      }
 
       let active = true;
 
@@ -940,7 +1009,6 @@ function initGameSocket(io) {
           if (num === null) {
             active = false;
             activeCallers.delete(roomCode);
-            console.log(`[caller:${roomCode}] All called — no winner`);
             resetRoom(io, roomCode, "all-called", EMPTY_GAME_RESET_MS);
             return;
           }
@@ -968,7 +1036,7 @@ function initGameSocket(io) {
               ? "G"
               : "O";
 
-          // Auto-mark per user
+          // Send updated cards
           if (g.players.length > 0) {
             const grouped = {};
             for (const p of g.players) {

@@ -444,12 +444,23 @@ export default function LiveGame({
     socket.on("next_game_ready", onNextGameReady);
     socket.on("balance_update", onBalanceUpdate);
 
+           // Join room
+    let retryId = null;
     if (!joinedRef.current) {
+      console.log("[LiveGame] Joining room with cards:", cardIds);
       socket.emit("join_room", { roomCode, cardIds });
+
+      // Retry after 1s if no cards received
+      retryId = setTimeout(() => {
+        console.log("[LiveGame] Retry join_room");
+        socket.emit("join_room", { roomCode, cardIds });
+      }, 1500);
+
       joinedRef.current = true;
     }
 
     return () => {
+      if (retryId) clearTimeout(retryId);
       socket.emit("leave_room");
       joinedRef.current = false;
       socket.off("disconnect", onDisconnect);

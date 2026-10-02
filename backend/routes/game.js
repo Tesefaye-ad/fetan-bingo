@@ -21,7 +21,7 @@ function getNextDailyStart(fee) {
   const now = new Date();
   const et = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
 
-  const targetHour = 0; // ማታ 12:00 EAT (midnight)
+  const targetHour = 0;
   const targetMinute = fee === 50 ? 0 : 5;
 
   const today = new Date(et);
@@ -48,51 +48,93 @@ function getRoomFeeConfig(roomCode, fallbackFee) {
 }
 
 // ═══════════════════════════════════════════════════════
-// Reset room to waiting state
+// 🕐 Compute target time & remaining
 // ═══════════════════════════════════════════════════════
-async function resetRoomToWaiting(game, isWeekly, fee) {
-  game.entryFee = fee;
-  game.isWeeklyGame = isWeekly;
-  game.winPattern = getPatternForRoom(fee);
-  game.status = "waiting";
-  game.calledNumbers = [];
-  game.prizePool = 0;
-  game.players = [];
-  game.reservedCards = [];
-  game.winners = [];
-  game.winningCartelas = [];
-  game.startedAt = undefined;
-  game.finishedAt = undefined;
-
-  if (isWeekly) {
-    game.scheduledStart = getNextDailyStart(fee);
-    game.selectionEndsAt = undefined;
-  } else {
-    game.selectionEndsAt = new Date(Date.now() + TIMER_MS);
-    game.scheduledStart = undefined;
+function computeTargetTime(game) {
+  if (game.isWeeklyGame && game.scheduledStart) {
+    return new Date(game.scheduledStart);
   }
-  await game.save();
+  if (game.selectionEndsAt) {
+    return new Date(game.selectionEndsAt);
+  }
+  return null;
+}
+
+function computeRemaining(game) {
+  const targetTime = computeTargetTime(game);
+  if (!targetTime || game.status !== "waiting") {
+    return { targetTime, remainingSeconds: 0 };
+  }
+  const remainingSeconds = Math.max(
+    0,
+    Math.floor((targetTime.getTime() - Date.now()) / 1000)
+  );
+  return { targetTime, remainingSeconds };
 }
 
 // ═══════════════════════════════════════════════════════
-// Compute remaining time
+// 🎯 Ensure room exists with a VALID timer
 // ═══════════════════════════════════════════════════════
-function computeRemaining(game) {
-  let targetTime = null;
-  if (game.isWeeklyGame && game.scheduledStart) {
-    targetTime = new Date(game.scheduledStart);
-  } else if (game.selectionEndsAt) {
-    targetTime = new Date(game.selectionEndsAt);
+async function ensureRoomWithTimer(roomCode) {
+  const { isWeekly, fee } = getRoomFeeConfig(roomCode);
+  let game = await Game.findOne({ roomCode });
+  const now = Date.now();
+
+  if (!game) {
+    // Create new room with fresh timer
+    const targetTime = isWeekly
+      ? getNextDailyStart(fee)
+      : new Date(now + TIMER_MS);
+
+    game = await Game.create({
+      roomCode,
+      entryFee: fee,
+      maxNumber: 75,
+      allCards: generate1250Cards(),
+      isWeeklyGame: isWeekly,
+      status: "waiting",
+      winPattern: getPatternForRoom(fee),
+      ...(isWeekly
+        ? { scheduledStart: targetTime }
+        : { selectionEndsAt: targetTime }),
+    });
+    console.log(
+      `[ensureRoom] ${roomCode} created — target ${targetTime.toISOString()}`
+    );
+    return game;
   }
 
-  let remainingSeconds = 0;
-  if (targetTime && game.status === "waiting") {
-    remainingSeconds = Math.max(
-      0,
-      Math.floor((targetTime.getTime() - Date.now()) / 1000)
-    );
+  // Room exists — regenerate cards if needed
+  if (!game.allCards?.length || game.allCards.length < 1250) {
+    game.allCards = generate1250Cards();
+    await game.save();
   }
-  return { targetTime, remainingSeconds };
+
+  // ═══════════════════════════════════════════════════════
+  // 👈 ONLY reset if timer is MISSING or EXPIRED
+  // ═══════════════════════════════════════════════════════
+  if (game.status === "waiting") {
+    const targetTime = computeTargetTime(game);
+    const targetMs = targetTime ? targetTime.getTime() : 0;
+
+    if (!targetMs || targetMs <= now) {
+      // Timer expired or missing — reset with fresh timer
+      const newTarget = isWeekly
+        ? getNextDailyStart(fee)
+        : new Date(now + TIMER_MS);
+
+      game.selectionEndsAt = isWeekly ? undefined : newTarget;
+      game.scheduledStart = isWeekly ? newTarget : undefined;
+      await game.save();
+
+      console.log(
+        `[ensureRoom] ${roomCode} timer reset — target ${newTarget.toISOString()}`
+      );
+    }
+    // else: timer is valid → DON'T touch it
+  }
+
+  return game;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -101,64 +143,7 @@ function computeRemaining(game) {
 router.get("/rooms/:roomCode", async (req, res) => {
   try {
     const roomCode = req.params.roomCode.trim().toUpperCase();
-    const { isWeekly, fee } = getRoomFeeConfig(roomCode);
-    let game = await Game.findOne({ roomCode });
-
-    // 1. Auto-create if missing
-    if (!game) {
-      game = await Game.create({
-        roomCode,
-        entryFee: fee,
-        maxNumber: 75,
-        allCards: generate1250Cards(),
-        isWeeklyGame: isWeekly,
-        status: "waiting",
-        winPattern: getPatternForRoom(fee),
-        ...(isWeekly
-          ? { scheduledStart: getNextDailyStart(fee) }
-          : { selectionEndsAt: new Date(Date.now() + TIMER_MS) }),
-      });
-      console.log(`[GET] Auto-created ${roomCode}`);
-    } else if (!game.allCards?.length || game.allCards.length < 1250) {
-      game.allCards = generate1250Cards();
-      await game.save();
-    }
-
-    // 2. Auto-fix timer only if waiting + empty
-    const now = Date.now();
-    const isEmpty =
-      game.players.length === 0 && (game.reservedCards || []).length === 0;
-
-    if (game.status === "waiting" && isEmpty) {
-      const targetTime = game.isWeeklyGame
-        ? game.scheduledStart
-          ? new Date(game.scheduledStart).getTime()
-          : 0
-        : game.selectionEndsAt
-        ? new Date(game.selectionEndsAt).getTime()
-        : 0;
-
-      // Missing or expired timer → reset
-      if (!targetTime || targetTime <= now) {
-        await resetRoomToWaiting(game, isWeekly, fee);
-        console.log(`[GET] ${roomCode} auto-reset (empty + no valid timer)`);
-      }
-    }
-    // Waiting with players → do nothing, leave as is
-    // Active / finished → do nothing
-
-    // 3. Fix past scheduledStart for weekly (but keep if active)
-    if (
-      game.isWeeklyGame &&
-      game.status === "waiting" &&
-      game.scheduledStart &&
-      new Date(game.scheduledStart).getTime() < now - 60000
-    ) {
-      game.scheduledStart = getNextDailyStart(game.entryFee);
-      await game.save();
-      console.log(`[GET] ${roomCode} fixed past scheduledStart`);
-    }
-
+    const game = await ensureRoomWithTimer(roomCode);
     const { targetTime, remainingSeconds } = computeRemaining(game);
 
     res.json({
@@ -194,65 +179,15 @@ router.get("/stats", async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// POST /rooms
+// ═══════════════════════════════════════════════════════
 router.post("/rooms", async (req, res) => {
   try {
     let { roomCode, entryFee } = req.body;
     roomCode = (roomCode || generateRoomCode()).trim().toUpperCase();
 
-    const { isWeekly, fee } = getRoomFeeConfig(roomCode, entryFee);
-    let game = await Game.findOne({ roomCode });
-
-    if (!game) {
-      // 👈 አዲስ ክፍል ፍጠር
-      game = await Game.create({
-        roomCode,
-        entryFee: fee,
-        maxNumber: 75,
-        allCards: generate1250Cards(),
-        isWeeklyGame: isWeekly,
-        status: "waiting",
-        winPattern: getPatternForRoom(fee),
-        ...(isWeekly
-          ? { scheduledStart: getNextDailyStart(fee) }
-          : { selectionEndsAt: new Date(Date.now() + TIMER_MS) }),
-      });
-      console.log(`[POST] ${roomCode} created`);
-    } else {
-      // 👈 ክፍሉ አለ — ጊዜው ያልቀየረ መሆኑን አረጋግጥ
-      const isEmpty =
-        game.players.length === 0 && (game.reservedCards || []).length === 0;
-      const now = Date.now();
-
-      if (game.status === "waiting" && isEmpty) {
-        // Timer ያለ ወይም ያለፈ ከሆነ → reset
-        const targetTime = game.isWeeklyGame
-          ? game.scheduledStart
-            ? new Date(game.scheduledStart).getTime()
-            : 0
-          : game.selectionEndsAt
-          ? new Date(game.selectionEndsAt).getTime()
-          : 0;
-
-        if (!targetTime || targetTime <= now) {
-          await resetRoomToWaiting(game, isWeekly, fee);
-          console.log(`[POST] ${roomCode} reset (timer expired)`);
-        } else {
-          // ✅ Timer ትክክል ነው — አትንካ (ሁሉም ዩዘሮች አንድ ዓይነት ያያሉ)
-          console.log(
-            `[POST] ${roomCode} keeping existing timer (${Math.floor(
-              (targetTime - now) / 1000
-            )}s left)`
-          );
-        }
-      } else if (game.status === "active" || game.status === "finished") {
-        // ጨዋታ ተጀምሯል — አትንካ
-        console.log(`[POST] ${roomCode} in-progress — keeping`);
-      } else {
-        // ተጫዋቾች አሉ (waiting) — አትንካ
-        console.log(`[POST] ${roomCode} has players — keeping`);
-      }
-    }
-
+    const game = await ensureRoomWithTimer(roomCode);
     const { targetTime, remainingSeconds } = computeRemaining(game);
 
     res.status(201).json({
