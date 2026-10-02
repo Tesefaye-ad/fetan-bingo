@@ -9,13 +9,19 @@ const FETCH_TIMEOUT_MS = 8000;
 const MAX_RETRY = 20;
 const DEFAULT_TIMER_SEC = 50;
 
+// ═══════════════════════════════════════════════════════
+// 🕐 Format helpers
+// ═══════════════════════════════════════════════════════
 function formatHHMMSS(totalSeconds) {
   if (totalSeconds == null || totalSeconds < 0) return "00:00:00";
   const s = Math.floor(totalSeconds);
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(
+    2,
+    "0"
+  )}:${String(sec).padStart(2, "0")}`;
 }
 
 function formatSecondsOnly(totalSeconds) {
@@ -69,11 +75,12 @@ export default function CartelaSelection({
     Date.now() + initialSeconds * 1000
   );
   const [currentBalance, setCurrentBalance] = useState(balance);
-  const [isReady, setIsReady] = useState(false);
+  const [isReady, setIsReady] = useState(false); // 👈 አሁን ጥቅም ላይ ይውላል
 
   const triggeredRef = useRef(false);
   const fetchedRef = useRef(false);
   const confirmLockRef = useRef(false);
+  const serverOffsetRef = useRef(0); // 👈 server-client clock offset
 
   // ═══════════════════════════════════════════════════════
   // Room change — ወዲያውኑ ሰዓቱን አስላ
@@ -82,6 +89,7 @@ export default function CartelaSelection({
     triggeredRef.current = false;
     fetchedRef.current = false;
     confirmLockRef.current = false;
+    serverOffsetRef.current = 0;
 
     const secs = isWeeklyRoom ? getSecondsUntilDaily(stake) : DEFAULT_TIMER_SEC;
     setDeadlineAt(Date.now() + secs * 1000);
@@ -120,6 +128,14 @@ export default function CartelaSelection({
         const data = await res.json();
         if (cancelled) return;
 
+        // 🕐 Server clock offset
+        if (data.serverTime) {
+          const serverNow = new Date(data.serverTime).getTime();
+          if (Number.isFinite(serverNow)) {
+            serverOffsetRef.current = serverNow - Date.now();
+          }
+        }
+
         if (data.takenCards) setTakenCards(data.takenCards);
         if (data.reservedCards) {
           setTakenCards((prev) => [
@@ -139,13 +155,34 @@ export default function CartelaSelection({
           return;
         }
 
-        // remaining from server
+        // ═══════════════════════════════════════════════════
+        // 🕐 TIMER — Use server offset
+        // ═══════════════════════════════════════════════════
         let remaining = 0;
-        if (typeof data.remainingSeconds === "number") {
+
+        if (data.selectionEndsAt) {
+          // Absolute deadline from server
+          const serverDeadline = new Date(data.selectionEndsAt).getTime();
+          if (Number.isFinite(serverDeadline)) {
+            // Apply offset: convert to local time
+            const localDeadline = serverDeadline - serverOffsetRef.current;
+            remaining = Math.max(
+              0,
+              Math.floor((localDeadline - Date.now()) / 1000)
+            );
+          }
+        }
+
+        // Fallback: use remainingSeconds
+        if (remaining === 0 && typeof data.remainingSeconds === "number") {
           remaining = Math.max(0, data.remainingSeconds);
         }
 
-        console.log(`[Cartela] ${roomCode} remaining=${remaining}s`);
+        console.log(
+          `[Cartela] ${roomCode} remaining=${remaining}s (offset=${
+            serverOffsetRef.current / 1000
+          }s)`
+        );
 
         // If remaining is 0 and game is still waiting → poll until it starts
         if (remaining === 0 && data.status === "waiting") {
@@ -215,6 +252,7 @@ export default function CartelaSelection({
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (countdown === null || countdown > 0) return;
+    if (!isReady) return; // 👈 Only after server sync
     if (triggeredRef.current || confirmLockRef.current) return;
 
     triggeredRef.current = true;
@@ -235,7 +273,7 @@ export default function CartelaSelection({
     }
     onConfirm([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [countdown, selectedCards, takenCards]);
+  }, [countdown, selectedCards, takenCards, isReady]);
 
   // ═══════════════════════════════════════════════════════
   // Socket
@@ -274,15 +312,24 @@ export default function CartelaSelection({
   const numbers = Array.from({ length: TOTAL_CARDS }, (_, i) => i + 1);
   const total = selectedCards.length * stake;
 
-  // 👈 ወዲያውኑ ይታያል — null አይሆንም
+  // ═══════════════════════════════════════════════════════
+  // 👈 Time display — weekly HH:MM:SS, regular Xs
+  // ═══════════════════════════════════════════════════════
   let timeStr = "…";
-  if (countdown !== null) {
+  if (countdown !== null && countdown > 0) {
     timeStr = isWeeklyRoom
       ? formatHHMMSS(countdown)
       : formatSecondsOnly(countdown);
+  } else if (countdown === 0) {
+    timeStr = isWeeklyRoom ? "00:00:00" : "0s";
   }
 
   const isUrgent = countdown !== null && countdown <= 10 && countdown > 0;
+  const timeColor = isUrgent
+    ? "#e74c3c"
+    : isWeeklyRoom
+    ? "#f39c12"
+    : "#ffd43b";
 
   return (
     <div
@@ -368,7 +415,7 @@ export default function CartelaSelection({
           icon="🕐"
           label="Time"
           value={timeStr}
-          color={isUrgent ? "#e74c3c" : "#ffd43b"}
+          color={timeColor}
           size={isWeeklyRoom ? 12 : 15}
         />
       </div>
