@@ -6,39 +6,47 @@ const API_BASE_URL =
 
 const TOTAL_CARDS = 1250;
 const FETCH_TIMEOUT_MS = 8000;
-const MAX_RETRY = 20;
-const FALLBACK_TIMER_SEC = 50;
+const MAX_RETRY = 30;
 
 // ═══════════════════════════════════════════════════════
-// Format helpers
+// 🕐 Format helpers
 // ═══════════════════════════════════════════════════════
-function formatHHMMSS(sec) {
-  if (sec == null || sec < 0) return "00:00:00";
-  const s = Math.floor(sec);
+function formatHHMMSS(totalSeconds) {
+  if (totalSeconds == null || totalSeconds < 0) return "00:00:00";
+  const s = Math.floor(totalSeconds);
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
-  const x = s % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}`;
+  const sec = s % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(
+    2,
+    "0"
+  )}:${String(sec).padStart(2, "0")}`;
 }
 
-function formatSecondsOnly(sec) {
-  if (sec == null || sec < 0) return "0s";
-  return `${Math.floor(sec)}s`;
+function formatSecondsOnly(totalSeconds) {
+  if (totalSeconds == null || totalSeconds < 0) return "0s";
+  return `${Math.floor(totalSeconds)}s`;
 }
 
 // ═══════════════════════════════════════════════════════
-// Weekly: seconds until next 12:00/12:05 EAT
+// 🕐 ወደ 12:00 / 12:05 EAT የሚወስደውን ሰከንድ አስላ
 // ═══════════════════════════════════════════════════════
 function getSecondsUntilDaily(fee) {
   const ETHIOPIA_OFFSET_MS = 3 * 60 * 60 * 1000;
   const now = new Date();
   const et = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
-  const targetHour = 0;
+
+  const targetHour = 0; // ማታ 12:00 EAT
   const targetMinute = fee === 50 ? 0 : 5;
+
   const today = new Date(et);
   today.setUTCHours(targetHour, targetMinute, 0, 0);
+
   let target = today.getTime();
-  if (et.getTime() >= target) target += 24 * 60 * 60 * 1000;
+  if (et.getTime() >= target) {
+    target += 24 * 60 * 60 * 1000;
+  }
+
   return Math.max(0, Math.floor((target - et.getTime()) / 1000));
 }
 
@@ -53,7 +61,7 @@ export default function CartelaSelection({
   const isWeeklyRoom = roomCode === "ROOM50" || roomCode === "ROOM100";
 
   // ═══════════════════════════════════════════════════
-  // 👈 Regular rooms → null (wait for server)
+  // 👈 Regular rooms → null (wait for server value)
   //    Weekly rooms → local calc (server will override)
   // ═══════════════════════════════════════════════════
   const [selectedCards, setSelectedCards] = useState([]);
@@ -73,7 +81,7 @@ export default function CartelaSelection({
   const serverOffsetRef = useRef(0);
 
   // ═══════════════════════════════════════════════════
-  // Room change → reset
+  // Room change — reset
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     triggeredRef.current = false;
@@ -172,7 +180,7 @@ export default function CartelaSelection({
         // 👈 If remaining=0 and still waiting → poll
         if (remaining === 0 && data.status === "waiting") {
           if (attempt < MAX_RETRY) {
-            setTimeout(() => fetchRoom(attempt + 1), 400);
+            setTimeout(() => fetchRoom(attempt + 1), 300);
             return;
           }
           // Give up → go to LiveGame as spectator
@@ -186,7 +194,7 @@ export default function CartelaSelection({
         }
 
         // ✅ Set correct countdown from server
-        if (remaining > 0) {
+        if (remaining >= 0) {
           setDeadlineAt(Date.now() + remaining * 1000);
           setCountdown(remaining);
         }
@@ -194,15 +202,8 @@ export default function CartelaSelection({
       } catch (e) {
         if (cancelled) return;
         if (attempt < MAX_RETRY) {
-          setTimeout(() => fetchRoom(attempt + 1), 500);
+          setTimeout(() => fetchRoom(attempt + 1), 400);
           return;
-        }
-        // Fallback after many retries
-        if (!isWeeklyRoom && !syncDone) {
-          const s = FALLBACK_TIMER_SEC;
-          setDeadlineAt(Date.now() + s * 1000);
-          setCountdown(s);
-          setSyncDone(true);
         }
       }
     };
@@ -236,8 +237,8 @@ export default function CartelaSelection({
       setCountdown(rem);
     };
     tick();
-    const t = setInterval(tick, 200);
-    return () => clearInterval(t);
+    const timer = setInterval(tick, 200);
+    return () => clearInterval(timer);
   }, [deadlineAt]);
 
   // ═══════════════════════════════════════════════════
@@ -306,7 +307,7 @@ export default function CartelaSelection({
   const total = selectedCards.length * stake;
 
   // ═══════════════════════════════════════════════════
-  // Display
+  // Display — show "…" only when countdown is null
   // ═══════════════════════════════════════════════════
   let timeStr = "…";
   if (countdown !== null) {
@@ -316,6 +317,11 @@ export default function CartelaSelection({
   }
 
   const isUrgent = countdown !== null && countdown <= 10 && countdown > 0;
+  const timeColor = isUrgent
+    ? "#e74c3c"
+    : isWeeklyRoom
+    ? "#f39c12"
+    : "#ffd43b";
 
   return (
     <div
@@ -401,7 +407,7 @@ export default function CartelaSelection({
           icon="🕐"
           label="Time"
           value={timeStr}
-          color={isUrgent ? "#e74c3c" : "#ffd43b"}
+          color={timeColor}
           size={isWeeklyRoom ? 12 : 15}
         />
       </div>
