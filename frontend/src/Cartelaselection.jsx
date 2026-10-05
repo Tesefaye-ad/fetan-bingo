@@ -7,47 +7,38 @@ const API_BASE_URL =
 const TOTAL_CARDS = 1250;
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_RETRY = 20;
-const DEFAULT_TIMER_SEC = 50;
+const FALLBACK_TIMER_SEC = 50;
 
 // ═══════════════════════════════════════════════════════
-// 🕐 Format helpers
+// Format helpers
 // ═══════════════════════════════════════════════════════
-function formatHHMMSS(totalSeconds) {
-  if (totalSeconds == null || totalSeconds < 0) return "00:00:00";
-  const s = Math.floor(totalSeconds);
+function formatHHMMSS(sec) {
+  if (sec == null || sec < 0) return "00:00:00";
+  const s = Math.floor(sec);
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(
-    2,
-    "0"
-  )}:${String(sec).padStart(2, "0")}`;
+  const x = s % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}`;
 }
 
-function formatSecondsOnly(totalSeconds) {
-  if (totalSeconds == null || totalSeconds < 0) return "0s";
-  return `${Math.floor(totalSeconds)}s`;
+function formatSecondsOnly(sec) {
+  if (sec == null || sec < 0) return "0s";
+  return `${Math.floor(sec)}s`;
 }
 
 // ═══════════════════════════════════════════════════════
-// 🕐 ወደ 12:00 / 12:05 EAT የሚወስደውን ሰከንድ አስላ
+// Weekly: seconds until next 12:00/12:05 EAT
 // ═══════════════════════════════════════════════════════
 function getSecondsUntilDaily(fee) {
   const ETHIOPIA_OFFSET_MS = 3 * 60 * 60 * 1000;
   const now = new Date();
   const et = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
-
-  const targetHour = 0; // ማታ 12:00 EAT
+  const targetHour = 0;
   const targetMinute = fee === 50 ? 0 : 5;
-
   const today = new Date(et);
   today.setUTCHours(targetHour, targetMinute, 0, 0);
-
   let target = today.getTime();
-  if (et.getTime() >= target) {
-    target += 24 * 60 * 60 * 1000;
-  }
-
+  if (et.getTime() >= target) target += 24 * 60 * 60 * 1000;
   return Math.max(0, Math.floor((target - et.getTime()) / 1000));
 }
 
@@ -61,48 +52,52 @@ export default function CartelaSelection({
 }) {
   const isWeeklyRoom = roomCode === "ROOM50" || roomCode === "ROOM100";
 
-  // ═══════════════════════════════════════════════════════
-  // 👈 ወዲያውኑ የመጀመሪያ ሰዓት አስላ
-  // ═══════════════════════════════════════════════════════
-  const initialSeconds = isWeeklyRoom
-    ? getSecondsUntilDaily(stake)
-    : DEFAULT_TIMER_SEC;
-
+  // ═══════════════════════════════════════════════════
+  // 👈 Regular rooms → null (wait for server)
+  //    Weekly rooms → local calc (server will override)
+  // ═══════════════════════════════════════════════════
   const [selectedCards, setSelectedCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
-  const [countdown, setCountdown] = useState(initialSeconds);
+  const [countdown, setCountdown] = useState(
+    isWeeklyRoom ? getSecondsUntilDaily(stake) : null // 👈 null for regular
+  );
   const [deadlineAt, setDeadlineAt] = useState(
-    Date.now() + initialSeconds * 1000
+    isWeeklyRoom ? Date.now() + getSecondsUntilDaily(stake) * 1000 : null
   );
   const [currentBalance, setCurrentBalance] = useState(balance);
-  const [isReady, setIsReady] = useState(false); // 👈 አሁን ጥቅም ላይ ይውላል
+  const [syncDone, setSyncDone] = useState(false);
 
   const triggeredRef = useRef(false);
   const fetchedRef = useRef(false);
   const confirmLockRef = useRef(false);
-  const serverOffsetRef = useRef(0); // 👈 server-client clock offset
+  const serverOffsetRef = useRef(0);
 
-  // ═══════════════════════════════════════════════════════
-  // Room change — ወዲያውኑ ሰዓቱን አስላ
-  // ═══════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════
+  // Room change → reset
+  // ═══════════════════════════════════════════════════
   useEffect(() => {
     triggeredRef.current = false;
     fetchedRef.current = false;
     confirmLockRef.current = false;
     serverOffsetRef.current = 0;
 
-    const secs = isWeeklyRoom ? getSecondsUntilDaily(stake) : DEFAULT_TIMER_SEC;
-    setDeadlineAt(Date.now() + secs * 1000);
-    setCountdown(secs);
+    if (isWeeklyRoom) {
+      const s = getSecondsUntilDaily(stake);
+      setCountdown(s);
+      setDeadlineAt(Date.now() + s * 1000);
+    } else {
+      setCountdown(null);
+      setDeadlineAt(null);
+    }
     setSelectedCards([]);
     setTakenCards([]);
-    setIsReady(false);
+    setSyncDone(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode]);
 
-  // ═══════════════════════════════════════════════════════
-  // FETCH ROOM
-  // ═══════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════
+  // Fetch room — with retry
+  // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
@@ -113,10 +108,7 @@ export default function CartelaSelection({
       try {
         const token = localStorage.getItem("bingo_token");
         const controller = new AbortController();
-        const timeoutId = setTimeout(
-          () => controller.abort(),
-          FETCH_TIMEOUT_MS
-        );
+        const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
         const res = await fetch(`${API_BASE_URL}/api/game/rooms/${roomCode}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -143,28 +135,24 @@ export default function CartelaSelection({
           ]);
         }
 
-        // Game already active → jump to LiveGame
+        // ─── Game already active → jump to LiveGame ───
         if (data.status === "active" || data.status === "finished") {
           if (!triggeredRef.current && !confirmLockRef.current) {
             triggeredRef.current = true;
             confirmLockRef.current = true;
-            console.log("[Cartela] Game active — jumping");
+            console.log("[Cartela] Game already active — jumping");
             onGameStatusChange?.("active");
             return onConfirm([]);
           }
           return;
         }
 
-        // ═══════════════════════════════════════════════════
-        // 🕐 TIMER — Use server offset
-        // ═══════════════════════════════════════════════════
+        // ─── Calculate remaining using server data ───
         let remaining = 0;
 
         if (data.selectionEndsAt) {
-          // Absolute deadline from server
           const serverDeadline = new Date(data.selectionEndsAt).getTime();
           if (Number.isFinite(serverDeadline)) {
-            // Apply offset: convert to local time
             const localDeadline = serverDeadline - serverOffsetRef.current;
             remaining = Math.max(
               0,
@@ -173,23 +161,21 @@ export default function CartelaSelection({
           }
         }
 
-        // Fallback: use remainingSeconds
         if (remaining === 0 && typeof data.remainingSeconds === "number") {
           remaining = Math.max(0, data.remainingSeconds);
         }
 
         console.log(
-          `[Cartela] ${roomCode} remaining=${remaining}s (offset=${
-            serverOffsetRef.current / 1000
-          }s)`
+          `[Cartela] ${roomCode} attempt=${attempt} remaining=${remaining}s`
         );
 
-        // If remaining is 0 and game is still waiting → poll until it starts
+        // 👈 If remaining=0 and still waiting → poll
         if (remaining === 0 && data.status === "waiting") {
           if (attempt < MAX_RETRY) {
-            setTimeout(() => fetchRoom(attempt + 1), 300);
+            setTimeout(() => fetchRoom(attempt + 1), 400);
             return;
           }
+          // Give up → go to LiveGame as spectator
           if (!triggeredRef.current) {
             triggeredRef.current = true;
             confirmLockRef.current = true;
@@ -199,17 +185,24 @@ export default function CartelaSelection({
           return;
         }
 
-        // 👈 ሰርቨር ሰዓቱን ሲልክ ብቻ ተካ
+        // ✅ Set correct countdown from server
         if (remaining > 0) {
           setDeadlineAt(Date.now() + remaining * 1000);
           setCountdown(remaining);
         }
-        setIsReady(true);
+        setSyncDone(true);
       } catch (e) {
         if (cancelled) return;
         if (attempt < MAX_RETRY) {
-          setTimeout(() => fetchRoom(attempt + 1), 400);
+          setTimeout(() => fetchRoom(attempt + 1), 500);
           return;
+        }
+        // Fallback after many retries
+        if (!isWeeklyRoom && !syncDone) {
+          const s = FALLBACK_TIMER_SEC;
+          setDeadlineAt(Date.now() + s * 1000);
+          setCountdown(s);
+          setSyncDone(true);
         }
       }
     };
@@ -233,9 +226,9 @@ export default function CartelaSelection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode]);
 
-  // ═══════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════
   // Countdown tick
-  // ═══════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (!deadlineAt) return;
     const tick = () => {
@@ -243,16 +236,16 @@ export default function CartelaSelection({
       setCountdown(rem);
     };
     tick();
-    const timer = setInterval(tick, 200);
-    return () => clearInterval(timer);
+    const t = setInterval(tick, 200);
+    return () => clearInterval(t);
   }, [deadlineAt]);
 
-  // ═══════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════
   // Timer 0 → LiveGame
-  // ═══════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (countdown === null || countdown > 0) return;
-    if (!isReady) return; // 👈 Only after server sync
+    if (!syncDone) return;
     if (triggeredRef.current || confirmLockRef.current) return;
 
     triggeredRef.current = true;
@@ -273,11 +266,11 @@ export default function CartelaSelection({
     }
     onConfirm([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [countdown, selectedCards, takenCards, isReady]);
+  }, [countdown, selectedCards, takenCards, syncDone]);
 
-  // ═══════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════
   // Socket
-  // ═══════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════
   useEffect(() => {
     const s = getSocket();
     const onSel = ({ cardId }) =>
@@ -312,24 +305,17 @@ export default function CartelaSelection({
   const numbers = Array.from({ length: TOTAL_CARDS }, (_, i) => i + 1);
   const total = selectedCards.length * stake;
 
-  // ═══════════════════════════════════════════════════════
-  // 👈 Time display — weekly HH:MM:SS, regular Xs
-  // ═══════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════
+  // Display
+  // ═══════════════════════════════════════════════════
   let timeStr = "…";
-  if (countdown !== null && countdown > 0) {
+  if (countdown !== null) {
     timeStr = isWeeklyRoom
       ? formatHHMMSS(countdown)
       : formatSecondsOnly(countdown);
-  } else if (countdown === 0) {
-    timeStr = isWeeklyRoom ? "00:00:00" : "0s";
   }
 
   const isUrgent = countdown !== null && countdown <= 10 && countdown > 0;
-  const timeColor = isUrgent
-    ? "#e74c3c"
-    : isWeeklyRoom
-    ? "#f39c12"
-    : "#ffd43b";
 
   return (
     <div
@@ -415,7 +401,7 @@ export default function CartelaSelection({
           icon="🕐"
           label="Time"
           value={timeStr}
-          color={timeColor}
+          color={isUrgent ? "#e74c3c" : "#ffd43b"}
           size={isWeeklyRoom ? 12 : 15}
         />
       </div>
