@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getSocket } from "./api";
 
-// ═══════════════════════════════════════════════════════
-// HEADERS — ከእያንዳንዱ ፊደል ጋር የቁጥር ክልል (B 1-15, I 16-30, ...)
-// ═══════════════════════════════════════════════════════
 const HEADERS = [
   { letter: "B", color: "#4c6ef5", range: "1-15" },
   { letter: "I", color: "#9c27b0", range: "16-30" },
@@ -36,21 +33,17 @@ function getLetter(num) {
   return { letter: "O", color: "#ff9800" };
 }
 
-// B አምድ 1-15, I 16-30, N 31-45, G 46-60, O 61-75
 function buildBoard() {
   const out = [];
-  for (let r = 0; r < 15; r++) {
-    for (let c = 0; c < 5; c++) {
-      out.push(c * 15 + r + 1);
-    }
-  }
+  for (let r = 0; r < 15; r++)
+    for (let c = 0; c < 5; c++) out.push(c * 15 + r + 1);
   return out;
 }
 
 // ═══════════════════════════════════════════════════════
 // PATTERN PREVIEW
 // ═══════════════════════════════════════════════════════
-function PatternPreview({ pattern }) {
+function PatternPreview({ pattern, size = 70 }) {
   const getHighlightedCells = () => {
     const cells = new Set();
     const key = (r, c) => `${r}-${c}`;
@@ -92,7 +85,7 @@ function PatternPreview({ pattern }) {
         gridTemplateColumns: "repeat(5, 1fr)",
         gap: 2,
         width: "100%",
-        maxWidth: 70,
+        maxWidth: size,
         margin: "0 auto",
       }}
     >
@@ -119,252 +112,6 @@ function PatternPreview({ pattern }) {
           />
         );
       })}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════
-// 75-NUMBER TRACKER (ግራ ፓነል ሁልጊዜ ይታያል)
-// ═══════════════════════════════════════════════════════
-function NumberTracker({ calledNumbers, lastNumber }) {
-  return (
-    <div
-      style={{
-        background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
-        border: "1px solid #2a2a40",
-        borderRadius: 10,
-        padding: 5,
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      {/* B I N G O headers with ranges */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(5, 1fr)",
-          gap: 2,
-          marginBottom: 4,
-        }}
-      >
-        {HEADERS.map((h) => (
-          <div
-            key={h.letter}
-            style={{
-              background: `linear-gradient(135deg, ${h.color}, ${h.color}cc)`,
-              color: "#fff",
-              textAlign: "center",
-              fontWeight: "bold",
-              borderRadius: 5,
-              padding: "3px 0",
-              boxShadow: `0 0 8px ${h.color}66`,
-            }}
-          >
-            <div style={{ fontSize: 12, lineHeight: 1.1 }}>{h.letter}</div>
-            <div style={{ fontSize: 7, opacity: 0.85, lineHeight: 1 }}>
-              {h.range}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* 15×5 grid — all 75 numbers */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(5, 1fr)",
-          gap: 2,
-        }}
-      >
-        {buildBoard().map((n) => {
-          const info = getLetter(n);
-          const called = calledNumbers.includes(n);
-          const isLast = lastNumber === n;
-          return (
-            <div
-              key={n}
-              style={{
-                aspectRatio: 1,
-                background: isLast
-                  ? "linear-gradient(135deg, #ff9800, #f39c12)"
-                  : called
-                  ? `linear-gradient(135deg, ${info.color}, ${info.color}cc)`
-                  : "linear-gradient(135deg, #252d44, #1b2233)",
-                color: "#fff",
-                fontSize: 10,
-                fontWeight: "bold",
-                borderRadius: 4,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                border: isLast
-                  ? "2px solid #ffd43b"
-                  : "1px solid #2a2a40",
-                animation: isLast ? "cellFlash 0.6s ease-out" : "none",
-                boxShadow: isLast
-                  ? "0 0 10px rgba(255,152,0,0.9)"
-                  : called
-                  ? `0 0 4px ${info.color}66`
-                  : "none",
-                transition: "all 0.3s",
-              }}
-            >
-              {n}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════
-// USER CARD — compact mode ሲሆን የተመቻቸ ይሆናል
-// ═══════════════════════════════════════════════════════
-function UserCard({ card, marked, cardId, lastNumber, compact = false }) {
-  // ስንት ቁጥሮች ተለይተዋል (progress)
-  const markedCount = marked?.flat().filter(Boolean).length || 0;
-  const totalCells = 25;
-  const progress = Math.round((markedCount / totalCells) * 100);
-
-  // ለማሸነፍ ቅርብ ከሆነ (≥ 60%) — highlight
-  const isHot = progress >= 60;
-
-  const fontSize = compact ? 9 : 12;
-  const gap = compact ? 2 : 3;
-
-  return (
-    <div
-      style={{
-        marginBottom: compact ? 6 : 10,
-        padding: compact ? 5 : 0,
-        background: compact
-          ? "linear-gradient(135deg, rgba(52,152,219,0.08), rgba(15,20,32,0.6))"
-          : "transparent",
-        border: compact
-          ? `1px solid ${isHot ? "#2ecc71" : "rgba(52,152,219,0.3)"}`
-          : "none",
-        borderRadius: compact ? 8 : 0,
-        boxShadow:
-          compact && isHot ? "0 0 10px rgba(46,204,113,0.4)" : "none",
-        transition: "all 0.3s ease",
-      }}
-    >
-      {/* Header row — Card # + progress */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: compact ? 4 : 6,
-        }}
-      >
-        <div
-          style={{
-            color: isHot ? "#2ecc71" : "#f39c12",
-            fontSize: compact ? 9 : 11,
-            fontWeight: "900",
-            letterSpacing: 0.5,
-            textShadow: isHot ? "0 0 8px rgba(46,204,113,0.6)" : "none",
-          }}
-        >
-          🎴 #{cardId}
-          {isHot && <span style={{ marginLeft: 4 }}>🔥</span>}
-        </div>
-
-        {compact && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-            }}
-          >
-            <div
-              style={{
-                width: 40,
-                height: 4,
-                background: "#252d44",
-                borderRadius: 2,
-                overflow: "hidden",
-              }}
-            >
-              <div
-                style={{
-                  width: `${progress}%`,
-                  height: "100%",
-                  background: isHot
-                    ? "linear-gradient(90deg, #2ecc71, #27ae60)"
-                    : "linear-gradient(90deg, #3498db, #2980b9)",
-                  transition: "width 0.3s ease",
-                }}
-              />
-            </div>
-            <div
-              style={{
-                color: isHot ? "#2ecc71" : "#888",
-                fontSize: 8,
-                fontWeight: "bold",
-                minWidth: 22,
-                textAlign: "right",
-              }}
-            >
-              {progress}%
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 5×5 grid */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(5, 1fr)",
-          gap,
-        }}
-      >
-        {card.map((row, r) =>
-          row.map((v, c) => {
-            const m = marked?.[r]?.[c];
-            const free = r === 2 && c === 2;
-            const isLast = !free && lastNumber === v;
-            return (
-              <div
-                key={`${r}-${c}`}
-                style={{
-                  aspectRatio: 1,
-                  fontSize,
-                  fontWeight: "bold",
-                  borderRadius: compact ? 3 : 5,
-                  background: free
-                    ? "linear-gradient(135deg, #ffd43b, #f39c12)"
-                    : isLast
-                    ? "linear-gradient(135deg, #ff9800, #f39c12)"
-                    : m
-                    ? "linear-gradient(135deg, #4caf50, #2ecc71)"
-                    : "linear-gradient(135deg, #252d44, #1b2233)",
-                  color: free ? "#1b2233" : "#fff",
-                  border: isLast
-                    ? "2px solid #ffd43b"
-                    : "1px solid #2a2a40",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  transition: "all 0.3s",
-                  animation: isLast ? "cellFlash 0.6s ease-out" : "none",
-                  boxShadow: isLast
-                    ? "0 0 12px rgba(255,152,0,0.8)"
-                    : m
-                    ? "0 0 6px rgba(76,175,80,0.4)"
-                    : "none",
-                }}
-              >
-                {free ? "★" : v}
-              </div>
-            );
-          })
-        )}
-      </div>
     </div>
   );
 }
@@ -468,6 +215,236 @@ const sound = {
 };
 
 // ═══════════════════════════════════════════════════════
+// 75-NUMBER TRACKER
+// ═══════════════════════════════════════════════════════
+function NumberTracker({ calledNumbers, lastNumber }) {
+  return (
+    <div
+      style={{
+        background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
+        border: "1px solid #2a2a40",
+        borderRadius: 10,
+        padding: 5,
+      }}
+    >
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(5, 1fr)",
+          gap: 2,
+          marginBottom: 4,
+        }}
+      >
+        {HEADERS.map((h) => (
+          <div
+            key={h.letter}
+            style={{
+              background: `linear-gradient(135deg, ${h.color}, ${h.color}cc)`,
+              color: "#fff",
+              textAlign: "center",
+              fontWeight: "bold",
+              borderRadius: 5,
+              padding: "3px 0",
+              boxShadow: `0 0 8px ${h.color}66`,
+            }}
+          >
+            <div style={{ fontSize: 12, lineHeight: 1.1 }}>{h.letter}</div>
+            <div style={{ fontSize: 7, opacity: 0.85, lineHeight: 1 }}>
+              {h.range}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(5, 1fr)",
+          gap: 2,
+        }}
+      >
+        {buildBoard().map((n) => {
+          const info = getLetter(n);
+          const called = calledNumbers.includes(n);
+          const isLast = lastNumber === n;
+          return (
+            <div
+              key={n}
+              style={{
+                aspectRatio: 1,
+                background: isLast
+                  ? "linear-gradient(135deg, #ff9800, #f39c12)"
+                  : called
+                  ? `linear-gradient(135deg, ${info.color}, ${info.color}cc)`
+                  : "linear-gradient(135deg, #252d44, #1b2233)",
+                color: "#fff",
+                fontSize: 10,
+                fontWeight: "bold",
+                borderRadius: 4,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: isLast
+                  ? "2px solid #ffd43b"
+                  : "1px solid #2a2a40",
+                animation: isLast ? "cellFlash 0.6s ease-out" : "none",
+                boxShadow: isLast
+                  ? "0 0 10px rgba(255,152,0,0.9)"
+                  : called
+                  ? `0 0 4px ${info.color}66`
+                  : "none",
+                transition: "all 0.3s",
+              }}
+            >
+              {n}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// USER CARD — በካርቴላ ብዛት ራስ-ሰር ይቀንሳል
+// ═══════════════════════════════════════════════════════
+function UserCard({ card, marked, cardId, lastNumber, cardCount = 1 }) {
+  // 👈 በካርቴላ ብዛት መጠን ይወሰናል
+  const sizes = {
+    1: { fontSize: 12, gap: 3, starSize: 14, pad: 4 },
+    2: { fontSize: 10, gap: 2, starSize: 12, pad: 3 },
+    3: { fontSize: 8, gap: 1.5, starSize: 10, pad: 2 },
+  };
+  const sz = sizes[cardCount] || sizes[3];
+
+  const markedCount = marked?.flat().filter(Boolean).length || 0;
+  const progress = Math.round((markedCount / 25) * 100);
+  const isHot = progress >= 60;
+
+  return (
+    <div
+      style={{
+        marginBottom: 6,
+        padding: sz.pad,
+        background: isHot
+          ? "linear-gradient(135deg, rgba(46,204,113,0.1), rgba(15,20,32,0.6))"
+          : "linear-gradient(135deg, rgba(52,152,219,0.06), rgba(15,20,32,0.6))",
+        border: `1px solid ${isHot ? "#2ecc71" : "rgba(52,152,219,0.3)"}`,
+        borderRadius: 8,
+        boxShadow: isHot ? "0 0 10px rgba(46,204,113,0.4)" : "none",
+        transition: "all 0.3s ease",
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 3,
+        }}
+      >
+        <div
+          style={{
+            color: isHot ? "#2ecc71" : "#f39c12",
+            fontSize: 9,
+            fontWeight: "900",
+            letterSpacing: 0.5,
+          }}
+        >
+          🎴 #{cardId}
+          {isHot && <span style={{ marginLeft: 3 }}>🔥</span>}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+          <div
+            style={{
+              width: 30,
+              height: 3,
+              background: "#252d44",
+              borderRadius: 2,
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                width: `${progress}%`,
+                height: "100%",
+                background: isHot
+                  ? "linear-gradient(90deg, #2ecc71, #27ae60)"
+                  : "linear-gradient(90deg, #3498db, #2980b9)",
+                transition: "width 0.3s ease",
+              }}
+            />
+          </div>
+          <div
+            style={{
+              color: isHot ? "#2ecc71" : "#888",
+              fontSize: 8,
+              fontWeight: "bold",
+              minWidth: 20,
+              textAlign: "right",
+            }}
+          >
+            {progress}%
+          </div>
+        </div>
+      </div>
+
+      {/* 5×5 grid */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(5, 1fr)",
+          gap: sz.gap,
+        }}
+      >
+        {card.map((row, r) =>
+          row.map((v, c) => {
+            const m = marked?.[r]?.[c];
+            const free = r === 2 && c === 2;
+            const isLast = !free && lastNumber === v;
+            return (
+              <div
+                key={`${r}-${c}`}
+                style={{
+                  aspectRatio: 1,
+                  fontSize: sz.fontSize,
+                  fontWeight: "bold",
+                  borderRadius: 3,
+                  background: free
+                    ? "linear-gradient(135deg, #ffd43b, #f39c12)"
+                    : isLast
+                    ? "linear-gradient(135deg, #ff9800, #f39c12)"
+                    : m
+                    ? "linear-gradient(135deg, #4caf50, #2ecc71)"
+                    : "linear-gradient(135deg, #252d44, #1b2233)",
+                  color: free ? "#1b2233" : "#fff",
+                  border: isLast
+                    ? "2px solid #ffd43b"
+                    : "1px solid #2a2a40",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "all 0.3s",
+                  animation: isLast ? "cellFlash 0.6s ease-out" : "none",
+                  boxShadow: isLast
+                    ? "0 0 12px rgba(255,152,0,0.8)"
+                    : m
+                    ? "0 0 6px rgba(76,175,80,0.4)"
+                    : "none",
+                }}
+              >
+                {free ? "★" : v}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
 // MAIN LIVE GAME
 // ═══════════════════════════════════════════════════════
 export default function LiveGame({
@@ -505,33 +482,17 @@ export default function LiveGame({
     sound.enabled = soundOn;
   }, [soundOn]);
 
-  // ═══════════════════════════════════════════════════
-  // SOCKET
-  // ═══════════════════════════════════════════════════
   useEffect(() => {
     const socket = getSocket();
     socketRef.current = socket;
 
     const emitJoin = (reason = "initial") => {
-      if (!socket.connected) {
-        console.log(`[LiveGame] join_room (${reason}) — socket not ready`);
-        return;
-      }
-      if (cardsReceivedRef.current) {
-        console.log(
-          `[LiveGame] join_room (${reason}) — already have cards, skip`
-        );
-        return;
-      }
+      if (!socket.connected) return;
+      if (cardsReceivedRef.current) return;
       socket.emit("join_room", { roomCode });
     };
 
-    const onDisconnect = () => {
-      console.log("[LiveGame] Disconnected");
-    };
-
     const onConnect = () => {
-      console.log("[LiveGame] Reconnected!");
       cardsReceivedRef.current = false;
       emitJoin("reconnect");
     };
@@ -627,12 +588,9 @@ export default function LiveGame({
       setCalledNumbers(cn);
       if (wp) setWinPattern(wp);
       setNumberAnimKey((k) => k + 1);
-
       if (soundOnRef.current) sound.callNumber(number);
-
       setFlashNumber(true);
       setTimeout(() => setFlashNumber(false), 600);
-
       setCards((prev) =>
         prev.map((ci) => {
           const m = ci.marked.map((r) => [...r]);
@@ -642,7 +600,6 @@ export default function LiveGame({
           return { ...ci, marked: m };
         })
       );
-
       if (window.navigator.vibrate) window.navigator.vibrate(80);
     };
 
@@ -679,12 +636,8 @@ export default function LiveGame({
     };
 
     const onBalanceUpdate = ({ balance: b }) => setBalance(b);
+    const onErrorMessage = ({ message }) => console.warn("[LiveGame]", message);
 
-    const onErrorMessage = ({ message }) => {
-      console.warn("[LiveGame] Server error:", message);
-    };
-
-    socket.on("disconnect", onDisconnect);
     socket.on("connect", onConnect);
     socket.on("state_restore", onStateRestore);
     socket.on("spectator_mode", onSpectatorMode);
@@ -701,15 +654,9 @@ export default function LiveGame({
     if (!joinedRef.current) {
       joinedRef.current = true;
       cardsReceivedRef.current = false;
-      if (socket.connected) {
-        emitJoin("initial");
-      } else {
-        socket.once("connect", () => emitJoin("onconnect"));
-      }
-      retryTimerRef.current = setTimeout(
-        () => emitJoin("retry-1.5s"),
-        1500
-      );
+      if (socket.connected) emitJoin("initial");
+      else socket.once("connect", () => emitJoin("onconnect"));
+      retryTimerRef.current = setTimeout(() => emitJoin("retry-1.5s"), 1500);
       setTimeout(() => emitJoin("retry-3s"), 3000);
       setTimeout(() => emitJoin("retry-5s"), 5000);
     }
@@ -721,7 +668,6 @@ export default function LiveGame({
       socket.emit("leave_room");
       joinedRef.current = false;
       cardsReceivedRef.current = false;
-      socket.off("disconnect", onDisconnect);
       socket.off("connect", onConnect);
       socket.off("state_restore", onStateRestore);
       socket.off("spectator_mode", onSpectatorMode);
@@ -739,6 +685,7 @@ export default function LiveGame({
   }, [roomCode, setBalance]);
 
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
+  const cardCount = cards.length || 1;
 
   const animationStyles = `
     @keyframes popIn {
@@ -772,14 +719,6 @@ export default function LiveGame({
       0%, 100% { transform: scale(1); opacity: 0.5; }
       50% { transform: scale(1.2); opacity: 0.15; }
     }
-    @keyframes shimmer {
-      0% { background-position: -200% center; }
-      100% { background-position: 200% center; }
-    }
-    @keyframes floatBadge {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-3px); }
-    }
   `;
 
   return (
@@ -791,9 +730,12 @@ export default function LiveGame({
           maxWidth: 480,
           margin: "0 auto",
           color: "#fff",
-          minHeight: "100vh",
+          height: "100vh",
           background: "linear-gradient(180deg, #0f1420 0%, #1a0f2e 100%)",
-          paddingBottom: 105,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          paddingBottom: 90,
         }}
       >
         {/* STATS */}
@@ -803,6 +745,7 @@ export default function LiveGame({
             gridTemplateColumns: "repeat(5, 1fr)",
             gap: 3,
             marginBottom: 6,
+            flexShrink: 0,
           }}
         >
           <Stat label="Game" value={roomCode} color="#f39c12" />
@@ -812,20 +755,21 @@ export default function LiveGame({
           <Stat label="Called" value={calledNumbers.length} color="#ffd43b" />
         </div>
 
-        {/* MAIN 2-COLUMN LAYOUT */}
+        {/* MAIN 2-COLUMN */}
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "1fr 1fr",
             gap: 6,
-            alignItems: "start",
+            flex: 1,
+            minHeight: 0,
           }}
         >
-          {/* ─── LEFT: 75-NUMBER TRACKER (ሁልጊዜ) ─── */}
+          {/* LEFT: 75-TRACKER */}
           <div
             style={{
-              maxHeight: "calc(100vh - 180px)",
               overflowY: "auto",
+              minHeight: 0,
             }}
           >
             <NumberTracker
@@ -834,17 +778,16 @@ export default function LiveGame({
             />
           </div>
 
-          {/* ─── RIGHT: CURRENT + PATTERN + MY CARDS ─── */}
+          {/* RIGHT COLUMN */}
           <div
             style={{
               display: "flex",
               flexDirection: "column",
               gap: 6,
-              maxHeight: "calc(100vh - 180px)",
-              overflowY: "auto",
+              minHeight: 0,
             }}
           >
-            {/* CURRENT */}
+            {/* ═══ CURRENT — always visible at top ═══ */}
             <div
               style={{
                 background: lastInfo
@@ -854,7 +797,7 @@ export default function LiveGame({
                   ? `2px solid ${lastInfo?.color || "#ffd43b"}`
                   : "2px solid #f39c12",
                 borderRadius: 12,
-                padding: "10px 6px 8px",
+                padding: "8px 6px 6px",
                 textAlign: "center",
                 position: "relative",
                 overflow: "hidden",
@@ -862,6 +805,7 @@ export default function LiveGame({
                   ? `0 0 25px ${lastInfo?.color || "#ffd43b"}99`
                   : `0 0 12px ${lastInfo?.color || "#f39c12"}55`,
                 transition: "all 0.3s ease",
+                flexShrink: 0,
               }}
             >
               <button
@@ -889,8 +833,8 @@ export default function LiveGame({
               <div
                 style={{
                   color: lastInfo?.color || "#aaa",
-                  fontSize: 8,
-                  marginBottom: 4,
+                  fontSize: 7,
+                  marginBottom: 3,
                   letterSpacing: 1.5,
                   fontWeight: "bold",
                 }}
@@ -902,15 +846,15 @@ export default function LiveGame({
                 <div
                   style={{
                     position: "relative",
-                    width: 70,
-                    height: 70,
+                    width: 64,
+                    height: 64,
                     margin: "0 auto",
                   }}
                 >
                   <div
                     style={{
                       position: "absolute",
-                      inset: -6,
+                      inset: -5,
                       borderRadius: "50%",
                       border: `2px solid ${lastInfo.color}`,
                       animation: "ringPulse 1.5s ease-in-out infinite",
@@ -921,8 +865,8 @@ export default function LiveGame({
                     key={numberAnimKey}
                     style={{
                       position: "relative",
-                      width: 70,
-                      height: 70,
+                      width: 64,
+                      height: 64,
                       borderRadius: "50%",
                       background: `radial-gradient(circle at 30% 30%, #ffffff 0%, #fafafa 45%, ${lastInfo.color}33 100%)`,
                       display: "flex",
@@ -939,7 +883,7 @@ export default function LiveGame({
                   >
                     <span
                       style={{
-                        fontSize: 12,
+                        fontSize: 11,
                         opacity: 0.85,
                         marginRight: 1,
                         fontWeight: "800",
@@ -949,7 +893,7 @@ export default function LiveGame({
                     </span>
                     <span
                       style={{
-                        fontSize: 24,
+                        fontSize: 22,
                         fontWeight: "900",
                         lineHeight: 1,
                       }}
@@ -961,8 +905,8 @@ export default function LiveGame({
               ) : (
                 <div
                   style={{
-                    width: 70,
-                    height: 70,
+                    width: 64,
+                    height: 64,
                     margin: "0 auto",
                     borderRadius: "50%",
                     background:
@@ -972,7 +916,7 @@ export default function LiveGame({
                     alignItems: "center",
                     justifyContent: "center",
                     color: "#444",
-                    fontSize: 20,
+                    fontSize: 18,
                     fontWeight: "bold",
                     animation: "ringPulse 2s ease-in-out infinite",
                   }}
@@ -983,14 +927,14 @@ export default function LiveGame({
 
               <div
                 style={{
-                  marginTop: 6,
+                  marginTop: 5,
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 3,
                   background: `${lastInfo?.color || "#f39c12"}22`,
                   border: `1px solid ${lastInfo?.color || "#f39c12"}66`,
                   borderRadius: 20,
-                  padding: "2px 10px",
+                  padding: "2px 9px",
                   fontSize: 9,
                   color: lastInfo?.color || "#f39c12",
                   fontWeight: "bold",
@@ -1000,138 +944,151 @@ export default function LiveGame({
               </div>
             </div>
 
-            {/* PATTERN */}
+            {/* ═══ SCROLLABLE: PATTERN + CARDS ═══ */}
             <div
               style={{
-                background: "linear-gradient(135deg, #1a1a2e 0%, #0f1420 100%)",
-                border: "2px solid #f39c12",
-                borderRadius: 10,
-                padding: 5,
+                flex: 1,
+                overflowY: "auto",
+                minHeight: 0,
                 display: "flex",
                 flexDirection: "column",
-                alignItems: "center",
-                gap: 3,
-                boxShadow: "0 0 10px rgba(243,156,18,0.25)",
+                gap: 6,
               }}
             >
+              {/* PATTERN */}
               <div
                 style={{
-                  color: "#f39c12",
-                  fontSize: 8,
-                  fontWeight: "bold",
-                  letterSpacing: 1,
-                }}
-              >
-                🏆 PATTERN
-              </div>
-              <PatternPreview pattern={winPattern} />
-              <div
-                style={{
-                  color: "#fff",
-                  fontSize: 9,
-                  fontWeight: "bold",
-                  textAlign: "center",
-                }}
-              >
-                {PATTERN_LABELS[winPattern] || winPattern}
-              </div>
-            </div>
-
-            {/* SPECTATOR NOTICE */}
-            {isSpectator && cards.length === 0 && (
-              <div
-                style={{
-                  background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
-                  border: "1px dashed #888",
+                  background:
+                    "linear-gradient(135deg, #1a1a2e 0%, #0f1420 100%)",
+                  border: "2px solid #f39c12",
                   borderRadius: 10,
-                  padding: 8,
-                  textAlign: "center",
-                  color: "#bbb",
-                  fontSize: 10,
-                  fontWeight: "bold",
+                  padding: 5,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 3,
+                  boxShadow: "0 0 10px rgba(243,156,18,0.25)",
+                  flexShrink: 0,
                 }}
               >
-                👀 እየተመለከቱ ነው
-                <div style={{ color: "#888", fontSize: 9, marginTop: 3 }}>
-                  ቀጣዩ ዙር ካርቴላ መምረጥ ይችላሉ
-                </div>
-              </div>
-            )}
-
-            {/* ═══════════════════════════════════════════
-                MY CARDS — ብዙ ካርቴላ ሲሆን auto-compact
-               ═══════════════════════════════════════════ */}
-            {cards.length > 0 && (
-              <div
-                style={{
-                  background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
-                  border: `2px solid ${
-                    cards.length > 1 ? "#f39c12" : "#3498db"
-                  }`,
-                  borderRadius: 10,
-                  padding: 8,
-                  boxShadow:
-                    cards.length > 1
-                      ? "0 0 12px rgba(243,156,18,0.3)"
-                      : "0 0 12px rgba(52,152,219,0.3)",
-                }}
-              >
-                {/* Header with count */}
                 <div
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: 8,
-                    paddingBottom: 6,
-                    borderBottom: "1px solid rgba(52,152,219,0.2)",
+                    color: "#f39c12",
+                    fontSize: 8,
+                    fontWeight: "bold",
+                    letterSpacing: 1,
+                  }}
+                >
+                  🏆 PATTERN
+                </div>
+                <PatternPreview pattern={winPattern} size={60} />
+                <div
+                  style={{
+                    color: "#fff",
+                    fontSize: 9,
+                    fontWeight: "bold",
+                    textAlign: "center",
+                  }}
+                >
+                  {PATTERN_LABELS[winPattern] || winPattern}
+                </div>
+              </div>
+
+              {/* SPECTATOR NOTICE */}
+              {isSpectator && cards.length === 0 && (
+                <div
+                  style={{
+                    background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
+                    border: "1px dashed #888",
+                    borderRadius: 10,
+                    padding: 8,
+                    textAlign: "center",
+                    color: "#bbb",
+                    fontSize: 10,
+                    fontWeight: "bold",
+                    flexShrink: 0,
+                  }}
+                >
+                  👀 እየተመለከቱ ነው
+                  <div
+                    style={{ color: "#888", fontSize: 9, marginTop: 3 }}
+                  >
+                    ቀጣዩ ዙር ካርቴላ መምረጥ ይችላሉ
+                  </div>
+                </div>
+              )}
+
+              {/* MY CARDS */}
+              {cards.length > 0 && (
+                <div
+                  style={{
+                    background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
+                    border: `2px solid ${
+                      cards.length > 1 ? "#f39c12" : "#3498db"
+                    }`,
+                    borderRadius: 10,
+                    padding: 6,
+                    boxShadow:
+                      cards.length > 1
+                        ? "0 0 12px rgba(243,156,18,0.3)"
+                        : "0 0 12px rgba(52,152,219,0.3)",
                   }}
                 >
                   <div
                     style={{
-                      color: cards.length > 1 ? "#f39c12" : "#3498db",
-                      fontSize: 10,
-                      fontWeight: "bold",
-                      letterSpacing: 1,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 6,
+                      paddingBottom: 4,
+                      borderBottom: "1px solid rgba(52,152,219,0.2)",
                     }}
                   >
-                    🎴 MY CARDS
+                    <div
+                      style={{
+                        color: cards.length > 1 ? "#f39c12" : "#3498db",
+                        fontSize: 10,
+                        fontWeight: "bold",
+                        letterSpacing: 1,
+                      }}
+                    >
+                      🎴 MY CARDS
+                    </div>
+                    <div
+                      style={{
+                        background:
+                          cards.length > 1
+                            ? "rgba(243,156,18,0.2)"
+                            : "rgba(52,152,219,0.2)",
+                        color: cards.length > 1 ? "#f39c12" : "#3498db",
+                        border: `1px solid ${
+                          cards.length > 1
+                            ? "rgba(243,156,18,0.5)"
+                            : "rgba(52,152,219,0.5)"
+                        }`,
+                        borderRadius: 20,
+                        padding: "2px 8px",
+                        fontSize: 10,
+                        fontWeight: "bold",
+                      }}
+                    >
+                      {cards.length} / 3
+                    </div>
                   </div>
-                  <div
-                    style={{
-                      background:
-                        cards.length > 1
-                          ? "rgba(243,156,18,0.2)"
-                          : "rgba(52,152,219,0.2)",
-                      color: cards.length > 1 ? "#f39c12" : "#3498db",
-                      border: `1px solid ${
-                        cards.length > 1
-                          ? "rgba(243,156,18,0.5)"
-                          : "rgba(52,152,219,0.5)"
-                      }`,
-                      borderRadius: 20,
-                      padding: "2px 8px",
-                      fontSize: 10,
-                      fontWeight: "bold",
-                    }}
-                  >
-                    {cards.length} / 3
-                  </div>
-                </div>
 
-                {/* Render all cards — auto-compact when 2+ */}
-                {cards.map((ci, idx) => (
-                  <UserCard
-                    key={idx}
-                    card={ci.card}
-                    marked={ci.marked}
-                    cardId={ci.cardId}
-                    lastNumber={lastNumber}
-                    compact={cards.length > 1}
-                  />
-                ))}
-              </div>
-            )}
+                  {cards.map((ci, idx) => (
+                    <UserCard
+                      key={idx}
+                      card={ci.card}
+                      marked={ci.marked}
+                      cardId={ci.cardId}
+                      lastNumber={lastNumber}
+                      cardCount={cardCount}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1147,6 +1104,7 @@ export default function LiveGame({
             padding: "8px 12px",
             background: "linear-gradient(180deg, transparent, #0f1420)",
             borderTop: "1px solid #2a2a40",
+            zIndex: 50,
           }}
         >
           <div
@@ -1183,7 +1141,7 @@ export default function LiveGame({
         </div>
 
         {/* ═══════════════════════════════════════════════
-             BINGO POPUP — COMPACT VERSION
+             BINGO POPUP — WITH WINNING CARTELAS
            ═══════════════════════════════════════════════ */}
         {bingoPopup && (
           <>
@@ -1192,17 +1150,16 @@ export default function LiveGame({
               style={{
                 position: "fixed",
                 inset: 0,
-                background: "rgba(15,20,32,0.95)",
+                background: "rgba(15,20,32,0.96)",
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
-                justifyContent: "center",
                 padding: "16px 12px",
                 zIndex: 100,
                 overflowY: "auto",
               }}
             >
-              {/* Compact header */}
+              {/* Header */}
               <div
                 style={{
                   display: "flex",
@@ -1210,6 +1167,7 @@ export default function LiveGame({
                   gap: 10,
                   marginBottom: 10,
                   animation: "popIn 0.5s ease-out",
+                  flexShrink: 0,
                 }}
               >
                 <div
@@ -1232,7 +1190,7 @@ export default function LiveGame({
                     style={{
                       color: "#f39c12",
                       margin: 0,
-                      fontSize: 32,
+                      fontSize: 30,
                       letterSpacing: 3,
                       fontWeight: "900",
                       background:
@@ -1260,7 +1218,7 @@ export default function LiveGame({
                 </div>
               </div>
 
-              {/* Compact pattern badge */}
+              {/* Pattern badge */}
               <div
                 style={{
                   background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
@@ -1273,6 +1231,7 @@ export default function LiveGame({
                   alignItems: "center",
                   gap: 5,
                   marginBottom: 10,
+                  flexShrink: 0,
                 }}
               >
                 <span style={{ fontSize: 13 }}>
@@ -1284,7 +1243,7 @@ export default function LiveGame({
                 </span>
               </div>
 
-              {/* Compact winners list */}
+              {/* ═══ WINNERS LIST ═══ */}
               <div
                 style={{
                   background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
@@ -1292,8 +1251,9 @@ export default function LiveGame({
                   borderRadius: 12,
                   padding: 8,
                   width: "100%",
-                  maxWidth: 340,
+                  maxWidth: 360,
                   marginBottom: 10,
+                  flexShrink: 0,
                 }}
               >
                 <div
@@ -1317,7 +1277,9 @@ export default function LiveGame({
                       borderRadius: 8,
                       padding: "6px 8px",
                       marginBottom:
-                        i < Math.min(bingoPopup.winners.length, 3) - 1 ? 5 : 0,
+                        i < Math.min(bingoPopup.winners.length, 3) - 1
+                          ? 5
+                          : 0,
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
@@ -1373,7 +1335,110 @@ export default function LiveGame({
                 )}
               </div>
 
-              {/* Compact pool badge */}
+              {/* ═══ WINNING CARTELAS WITH MARKINGS ═══ */}
+              {bingoPopup.winningCartelas?.length > 0 && (
+                <div
+                  style={{
+                    background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
+                    border: "2px solid #2ecc71",
+                    borderRadius: 12,
+                    padding: 10,
+                    width: "100%",
+                    maxWidth: 360,
+                    marginBottom: 10,
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      color: "#2ecc71",
+                      fontSize: 10,
+                      fontWeight: "bold",
+                      textAlign: "center",
+                      marginBottom: 8,
+                      letterSpacing: 1,
+                    }}
+                  >
+                    🎴 WINNING CARTELAS ({bingoPopup.winningCartelas.length})
+                  </div>
+
+                  {bingoPopup.winningCartelas.slice(0, 2).map((wc, idx) => (
+                    <div key={idx} style={{ marginBottom: 10 }}>
+                      <div
+                        style={{
+                          color: "#fff",
+                          fontSize: 11,
+                          marginBottom: 5,
+                          textAlign: "center",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        #{wc.cardId} — {wc.name}
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(5, 1fr)",
+                          gap: 3,
+                        }}
+                      >
+                        {wc.card.map((row, r) =>
+                          row.map((v, c) => {
+                            const m = wc.marked?.[r]?.[c];
+                            const free = r === 2 && c === 2;
+                            return (
+                              <div
+                                key={`${r}-${c}`}
+                                style={{
+                                  aspectRatio: 1,
+                                  background: free
+                                    ? "linear-gradient(135deg, #ffd43b, #f39c12)"
+                                    : m
+                                    ? "linear-gradient(135deg, #4caf50, #2ecc71)"
+                                    : "linear-gradient(135deg, #252d44, #1b2233)",
+                                  color: free ? "#1b2233" : "#fff",
+                                  fontSize: 12,
+                                  fontWeight: "bold",
+                                  borderRadius: 4,
+                                  border: free
+                                    ? "2px solid #ffd43b"
+                                    : m
+                                    ? "1px solid #2ecc71"
+                                    : "1px solid #2a2a40",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  boxShadow: m
+                                    ? "0 0 6px rgba(76,175,80,0.5)"
+                                    : "none",
+                                }}
+                              >
+                                {free ? "★" : v}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {bingoPopup.winningCartelas.length > 2 && (
+                    <div
+                      style={{
+                        textAlign: "center",
+                        color: "#888",
+                        fontSize: 10,
+                        marginTop: 4,
+                      }}
+                    >
+                      +{bingoPopup.winningCartelas.length - 2} ተጨማሪ ካርቴላ
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Pool badge */}
               <div
                 style={{
                   background: "linear-gradient(135deg,#2ecc71,#27ae60)",
@@ -1383,6 +1448,8 @@ export default function LiveGame({
                   fontWeight: "bold",
                   color: "#fff",
                   boxShadow: "0 0 20px rgba(46,204,113,0.5)",
+                  marginBottom: 8,
+                  flexShrink: 0,
                 }}
               >
                 💰 Pool: {bingoPopup.prizePool} ETB
@@ -1392,8 +1459,9 @@ export default function LiveGame({
                 style={{
                   color: "#888",
                   fontSize: 10,
-                  marginTop: 8,
+                  marginBottom: 20,
                   fontStyle: "italic",
+                  flexShrink: 0,
                 }}
               >
                 ወደ ካርቴላ ምርጫ በመመለስ ላይ...
