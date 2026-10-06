@@ -131,6 +131,16 @@ router.post("/telegram", async (req, res) => {
       await user.save();
     }
 
+    // ADMIN_CHAT_ID ውስጥ ያሉ ሰዎች ሁልጊዜ አድሚን ናቸው (በ DB እጅ መቀየር አያስፈልግም)
+    const adminIds = String(process.env.ADMIN_CHAT_ID || "")
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+    if (adminIds.includes(user.telegramId) && !user.isAdmin) {
+      user.isAdmin = true;
+      await user.save();
+    }
+
     if (user.isBanned) {
       return res.status(403).json({ error: "Account suspended" });
     }

@@ -8,6 +8,7 @@ const path = require("path");
 // ═══════════════════════════════════════════════════════
 const User = require("./models/User");
 const Transaction = require("./models/Transaction");
+const deposits = require("./services/deposits");
 
 // ═══════════════════════════════════════════════════════
 // 👈 BANNER SOURCE (ከ utils/bannerSource.js የተዋሃደ)
@@ -28,7 +29,7 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WEBAPP_URL = process.env.BOT_WEBAPP_URL;
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
 const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "@FetanBingoSupport";
-const DEPOSIT_PHONE = process.env.DEPOSIT_TELEBIRR_PHONE || "0920790583";
+const DEPOSIT_PHONE = process.env.DEPOSIT_TELEBIRR_PHONE || "";
 const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 10);
 const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 50);
 const BONUS_CONVERSION_RATE = Number(process.env.BONUS_CONVERSION_RATE || 1);
@@ -283,7 +284,7 @@ const handleDeposit = async (ctx) => {
   getOrCreateUser(ctx).catch(() => {});
 
   const text =
-    "💵 ማስገባት የሚፈልጉትን መጠን ከ10 ብር ጀምሮ ያስገቡ::\n\n" +
+    `💵 ማስገባት የሚፈልጉትን መጠን ከ${MIN_DEPOSIT} ብር ጀምሮ ያስገቡ::\n\n` +
     "✨ ብር ማስገባት የሚችሉት አሁን በተቀመጠው የ Telebirr አካውንት ብቻ ነው::\n" +
     "🚫 ከዚህ ውጭ የላከ አንስተናግድም 🚫\n\n" +
     "👇 Telebirr የሚለውን ይምረጡ 👇";
@@ -305,9 +306,10 @@ bot.action("action_deposit", async (ctx) => {
 
 bot.action("telebirr_pay", async (ctx) => {
   await ctx.answerCbQuery();
+  pendingAction.set(String(ctx.from.id), { type: "deposit" });
   await ctx.reply(
     `የሚያጋጥማቹ ችግር ካለ: ${SUPPORT_CONTACT} ላይ ያግኙን::\n\n` +
-      `1. ከታች ባለው የ Telebirr አካውንት 50 ብር ያስገቡ\n` +
+      `1. ከታች ባለው የ Telebirr አካውንት ብር ያስገቡ (ቢያንስ ${MIN_DEPOSIT} ብር)\n` +
       `Phone: ${DEPOSIT_PHONE}\n\n` +
       `2. የከፈሉበትን አጭር የ SMS መልእክት (message) copy በማድረግ እዚህ ላይ Paste አድርገው ይላኩን 👇👇👇`
   );
@@ -447,53 +449,179 @@ bot.action("action_convert", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------
-// Text handler (deposit amounts)
+// DEPOSIT — SMS መቀበል → ለአድሚን መላክ → ✅ / ❌
 // ---------------------------------------------------------------------
+async function submitDeposit(ctx, user, { amount, parsed, typedAmount }) {
+  const key = String(ctx.from.id);
+
+  if (amount < MIN_DEPOSIT) {
+    return ctx.reply(`Minimum deposit is ${MIN_DEPOSIT} ETB.`, mainKeyboard());
+  }
+
+  // ተመሳሳይ SMS / Txn ID ቀድሞ ተልኳል?
+  const dup = await deposits.findDuplicateDeposit(parsed);
+  if (dup) {
+    pendingAction.delete(key);
+    return ctx.reply(
+      "⚠️ ይህ SMS (ወይም የግብይት ቁጥር) ቀድሞ ተልኳል። ድጋሚ መላክ አያስፈልግም — አድሚኑ እስኪያረጋግጥ ይጠብቁ።",
+      mainKeyboard()
+    );
+  }
+
+  const meta = {
+    gateway: "telebirr",
+    source: "bot",
+    sms: parsed.raw.slice(0, deposits.SMS_MAX_CHARS),
+    smsHash: parsed.smsHash,
+    ...(parsed.txnId ? { txnId: parsed.txnId } : {}),
+  };
+
+  // ተጠቃሚው በ Wallet ገጽ ዲፖዚት ጀምሮ ከሆነ (ያለ SMS) — ተመሳሳይ ጥያቄ ላይ SMS ያያይዛል
+  let tx = await Transaction.findOneAndUpdate(
+    {
+      user: user._id,
+      type: "deposit",
+      status: "pending",
+      amount,
+      "meta.sms": { $exists: false },
+    },
+    {
+      $set: {
+        "meta.gateway": meta.gateway,
+        "meta.source": "webapp+bot",
+        "meta.sms": meta.sms,
+        "meta.smsHash": meta.smsHash,
+        ...(meta.txnId ? { "meta.txnId": meta.txnId } : {}),
+      },
+    },
+    { sort: { createdAt: -1 }, new: true }
+  );
+
+  if (!tx) {
+    tx = await Transaction.create({
+      user: user._id,
+      type: "deposit",
+      amount,
+      balanceAfter: user.balance,
+      reference: `DEP-${Date.now()}`,
+      status: "pending",
+      meta,
+    });
+  }
+
+  pendingAction.delete(key);
+  await ctx.reply(
+    `✅ መልእክትዎ ደርሶናል!\n💰 መጠን: ${amount} ETB\n🔖 Ref: ${tx.reference || tx._id}\n\nአድሚኑ ብሩ መግባቱን አረጋግጦ ሲያጸድቀው ዋሌትዎ ላይ ይታያል።`,
+    mainKeyboard()
+  );
+
+  const notified = await deposits.notifyAdminsOfDeposit(tx, user, { typedAmount });
+  if (!notified) {
+    console.error(`[deposit] admin NOT notified for ${tx._id} — check ADMIN_CHAT_ID`);
+  }
+}
+
 bot.on("text", async (ctx) => {
   try {
+    const text = (ctx.message.text || "").trim();
+    if (!text || text.startsWith("/")) return;
+
     const key = String(ctx.from.id);
     const step = pendingAction.get(key);
-    if (!step) return;
+    const isDepositStep = step?.type === "deposit";
+
+    // "Deposit" ሳይጫን የተላከ ቢሆንም SMS የሚመስል ከሆነ እንቀበለዋለን
+    if (!isDepositStep && !deposits.looksLikeDepositSms(text)) return;
 
     const user = await getOrCreateUser(ctx);
     if (!user) return;
+    if (user.isBanned) return ctx.reply("🚫 Account suspended.");
 
-    const amount = Number(ctx.message.text.trim());
-    if (!amount || amount <= 0) {
-      return ctx.reply("Please send a valid positive number.", mainKeyboard());
-    }
-
-    if (step.type === "deposit") {
-      if (amount < MIN_DEPOSIT)
-        return ctx.reply(
-          `Minimum deposit is ${MIN_DEPOSIT} ETB.`,
-          mainKeyboard()
-        );
-      const reference = `DEP-${Date.now()}`;
-      await Transaction.create({
-        user: user._id,
-        type: "deposit",
-        amount,
-        balanceAfter: user.balance,
-        reference,
-        status: "pending",
-      });
-      pendingAction.delete(key);
-      await ctx.reply(
-        `📥 To deposit ${amount} ETB:\nSend via Telebirr to ${DEPOSIT_PHONE}, then send a screenshot here.\nReference: ${reference}\n\nBalance updates after admin confirms.`,
-        mainKeyboard()
-      );
-      if (ADMIN_CHAT_ID) {
-        bot.telegram
-          .sendMessage(
-            ADMIN_CHAT_ID,
-            `🆕 Deposit\nUser: ${user.firstName} (${user.telegramId})\nAmount: ${amount} ETB\nRef: ${reference}`
-          )
-          .catch(() => {});
+    // ቁጥር ብቻ → የብር መጠን
+    if (/^\d+(\.\d+)?$/.test(text)) {
+      const amount = Number(text);
+      if (amount < MIN_DEPOSIT) {
+        return ctx.reply(`Minimum deposit is ${MIN_DEPOSIT} ETB.`, mainKeyboard());
       }
+      if (step?.sms) {
+        // SMS ቀድሞ ተልኮ መጠኑ ተጠይቆ ነበር
+        const parsed = deposits.parseSms(step.sms);
+        return submitDeposit(ctx, user, { amount, parsed, typedAmount: amount });
+      }
+      pendingAction.set(key, { type: "deposit", amount });
+      return ctx.reply(
+        `✅ ${amount} ETB ተመዝግቧል። አሁን የከፈሉበትን የ SMS መልእክት Paste አድርገው ይላኩ 👇`
+      );
     }
+
+    // SMS ጽሑፍ
+    if (text.length < 15) {
+      return ctx.reply(
+        "እባክዎ የክፍያውን SMS መልእክት ሙሉ በሙሉ copy አድርገው ይላኩ (ወይም የብር መጠኑን በቁጥር ብቻ)።"
+      );
+    }
+    const parsed = deposits.parseSms(text);
+    const amount = parsed.amount || step?.amount;
+    if (!amount) {
+      pendingAction.set(key, { type: "deposit", sms: text });
+      return ctx.reply(
+        "ከመልእክቱ የብር መጠኑን ማግኘት አልቻልኩም። እባክዎ ያስገቡትን የብር መጠን በቁጥር ብቻ ይላኩ።"
+      );
+    }
+    return submitDeposit(ctx, user, {
+      amount,
+      parsed,
+      typedAmount: step?.amount,
+    });
   } catch (err) {
     console.error("[text handler] error:", err.message);
+    ctx.reply("⚠️ ስህተት ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።").catch(() => {});
+  }
+});
+
+// ስክሪንሾት ከተላከ SMS ጽሑፍ እንዲልኩ ይጠየቃሉ
+bot.on("photo", async (ctx) => {
+  if (pendingAction.get(String(ctx.from.id))?.type !== "deposit") return;
+  await ctx.reply("📩 እባክዎ ስክሪንሾት ሳይሆን የ SMS ጽሑፉን copy አድርገው Paste በማድረግ ይላኩ።");
+});
+
+// ───────────── አድሚን: ✅ Approve / ❌ Reject በ Telegram ─────────────
+async function isAdminCtx(ctx) {
+  if (deposits.isAdminChatId(ctx.from?.id)) return true;
+  const u = await User.findOne({ telegramId: String(ctx.from?.id) }).select("isAdmin").lean();
+  return !!u?.isAdmin;
+}
+
+bot.action(/^dep_(ok|no):([a-f0-9]{24})$/, async (ctx) => {
+  try {
+    if (!(await isAdminCtx(ctx))) {
+      return ctx.answerCbQuery("⛔ አድሚን አይደሉም", { show_alert: true });
+    }
+    const [, decision, id] = ctx.match;
+    const result =
+      decision === "ok"
+        ? await deposits.approveTransaction(id)
+        : await deposits.rejectTransaction(id, "Rejected by admin");
+
+    if (!result.ok) {
+      await ctx.answerCbQuery(result.error, { show_alert: true });
+      if (result.code === 400) {
+        await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+      }
+      return;
+    }
+    await ctx.answerCbQuery(decision === "ok" ? "✅ Approved" : "❌ Rejected");
+    const original = ctx.callbackQuery.message?.text || "";
+    await ctx
+      .editMessageText(
+        `${original}\n\n${decision === "ok" ? "✅ APPROVED" : "❌ REJECTED"} — ${
+          ctx.from.username ? "@" + ctx.from.username : ctx.from.id
+        }`
+      )
+      .catch(() => {});
+  } catch (err) {
+    console.error("[dep action] error:", err.message);
+    ctx.answerCbQuery("Error", { show_alert: true }).catch(() => {});
   }
 });
 

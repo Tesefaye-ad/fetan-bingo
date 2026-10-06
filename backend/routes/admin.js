@@ -7,6 +7,7 @@ const { Notification } = require("../models/User");
 const auth = require("./auth");
 const { requireAuth } = auth;
 const { getActiveUserCount } = require("../socket/gameSocket");
+const deposits = require("../services/deposits");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -141,40 +142,9 @@ router.get("/transactions", requireAdmin, async (req, res) => {
 // ═══════════════════════════════════════════════════════
 router.post("/transactions/:id/approve", requireAdmin, async (req, res) => {
   try {
-    const tx = await Transaction.findById(req.params.id);
-    if (!tx) return res.status(404).json({ error: "Not found" });
-    if (tx.status !== "pending") {
-      return res.status(400).json({ error: "Already processed" });
-    }
-
-    const user = await User.findById(tx.user);
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    if (tx.type === "deposit") {
-      user.balance += tx.amount;
-      user.totalDeposits = (user.totalDeposits || 0) + tx.amount;
-      tx.balanceAfter = user.balance;
-    } else if (tx.type === "withdrawal") {
-      user.totalWithdrawals = (user.totalWithdrawals || 0) + tx.amount;
-    }
-
-    tx.status = "completed";
-    await Promise.all([user.save(), tx.save()]);
-
-    await Notification.create({
-      user: user._id,
-      title:
-        tx.type === "deposit"
-          ? "✅ Deposit Approved"
-          : "✅ Withdrawal Approved",
-      body:
-        tx.type === "deposit"
-          ? `Your deposit of ${tx.amount} ETB has been added.`
-          : `Your withdrawal of ${tx.amount} ETB has been processed.`,
-      type: tx.type === "deposit" ? "deposit" : "withdraw",
-    });
-
-    res.json({ ok: true, transaction: tx });
+    const r = await deposits.approveTransaction(req.params.id);
+    if (!r.ok) return res.status(r.code).json({ error: r.error });
+    res.json({ ok: true, transaction: r.transaction });
   } catch (err) {
     console.error("[admin/approve]", err);
     res.status(500).json({ error: "Could not approve" });
@@ -186,38 +156,9 @@ router.post("/transactions/:id/approve", requireAdmin, async (req, res) => {
 // ═══════════════════════════════════════════════════════
 router.post("/transactions/:id/reject", requireAdmin, async (req, res) => {
   try {
-    const { reason } = req.body;
-    const tx = await Transaction.findById(req.params.id);
-    if (!tx) return res.status(404).json({ error: "Not found" });
-    if (tx.status !== "pending") {
-      return res.status(400).json({ error: "Already processed" });
-    }
-
-    const user = await User.findById(tx.user);
-
-    if (tx.type === "withdrawal" && user) {
-      user.balance += tx.amount;
-      tx.balanceAfter = user.balance;
-      await user.save();
-    }
-
-    tx.status = "failed";
-    tx.meta = { ...(tx.meta || {}), rejectReason: reason || "Rejected" };
-    await tx.save();
-
-    if (user) {
-      await Notification.create({
-        user: user._id,
-        title:
-          tx.type === "deposit"
-            ? "❌ Deposit Rejected"
-            : "❌ Withdrawal Rejected",
-        body: reason || `Your ${tx.type} of ${tx.amount} ETB was rejected.`,
-        type: "warning",
-      });
-    }
-
-    res.json({ ok: true, transaction: tx });
+    const r = await deposits.rejectTransaction(req.params.id, req.body?.reason);
+    if (!r.ok) return res.status(r.code).json({ error: r.error });
+    res.json({ ok: true, transaction: r.transaction });
   } catch (err) {
     console.error("[admin/reject]", err);
     res.status(500).json({ error: "Could not reject" });

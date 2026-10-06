@@ -501,7 +501,34 @@ function TxCard({ tx, onApprove, onReject }) {
         )}
         <div style={{ color: C.orange }}>🏆 {tx.user?.telegramId || "—"}</div>
         <div>🕐 {dateStr}</div>
+        {tx.meta?.txnId && (
+          <div style={{ color: C.blue }}>🧾 Txn ID: {tx.meta.txnId}</div>
+        )}
       </div>
+
+      {/* ተጠቃሚው የላከው SMS — አድሚኑ ከ Telebirr መግቢያ ጋር ያመሳክረዋል */}
+      {tx.meta?.sms && (
+        <div
+          style={{
+            marginTop: 8,
+            background: "#0a0a14",
+            border: `1px dashed ${C.border}`,
+            borderRadius: 8,
+            padding: 8,
+            fontSize: 11,
+            color: "#ddd",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          📩 {tx.meta.sms}
+        </div>
+      )}
+      {isDeposit && tx.status === "pending" && !tx.meta?.sms && (
+        <div style={{ marginTop: 8, fontSize: 11, color: C.orange }}>
+          ⏳ ተጠቃሚው ገና SMS አልላከም
+        </div>
+      )}
 
       {/* Actions */}
       {tx.status === "pending" && (

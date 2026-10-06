@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Wallet from "./Wallet.jsx";
 import LiveGame from "./Livegame.jsx";
 import CartelaSelection from "./Cartelaselection.jsx";
@@ -15,13 +15,11 @@ import {
   useTelegram,
 } from "./api";
 
-const DEFAULT_ADMIN_IDS = ["494653076"];
 const ENV_ADMIN_IDS = (process.env.REACT_APP_ADMIN_IDS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-const ADMIN_IDS =
-  ENV_ADMIN_IDS.length > 0 ? ENV_ADMIN_IDS : DEFAULT_ADMIN_IDS;
+const ADMIN_IDS = ENV_ADMIN_IDS; // የመጨረሻው ፍቃድ በሰርቨር (user.isAdmin) ይወሰናል
 
 const LOGIN_TIMEOUT_MS = 10000;
 const SHARED_ROOMS = {
@@ -34,7 +32,7 @@ const SHARED_ROOMS = {
 // ═══════════════════════════════════════════════════════
 // LOGIN
 // ═══════════════════════════════════════════════════════
-function Login({ onLoggedIn }) {
+function Login({ onLoggedIn, onFailed }) {
   const { initData, ready, telegramUser } = useTelegram();
 
   useEffect(() => {
@@ -44,7 +42,7 @@ function Login({ onLoggedIn }) {
     if (!initData) {
       const isDev = process.env.NODE_ENV === "development";
       if (!isDev) {
-        onLoggedIn(null);
+        onFailed();
         return;
       }
       onLoggedIn({
@@ -75,17 +73,8 @@ function Login({ onLoggedIn }) {
         onLoggedIn(user);
       } catch (err) {
         if (cancelled) return;
-        if (telegramUser?.id) {
-          onLoggedIn({
-            id: String(telegramUser.id),
-            telegramId: String(telegramUser.id),
-            firstName: telegramUser.first_name || "Player",
-            username: telegramUser.username || `user_${telegramUser.id}`,
-            balance: 0,
-            gamesWon: 0,
-            isAdmin: false,
-          });
-        } else onLoggedIn(null);
+        // ያለ ትክክለኛ token ወደ ጨዋታ አይገባም — ተጠቃሚው እንደገና እንዲሞክር ይነገረዋል
+        onFailed();
       }
     }
     handleLogin();
@@ -93,7 +82,7 @@ function Login({ onLoggedIn }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, initData, onLoggedIn]);
+  }, [ready, initData, onLoggedIn, onFailed]);
 
   return null;
 }
@@ -808,6 +797,13 @@ function App() {
   const [unreadCount, setUnreadCount] = useState(0);
   // 👈 ጨዋታ ሁኔታ
   const [gameStatus, setGameStatus] = useState("waiting");
+  const [loginFailed, setLoginFailed] = useState(false);
+
+  const handleLoggedIn = useCallback((u) => {
+    setUser(u);
+    setBalance(u.balance || 0);
+  }, []);
+  const handleLoginFailed = useCallback(() => setLoginFailed(true), []);
 
   const isAdmin =
     user?.isAdmin === true ||
@@ -833,14 +829,28 @@ function App() {
   }, [user]);
 
   if (!user) {
-    return (
-      <Login
-        onLoggedIn={(u) => {
-          setUser(u);
-          setBalance(u.balance);
-        }}
-      />
-    );
+    if (loginFailed) {
+      return (
+        <div style={{ color: "#fff", textAlign: "center", padding: 40 }}>
+          <div style={{ fontSize: 40 }}>⚠️</div>
+          <p>መግባት አልተቻለም። እባክዎ አፑን በ Telegram ውስጥ ከቦቱ ይክፈቱ ወይም እንደገና ይሞክሩ።</p>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              background: "#f39c12",
+              border: "none",
+              borderRadius: 10,
+              padding: "10px 20px",
+              fontWeight: "bold",
+              cursor: "pointer",
+            }}
+          >
+            🔄 እንደገና ሞክር
+          </button>
+        </div>
+      );
+    }
+    return <Login onLoggedIn={handleLoggedIn} onFailed={handleLoginFailed} />;
   }
 
   // "Play" ሲጫን: የክፍሉን ሁኔታ ከሰርቨር ጠይቆ

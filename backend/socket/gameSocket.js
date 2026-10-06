@@ -224,6 +224,14 @@ function initGameSocket(io) {
           });
         }
 
+        // ሁሉም ካርዶች ጠፍተው ተጫዋች ከሌለ ባዶ ዙር አይሮጥም — ዑደቱ እንደገና ይጀምራል
+        if (players.length === 0) {
+          const fresh = await rooms.resetToWaiting(roomCode);
+          if (fresh) io.to(roomCode).emit("room_state", rooms.publicState(fresh));
+          console.log(`[startGame] ${roomCode} — no valid players → new cycle`);
+          return;
+        }
+
         const prizePool = Math.floor(game.entryFee * PRIZE_SHARE) * players.length;
         const pattern = getPatternForRoom(game.entryFee);
         await Game.updateOne(
