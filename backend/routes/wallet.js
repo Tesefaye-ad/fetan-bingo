@@ -55,7 +55,7 @@ router.post("/deposit/initiate", async (req, res) => {
       message: `ማስገባት ተጀምሯል — ${amount} ETB`,
       reference,
       amount,
-      telebirrPhone: process.env.DEPOSIT_TELEBIRR_PHONE || "",
+      telebirrPhone: process.env.DEPOSIT_TELEBIRR_PHONE || "0920790583",
     });
   } catch (err) {
     res.status(500).json({ error: "Could not start deposit" });

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Wallet from "./Wallet.jsx";
 import LiveGame from "./Livegame.jsx";
 import CartelaSelection from "./Cartelaselection.jsx";
@@ -15,13 +15,17 @@ import {
   useTelegram,
 } from "./api";
 
+const DEFAULT_ADMIN_IDS = ["494653076"];
 const ENV_ADMIN_IDS = (process.env.REACT_APP_ADMIN_IDS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-const ADMIN_IDS = ENV_ADMIN_IDS; // የመጨረሻው ፍቃድ በሰርቨር (user.isAdmin) ይወሰናል
+const ADMIN_IDS =
+  ENV_ADMIN_IDS.length > 0 ? ENV_ADMIN_IDS : DEFAULT_ADMIN_IDS;
 
-const LOGIN_TIMEOUT_MS = 10000;
+// 👈 60s ለ Render cold start (ከ axios 60s timeout ጋር እንዲመሳሰል)
+const LOGIN_TIMEOUT_MS = 60000;
+
 const SHARED_ROOMS = {
   10: "ROOM10",
   20: "ROOM20",
@@ -32,7 +36,7 @@ const SHARED_ROOMS = {
 // ═══════════════════════════════════════════════════════
 // LOGIN
 // ═══════════════════════════════════════════════════════
-function Login({ onLoggedIn, onFailed }) {
+function Login({ onLoggedIn }) {
   const { initData, ready, telegramUser } = useTelegram();
 
   useEffect(() => {
@@ -42,7 +46,7 @@ function Login({ onLoggedIn, onFailed }) {
     if (!initData) {
       const isDev = process.env.NODE_ENV === "development";
       if (!isDev) {
-        onFailed();
+        onLoggedIn(null);
         return;
       }
       onLoggedIn({
@@ -54,7 +58,7 @@ function Login({ onLoggedIn, onFailed }) {
         bonusBalance: 200,
         gamesWon: 0,
         referralCount: 0,
-        isAdmin: false,
+        isAdmin: true, // 👈 Dev ሁኔታ — admin አሳይ
       });
       return;
     }
@@ -73,8 +77,24 @@ function Login({ onLoggedIn, onFailed }) {
         onLoggedIn(user);
       } catch (err) {
         if (cancelled) return;
-        // ያለ ትክክለኛ token ወደ ጨዋታ አይገባም — ተጠቃሚው እንደገና እንዲሞክር ይነገረዋል
-        onFailed();
+        console.warn("[Login] failed:", err?.message);
+
+        // 👈 Fallback — ግን isAdmin ከ ADMIN_IDS እንወስን
+        if (telegramUser?.id) {
+          const tgId = String(telegramUser.id);
+          const isAdminFallback = ADMIN_IDS.includes(tgId);
+          onLoggedIn({
+            id: tgId,
+            telegramId: tgId,
+            firstName: telegramUser.first_name || "Player",
+            username: telegramUser.username || `user_${tgId}`,
+            balance: 0,
+            gamesWon: 0,
+            isAdmin: isAdminFallback, // 👈 እዚህ ወሳኝ ነው!
+          });
+        } else {
+          onLoggedIn(null);
+        }
       }
     }
     handleLogin();
@@ -82,16 +102,15 @@ function Login({ onLoggedIn, onFailed }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, initData, onLoggedIn, onFailed]);
+  }, [ready, initData, onLoggedIn]);
 
   return null;
 }
 
 // ═══════════════════════════════════════════════════════
-// GAME LOBBY — ያለ countdown
+// GAME LOBBY
 // ═══════════════════════════════════════════════════════
 function GameLobby({ onPlayStake }) {
-  // ጨዋታው አስቀድሞ ላይቭ ከሆነ App ወደ ላይቭ ጌም ያሻግራል, ካልሆነ ወደ ካርቴላ መምረጫ
   function play(fee) {
     onPlayStake(fee, SHARED_ROOMS[fee] || `ROOM${fee}`);
   }
@@ -180,7 +199,6 @@ function GameLobby({ onPlayStake }) {
         background: "linear-gradient(180deg, #0f1420 0%, #1a0f2e 100%)",
       }}
     >
-      {/* HEADER */}
       <div style={{ textAlign: "center", marginBottom: 20, marginTop: 10 }}>
         <h1
           style={{
@@ -227,7 +245,6 @@ function GameLobby({ onPlayStake }) {
         </div>
       </div>
 
-      {/* ⚡ INSTANT GAMES */}
       <div
         style={{
           background:
@@ -281,7 +298,6 @@ function GameLobby({ onPlayStake }) {
         </div>
       </div>
 
-      {/* 🏆 DAILY JACKPOT */}
       <div
         style={{
           background:
@@ -795,19 +811,24 @@ function App() {
   const [activeTab, setActiveTab] = useState("Game");
   const [showWalletHistory, setShowWalletHistory] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  // 👈 ጨዋታ ሁኔታ
   const [gameStatus, setGameStatus] = useState("waiting");
-  const [loginFailed, setLoginFailed] = useState(false);
 
-  const handleLoggedIn = useCallback((u) => {
-    setUser(u);
-    setBalance(u.balance || 0);
-  }, []);
-  const handleLoginFailed = useCallback(() => setLoginFailed(true), []);
-
+  // 👈 isAdmin — ሁለት ምንጮች (DB + fallback ID list)
   const isAdmin =
     user?.isAdmin === true ||
     (user?.telegramId && ADMIN_IDS.includes(String(user.telegramId)));
+
+  // 👈 Debug log — በ console ይመልከቱ
+  useEffect(() => {
+    if (user) {
+      console.log("[App] User:", {
+        telegramId: user.telegramId,
+        isAdmin: user.isAdmin,
+        adminIds: ADMIN_IDS,
+        finalIsAdmin: isAdmin,
+      });
+    }
+  }, [user, isAdmin]);
 
   const tabs = [
     { id: "Game", label: "Game", icon: "🎮" },
@@ -815,6 +836,19 @@ function App() {
     { id: "Profile", label: "Profile", icon: "👤" },
   ];
   if (isAdmin) tabs.push({ id: "Admin", label: "Admin", icon: "⚙️" });
+
+  // 👈 Login ከተሳካ በኋላ user ን ከ DB እንደገና አንብብ (isAdmin እንዲዘመን)
+  useEffect(() => {
+    if (!user) return;
+    getMe()
+      .then((fresh) => {
+        if (fresh) {
+          setUser((prev) => ({ ...prev, ...fresh }));
+          if (fresh.balance !== undefined) setBalance(fresh.balance);
+        }
+      })
+      .catch((err) => console.warn("[App] getMe failed:", err?.message));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!user) return;
@@ -829,33 +863,17 @@ function App() {
   }, [user]);
 
   if (!user) {
-    if (loginFailed) {
-      return (
-        <div style={{ color: "#fff", textAlign: "center", padding: 40 }}>
-          <div style={{ fontSize: 40 }}>⚠️</div>
-          <p>መግባት አልተቻለም። እባክዎ አፑን በ Telegram ውስጥ ከቦቱ ይክፈቱ ወይም እንደገና ይሞክሩ።</p>
-          <button
-            onClick={() => window.location.reload()}
-            style={{
-              background: "#f39c12",
-              border: "none",
-              borderRadius: 10,
-              padding: "10px 20px",
-              fontWeight: "bold",
-              cursor: "pointer",
-            }}
-          >
-            🔄 እንደገና ሞክር
-          </button>
-        </div>
-      );
-    }
-    return <Login onLoggedIn={handleLoggedIn} onFailed={handleLoginFailed} />;
+    return (
+      <Login
+        onLoggedIn={(u) => {
+          if (!u) return;
+          setUser(u);
+          setBalance(u.balance || 0);
+        }}
+      />
+    );
   }
 
-  // "Play" ሲጫን: የክፍሉን ሁኔታ ከሰርቨር ጠይቆ
-  //   • ካርቴላ የመምረጫ ሰዓቱ አልቆ ጨዋታው ላይቭ ከሆነ → ቀጥታ ወደ ላይቭ ጌም (ካርቴላ መምረጫ ሳይታይ)
-  //   • አለበለዚያ → ወደ ካርቴላ መምረጫ
   const handlePlayStake = async (fee, code) => {
     setStakeAmount(fee);
     setRoomCode(code);
@@ -881,7 +899,6 @@ function App() {
     setShowCartela(false);
   };
 
-  // 👈 ጨዋታ ሁኔታ ሲቀየር
   const handleGameStatusChange = (status) => {
     setGameStatus(status);
     if (status === "active") {
@@ -898,7 +915,6 @@ function App() {
     setGameStatus("waiting");
   };
 
-  // ድል ፖፕ-አፕ (5 ሰከንድ) ካለቀ በኋላ → ወደ ካርቴላ መምረጫ ተመልሶ አዲስ ዙር ይጀምራል
   const handleGameEnded = () => {
     setCardIds([]);
     setShowCartela(true);
@@ -987,7 +1003,10 @@ function App() {
         <Profile
           user={user}
           balance={balance}
-          onUserUpdate={(u) => setUser((prev) => ({ ...prev, ...u }))}
+          onUserUpdate={(u) => {
+            setUser((prev) => ({ ...prev, ...u }));
+            if (u.balance !== undefined) setBalance(u.balance);
+          }}
         />
       )}
 

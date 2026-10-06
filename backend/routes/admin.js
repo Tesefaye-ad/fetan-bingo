@@ -7,10 +7,19 @@ const { Notification } = require("../models/User");
 const auth = require("./auth");
 const { requireAuth } = auth;
 const { getActiveUserCount } = require("../socket/gameSocket");
-const deposits = require("../services/deposits");
 
 const router = express.Router();
 router.use(requireAuth);
+
+// ═══════════════════════════════════════════════════════
+// 👈 ADMIN TELEGRAM IDs — ከ env የሚነበብ
+// ═══════════════════════════════════════════════════════
+const ADMIN_TELEGRAM_IDS = (process.env.ADMIN_TELEGRAM_IDS || "494653076")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+console.log("[admin] Env admin IDs:", ADMIN_TELEGRAM_IDS);
 
 // ═══════════════════════════════════════════════════════
 // 👈 CONFIG MODEL (inline — አዲስ ፋይል ሳይፈጠር)
@@ -39,14 +48,43 @@ async function getConfig() {
 }
 
 // ═══════════════════════════════════════════════════════
-// ADMIN GUARD
+// 👈 ADMIN GUARD — env ውስጥ ካለ ሁልጊዜ ይፈቅዳል + DB auto-sync
 // ═══════════════════════════════════════════════════════
 async function requireAdmin(req, res, next) {
-  const user = await User.findById(req.userId).select("isAdmin");
-  if (!user || !user.isAdmin) {
-    return res.status(403).json({ error: "Admin access required" });
+  try {
+    const user = await User.findById(req.userId).select(
+      "isAdmin telegramId"
+    );
+    if (!user) {
+      return res.status(403).json({ error: "Admin access required" });
+    }
+
+    // 👈 Env ውስጥ ካለ → admin ነው (DB ቢረሳም)
+    if (ADMIN_TELEGRAM_IDS.includes(String(user.telegramId))) {
+      if (!user.isAdmin) {
+        // Sync ወደ DB (fire-and-forget)
+        User.updateOne(
+          { _id: user._id },
+          { $set: { isAdmin: true } }
+        ).catch((e) =>
+          console.warn("[admin] isAdmin sync failed:", e.message)
+        );
+        console.log(
+          `[admin] ✅ Auto-sync ${user.telegramId} → isAdmin=true`
+        );
+      }
+      return next();
+    }
+
+    // Env ውስጥ ከሌለ — DB isAdmin ብቻ ነው የሚያስፈልገው
+    if (!user.isAdmin) {
+      return res.status(403).json({ error: "Admin access required" });
+    }
+    next();
+  } catch (err) {
+    console.error("[admin/requireAdmin]", err);
+    return res.status(500).json({ error: "Admin check failed" });
   }
-  next();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -142,9 +180,40 @@ router.get("/transactions", requireAdmin, async (req, res) => {
 // ═══════════════════════════════════════════════════════
 router.post("/transactions/:id/approve", requireAdmin, async (req, res) => {
   try {
-    const r = await deposits.approveTransaction(req.params.id);
-    if (!r.ok) return res.status(r.code).json({ error: r.error });
-    res.json({ ok: true, transaction: r.transaction });
+    const tx = await Transaction.findById(req.params.id);
+    if (!tx) return res.status(404).json({ error: "Not found" });
+    if (tx.status !== "pending") {
+      return res.status(400).json({ error: "Already processed" });
+    }
+
+    const user = await User.findById(tx.user);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (tx.type === "deposit") {
+      user.balance += tx.amount;
+      user.totalDeposits = (user.totalDeposits || 0) + tx.amount;
+      tx.balanceAfter = user.balance;
+    } else if (tx.type === "withdrawal") {
+      user.totalWithdrawals = (user.totalWithdrawals || 0) + tx.amount;
+    }
+
+    tx.status = "completed";
+    await Promise.all([user.save(), tx.save()]);
+
+    await Notification.create({
+      user: user._id,
+      title:
+        tx.type === "deposit"
+          ? "✅ Deposit Approved"
+          : "✅ Withdrawal Approved",
+      body:
+        tx.type === "deposit"
+          ? `Your deposit of ${tx.amount} ETB has been added.`
+          : `Your withdrawal of ${tx.amount} ETB has been processed.`,
+      type: tx.type === "deposit" ? "deposit" : "withdraw",
+    });
+
+    res.json({ ok: true, transaction: tx });
   } catch (err) {
     console.error("[admin/approve]", err);
     res.status(500).json({ error: "Could not approve" });
@@ -156,9 +225,38 @@ router.post("/transactions/:id/approve", requireAdmin, async (req, res) => {
 // ═══════════════════════════════════════════════════════
 router.post("/transactions/:id/reject", requireAdmin, async (req, res) => {
   try {
-    const r = await deposits.rejectTransaction(req.params.id, req.body?.reason);
-    if (!r.ok) return res.status(r.code).json({ error: r.error });
-    res.json({ ok: true, transaction: r.transaction });
+    const { reason } = req.body;
+    const tx = await Transaction.findById(req.params.id);
+    if (!tx) return res.status(404).json({ error: "Not found" });
+    if (tx.status !== "pending") {
+      return res.status(400).json({ error: "Already processed" });
+    }
+
+    const user = await User.findById(tx.user);
+
+    if (tx.type === "withdrawal" && user) {
+      user.balance += tx.amount;
+      tx.balanceAfter = user.balance;
+      await user.save();
+    }
+
+    tx.status = "failed";
+    tx.meta = { ...(tx.meta || {}), rejectReason: reason || "Rejected" };
+    await tx.save();
+
+    if (user) {
+      await Notification.create({
+        user: user._id,
+        title:
+          tx.type === "deposit"
+            ? "❌ Deposit Rejected"
+            : "❌ Withdrawal Rejected",
+        body: reason || `Your ${tx.type} of ${tx.amount} ETB was rejected.`,
+        type: "warning",
+      });
+    }
+
+    res.json({ ok: true, transaction: tx });
   } catch (err) {
     console.error("[admin/reject]", err);
     res.status(500).json({ error: "Could not reject" });

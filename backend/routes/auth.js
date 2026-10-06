@@ -10,7 +10,21 @@ const router = express.Router();
 const userRouter = express.Router();
 
 // ═══════════════════════════════════════════════════════
-// JWT HELPERS (ከ middleware/auth.js የተዋሃደ)
+// 👈 ADMIN TELEGRAM IDs — ከ env የሚነበብ
+// ═══════════════════════════════════════════════════════
+const ADMIN_TELEGRAM_IDS = (process.env.ADMIN_TELEGRAM_IDS || "494653076")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+console.log("[auth] Admin Telegram IDs:", ADMIN_TELEGRAM_IDS);
+
+function isEnvAdmin(telegramId) {
+  return ADMIN_TELEGRAM_IDS.includes(String(telegramId));
+}
+
+// ═══════════════════════════════════════════════════════
+// JWT HELPERS
 // ═══════════════════════════════════════════════════════
 function getJwtSecret() {
   const secret = process.env.JWT_SECRET;
@@ -47,7 +61,7 @@ function verifySocketToken(token) {
 }
 
 // ═══════════════════════════════════════════════════════
-// TELEGRAM VERIFY (ከ utils/telegramVerify.js የተዋሃደ)
+// TELEGRAM VERIFY
 // ═══════════════════════════════════════════════════════
 function verifyTelegramInitData(initData, botToken, maxAgeSeconds = 86400) {
   try {
@@ -95,7 +109,7 @@ function verifyTelegramInitData(initData, botToken, maxAgeSeconds = 86400) {
 }
 
 // ═══════════════════════════════════════════════════════
-// AUTH ROUTES
+// AUTH ROUTES — TELEGRAM LOGIN
 // ═══════════════════════════════════════════════════════
 router.post("/telegram", async (req, res) => {
   try {
@@ -111,30 +125,53 @@ router.post("/telegram", async (req, res) => {
     }
 
     const { id, username, first_name, last_name, photo_url } = data.user;
-    let user = await User.findOne({ telegramId: String(id) });
+    const telegramId = String(id);
+
+    // ═══════════════════════════════════════════════════
+    // 👈 ENV-BASED ADMIN CHECK
+    // ═══════════════════════════════════════════════════
+    const shouldBeAdmin = isEnvAdmin(telegramId);
+
+    let user = await User.findOne({ telegramId });
 
     if (!user) {
+      // 👈 አዲስ ተጠቃሚ — isAdmin ከ env ይወሰናል
       user = await User.create({
-        telegramId: String(id),
+        telegramId,
         username: username || `user_${id}`,
         firstName: first_name || "User",
         lastName: last_name || "",
         photoUrl: photo_url || "",
         balance: 0,
+        isAdmin: shouldBeAdmin, // 👈
       });
+      if (shouldBeAdmin) {
+        console.log(`[auth] ✅ New admin created: ${telegramId} (${username})`);
+      }
     } else {
+      // 👈 ያለ ተጠቃሚ — profile አዘምን
       user.username = username || user.username;
       user.firstName = first_name || user.firstName;
       user.lastName = last_name || user.lastName;
       user.photoUrl = photo_url || user.photoUrl;
       user.lastActiveAt = new Date();
-      await user.save();
-    }
 
-    // ADMIN_CHAT_ID ውስጥ ያሉ ሰዎች ሁልጊዜ አድሚን ናቸው (በ DB እጅ መቀየር አያስፈልግም)
-    const adminIds = require("../services/deposits").adminChatIds();
-    if (adminIds.includes(user.telegramId) && !user.isAdmin) {
-      user.isAdmin = true;
+      // 👈 AUTO-PROMOTE: env ውስጥ ካለ ግን DB ውስጥ false ከሆነ → true አድርግ
+      if (shouldBeAdmin && !user.isAdmin) {
+        user.isAdmin = true;
+        console.log(
+          `[auth] ⬆️ Auto-promoted ${telegramId} (${username}) to admin`
+        );
+      }
+
+      // 👈 AUTO-DEMOTE: env ውስጥ ከሌለ ግን DB ውስጥ true ከሆነ → false አድርግ
+      // (ይህን መስመር ማስወገድ ከፈለጉ — env ሲያስወግዱ ቀድሞ admin የነበረ አይወርስም)
+      if (!shouldBeAdmin && user.isAdmin) {
+        // ⚠️ ማስጠንቀቂያ: ይህን ማቆየት ከፈለጉ አስቀምጡ
+        // user.isAdmin = false;
+        // console.log(`[auth] ⬇️ Demoted ${telegramId} from admin`);
+      }
+
       await user.save();
     }
 
@@ -146,6 +183,10 @@ router.post("/telegram", async (req, res) => {
       { userId: user._id.toString(), telegramId: user.telegramId },
       getJwtSecret(),
       { expiresIn: "7d" }
+    );
+
+    console.log(
+      `[auth] Login: ${telegramId} (${username}) — isAdmin: ${user.isAdmin}`
     );
 
     res.json({
@@ -163,7 +204,7 @@ router.post("/telegram", async (req, res) => {
         gamesWon: user.gamesWon,
         totalWinnings: user.totalWinnings,
         referralCount: user.referralCount,
-        isAdmin: user.isAdmin,
+        isAdmin: user.isAdmin, // 👈 ወሳኝ
       },
     });
   } catch (err) {
@@ -173,7 +214,7 @@ router.post("/telegram", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// USER ROUTES (ከ routes/user.js የተዋሃደ)
+// USER ROUTES
 // ═══════════════════════════════════════════════════════
 userRouter.use(requireAuth);
 
@@ -181,6 +222,17 @@ userRouter.get("/me", async (req, res) => {
   try {
     const user = await User.findById(req.userId).select("-__v").lean();
     if (!user) return res.status(404).json({ error: "User not found" });
+
+    // 👈 Read-time admin check — DB ቢረሳም env ውስጥ ካለ admin ነው
+    if (!user.isAdmin && isEnvAdmin(user.telegramId)) {
+      await User.updateOne(
+        { _id: user._id },
+        { $set: { isAdmin: true } }
+      );
+      user.isAdmin = true;
+      console.log(`[auth] /me auto-promoted ${user.telegramId}`);
+    }
+
     res.json({ user });
   } catch (err) {
     res.status(500).json({ error: "Could not load profile" });
@@ -266,7 +318,6 @@ userRouter.get("/games/history", async (req, res) => {
       );
       const myCard = (g.winningCartelas || []).find(
         (wc) =>
-          wc.userId === userId.toString() ||
           wc.telegramId === String(req.telegramId)
       );
       return {
@@ -298,7 +349,9 @@ userRouter.get("/notifications", async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean();
-    const unreadCount = notifications.filter((n) => !n.isRead && n.user).length;
+    const unreadCount = notifications.filter(
+      (n) => !n.isRead && n.user
+    ).length;
     res.json({ notifications, unreadCount });
   } catch (err) {
     res.status(500).json({ error: "Could not load notifications" });
@@ -321,7 +374,7 @@ userRouter.post("/notifications/read", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// EXPORTS — auth + middleware + user router
+// EXPORTS
 // ═══════════════════════════════════════════════════════
 module.exports = router;
 module.exports.requireAuth = requireAuth;

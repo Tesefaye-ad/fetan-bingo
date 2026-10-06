@@ -88,7 +88,11 @@ app.get("/", (req, res) =>
 );
 app.get("/health", (req, res) => res.json({ ok: true, ts: Date.now() }));
 
+// ═══════════════════════════════════════════════════════
+// 👈 ROUTES — userRouter አሁን ተጭኗል!
+// ═══════════════════════════════════════════════════════
 app.use("/api/auth", authRoutes);
+app.use("/api/user", authRoutes.userRouter); // 👈 አዲስ — በጣም ወሳኝ!
 app.use("/api/wallet", walletRoutes);
 app.use("/api/game", gameRoutes);
 app.use("/api/admin", adminRoutes);
@@ -134,7 +138,8 @@ try {
   startBot(app).then(() => {
     const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
     const RENDER_URL =
-      process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-he4x.onrender.com`;
+      process.env.RENDER_EXTERNAL_URL ||
+      `https://fetan-bingo-he4x.onrender.com`;
 
     setTimeout(async () => {
       try {
@@ -151,4 +156,6 @@ try {
   console.error("[server] Bot failed:", err.message);
 }
 
-process.on("unhandledRejection", (r) => console.error("[unhandledRejection]", r));
+process.on("unhandledRejection", (r) =>
+  console.error("[unhandledRejection]", r)
+);

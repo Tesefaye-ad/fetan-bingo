@@ -11,7 +11,7 @@ const API_BASE_URL =
 // ═══════════════════════════════════════════════════════
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000, // 👈 15s ለአብዛኞቹ
+  timeout: 15000, // 👈 15s ለአብዛኛዎቹ
   headers: { "Content-Type": "application/json" },
 });
 
@@ -45,15 +45,26 @@ api.interceptors.request.use((config) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// SOCKET — 60s connect timeout ለ cold start
+// SOCKET — 60s connect timeout ለ cold start + token refresh
 // ═══════════════════════════════════════════════════════
 let socket = null;
+let socketToken = null; // 👈 አሮጌውን token ለማወዳደር
 
 export function getSocket() {
+  const token = localStorage.getItem("bingo_token");
+
+  // 👈 Token ቢቀየር → አሮጌውን socket አጥፍተን አዲስ እንፍጠር
+  if (socket && socketToken !== token) {
+    console.log("[socket] Token changed — reconnecting");
+    socket.disconnect();
+    socket = null;
+    socketToken = null;
+  }
+
   if (socket && socket.connected) return socket;
   if (socket) return socket;
 
-  const token = localStorage.getItem("bingo_token");
+  socketToken = token;
   socket = io(API_BASE_URL, {
     auth: { token },
     transports: ["websocket", "polling"],
@@ -71,6 +82,7 @@ export function disconnectSocket() {
   if (socket) {
     socket.disconnect();
     socket = null;
+    socketToken = null;
   }
 }
 
