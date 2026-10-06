@@ -9,11 +9,15 @@ const { Notification } = require("../models/User");
 const SMS_MAX_CHARS = 1500;
 
 /** ADMIN_CHAT_ID="123,456" → ["123","456"] */
+// ADMIN_CHAT_ID ካልተሞላ ቀድሞ በ App.jsx ውስጥ ተጽፎ የነበረው የባለቤቱ ID እንደ መጠባበቂያ ይሠራል
+const FALLBACK_ADMIN_IDS = ["494653076"];
+
 function adminChatIds() {
-  return String(process.env.ADMIN_CHAT_ID || "")
+  const ids = String(process.env.ADMIN_CHAT_ID || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  return ids.length ? ids : FALLBACK_ADMIN_IDS;
 }
 
 function isAdminChatId(id) {

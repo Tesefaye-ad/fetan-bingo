@@ -132,10 +132,7 @@ router.post("/telegram", async (req, res) => {
     }
 
     // ADMIN_CHAT_ID ውስጥ ያሉ ሰዎች ሁልጊዜ አድሚን ናቸው (በ DB እጅ መቀየር አያስፈልግም)
-    const adminIds = String(process.env.ADMIN_CHAT_ID || "")
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean);
+    const adminIds = require("../services/deposits").adminChatIds();
     if (adminIds.includes(user.telegramId) && !user.isAdmin) {
       user.isAdmin = true;
       await user.save();
