@@ -1,4 +1,5 @@
 import axios from "axios";
+import { syncClock } from "./serverClock";
 import { io } from "socket.io-client";
 import { useState, useEffect, useRef, useMemo } from "react";
 
@@ -138,32 +139,20 @@ export async function loginWithTelegram(initData) {
 }
 
 // ═══════════════════════════════════════════════════════
-// CREATE ROOM — short timeout + fallback
+// ROOM — የክፍሉ ሁኔታ (ሰዓቱን አይቀይርም) + የሰርቨር ሰዓት ማመሳሰል
 // ═══════════════════════════════════════════════════════
-export async function createRoom(entryFee, roomCode) {
-  const body = { entryFee };
-  if (roomCode) body.roomCode = roomCode;
-
-  const fallbackCode =
-    roomCode ||
-    "ROOM" + (entryFee >= 100 ? "100" : entryFee >= 50 ? "50" : entryFee);
-
-  try {
-    const { data } = await api.post("/api/game/rooms", body, {
-      timeout: 12000, // 👈 12s ብቻ
-    });
-    return data;
-  } catch (err) {
-    console.warn("[api] createRoom failed — using fallback:", err.message);
-    // 👈 ሁልጊዜ fallback ተመልስ
-    return {
-      roomCode: fallbackCode,
-      entryFee,
-      status: "waiting",
-      _fallback: true,
-    };
-  }
+export async function getRoom(roomCode, timeout = 4000) {
+  const sentAt = Date.now();
+  const { data } = await api.get(`/api/game/rooms/${roomCode}`, {
+    timeout,
+    headers: { "Cache-Control": "no-store" },
+  });
+  syncClock(data.serverNow, sentAt, Date.now());
+  return data;
 }
+
+// ለድሮ ጥሪዎች ተኳሃኝነት
+export const createRoom = (entryFee, roomCode) => getRoom(roomCode);
 
 // ═══════════════════════════════════════════════════════
 // WALLET

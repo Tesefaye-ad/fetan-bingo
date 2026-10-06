@@ -1,56 +1,19 @@
-import { useEffect, useRef, useState } from "react";
-import { getSocket } from "./api";
-
-const API_BASE_URL =
-  process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.onrender.com";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getRoom, getSocket } from "./api";
+import { formatCountdown, serverNow } from "./serverClock";
 
 const TOTAL_CARDS = 1250;
+const MAX_CARDS = 3; // አንድ ተጠቃሚ ቢበዛ 3 ካርቴላ
+const WEEKLY_ROOMS = ["ROOM50", "ROOM100"];
+const SYNC_RETRIES = 8;
 
 // ═══════════════════════════════════════════════════════
-// ⚡ ፈጣን timeout
+// የካርቴላ መምረጫ ገጽ
+//  • ሰዓቱ ከሰርቨር absolute ሰዓት (selectionEndsAt) ይሰላል → ለሁሉም ተመሳሳይ
+//  • ሰዓቱ ሲያልቅ ጨዋታውን የሚጀምረው ሰርቨር ነው (game_started) — ክላይንቱ ዝም ብሎ ይከተላል
+//  • ካርቴላ ያልመረጠ ሰው ያለ ክፍያ ተመልካች ሆኖ ወደ ላይቭ ጌም ይገባል
+//  • ጨዋታው አስቀድሞ ላይቭ ከሆነ ወዲያውኑ ወደ ላይቭ ጌም ይሄዳል
 // ═══════════════════════════════════════════════════════
-const FIRST_TIMEOUT_MS = 2000;    // የመጀመሪያ ሙከራ
-const RETRY_TIMEOUT_MS = 1500;    // ተደጋጋሚ ሙከራ
-const RETRY_DELAY_MS = 100;       // ፈጣን retry
-const MAX_ATTEMPTS = 8;           // ጠቅላላ 8 ሙከራ
-const FALLBACK_SECONDS = 50;      // ሰርቨር ካልመለሰ
-
-// ═══════════════════════════════════════════════════════
-// 🕐 Format
-// ═══════════════════════════════════════════════════════
-function formatHHMMSS(totalSeconds) {
-  if (totalSeconds == null || totalSeconds < 0) return "00:00:00";
-  const s = Math.floor(totalSeconds);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(
-    2,
-    "0"
-  )}:${String(sec).padStart(2, "0")}`;
-}
-
-function formatSecondsOnly(totalSeconds) {
-  if (totalSeconds == null || totalSeconds < 0) return "0s";
-  return `${Math.floor(totalSeconds)}s`;
-}
-
-// ═══════════════════════════════════════════════════════
-// 🕐 Weekly: seconds until 12:00/12:05 EAT
-// ═══════════════════════════════════════════════════════
-function getSecondsUntilDaily(fee) {
-  const ETHIOPIA_OFFSET_MS = 3 * 60 * 60 * 1000;
-  const now = new Date();
-  const et = new Date(now.getTime() + ETHIOPIA_OFFSET_MS);
-  const targetHour = 0;
-  const targetMinute = fee === 50 ? 0 : 5;
-  const today = new Date(et);
-  today.setUTCHours(targetHour, targetMinute, 0, 0);
-  let target = today.getTime();
-  if (et.getTime() >= target) target += 24 * 60 * 60 * 1000;
-  return Math.max(0, Math.floor((target - et.getTime()) / 1000));
-}
-
 export default function CartelaSelection({
   roomCode,
   balance,
@@ -59,252 +22,195 @@ export default function CartelaSelection({
   onCancel,
   onGameStatusChange,
 }) {
-  const isWeeklyRoom = roomCode === "ROOM50" || roomCode === "ROOM100";
-
-  // ═══════════════════════════════════════════════════
-  // 👈 ወዲያውኑ የሚታይ ዋጋ — 50s fallback
-  //    Server ሲመልስ በፍጥነት ይተካል
-  // ═══════════════════════════════════════════════════
-  const initialSecs = isWeeklyRoom
-    ? getSecondsUntilDaily(stake)
-    : FALLBACK_SECONDS; // 👈 ወዲያውኑ 50s ያሳይ
+  const isWeeklyRoom = WEEKLY_ROOMS.includes(roomCode);
 
   const [selectedCards, setSelectedCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
-  const [countdown, setCountdown] = useState(initialSecs);
-  const [deadlineAt, setDeadlineAt] = useState(
-    Date.now() + initialSecs * 1000
-  );
+  const [deadlineMs, setDeadlineMs] = useState(null); // የሰርቨር absolute ሰዓት (ms)
+  const [remainingSec, setRemainingSec] = useState(null);
   const [currentBalance, setCurrentBalance] = useState(balance);
-  const [synced, setSynced] = useState(false);
-  const [syncFailed, setSyncFailed] = useState(false);
+  const [notice, setNotice] = useState("");
 
-  const triggeredRef = useRef(false);
-  const fetchedRef = useRef(false);
-  const confirmLockRef = useRef(false);
-  const serverOffsetRef = useRef(0);
+  const wentLiveRef = useRef(false);
+  const selectedRef = useRef([]);
+  const noticeTimerRef = useRef(null);
+  selectedRef.current = selectedCards;
 
-  // ═══════════════════════════════════════════════════
-  // Room change — reset
-  // ═══════════════════════════════════════════════════
+  const flash = useCallback((msg) => {
+    setNotice(msg);
+    clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setNotice(""), 2500);
+  }, []);
+
+  // ወደ ላይቭ ጌም — አንድ ጊዜ ብቻ
+  const goLive = useCallback(() => {
+    if (wentLiveRef.current) return;
+    wentLiveRef.current = true;
+    onGameStatusChange?.("active");
+    onConfirm([]); // ካርዶቹ በሰርቨሩ ተይዘዋል — ሰርቨሩ ራሱ ይልካቸዋል
+  }, [onConfirm, onGameStatusChange]);
+
+  // የሰርቨር ሁኔታን ወደ state ተግብር
+  const applyRoomState = useCallback(
+    (s) => {
+      if (!s || (s.roomCode && s.roomCode !== roomCode)) return;
+      if (s.status === "active") return goLive();
+      if (Array.isArray(s.takenCards) || Array.isArray(s.reservedCards)) {
+        setTakenCards([...new Set([...(s.takenCards || []), ...(s.reservedCards || [])])]);
+      }
+      if (s.status === "waiting" && s.selectionEndsAt) {
+        const t = new Date(s.selectionEndsAt).getTime();
+        if (Number.isFinite(t)) setDeadlineMs(t);
+      }
+    },
+    [roomCode, goLive]
+  );
+
+  // ───────────── ክፍል ሲቀየር ዳግም አስጀምር ─────────────
   useEffect(() => {
-    triggeredRef.current = false;
-    fetchedRef.current = false;
-    confirmLockRef.current = false;
-    serverOffsetRef.current = 0;
-
-    const secs = isWeeklyRoom
-      ? getSecondsUntilDaily(stake)
-      : FALLBACK_SECONDS;
-    setCountdown(secs);
-    setDeadlineAt(Date.now() + secs * 1000);
+    wentLiveRef.current = false;
     setSelectedCards([]);
     setTakenCards([]);
-    setSynced(false);
-    setSyncFailed(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setDeadlineMs(null);
+    setRemainingSec(null);
   }, [roomCode]);
 
-  // ═══════════════════════════════════════════════════
-  // 🚀 FETCH ROOM — ⚡ ፈጣን retry
-  // ═══════════════════════════════════════════════════
+  // ───────────── የመጀመሪያ ማመሳሰል (REST) ─────────────
   useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
     let cancelled = false;
-    let attemptCount = 0;
-
-    const fetchRoom = async () => {
-      if (cancelled) return;
-      if (attemptCount >= MAX_ATTEMPTS) {
-        // 👈 ሁሉንም ሞክሮ ካልሰራ — fallback (already showing 50s)
-        console.warn(`[Cartela] ${roomCode} — sync failed, using fallback`);
-        setSyncFailed(true);
-        setSynced(true);
-        return;
-      }
-      attemptCount++;
-
-      const isFirst = attemptCount === 1;
-      const timeout = isFirst ? FIRST_TIMEOUT_MS : RETRY_TIMEOUT_MS;
-
-      try {
-        const token = localStorage.getItem("bingo_token");
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-        const res = await fetch(`${API_BASE_URL}/api/game/rooms/${roomCode}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          signal: controller.signal,
-          cache: "no-store", // 👈 no cache
-        });
-        clearTimeout(timeoutId);
-
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        if (cancelled) return;
-
-        // 🕐 Server clock offset
-        if (data.serverTime) {
-          const serverNow = new Date(data.serverTime).getTime();
-          if (Number.isFinite(serverNow)) {
-            serverOffsetRef.current = serverNow - Date.now();
-          }
-        }
-
-        if (data.takenCards) setTakenCards(data.takenCards);
-        if (data.reservedCards) {
-          setTakenCards((prev) => [
-            ...new Set([...prev, ...data.reservedCards]),
-          ]);
-        }
-
-        // ─── Game already active → jump ───
-        if (data.status === "active" || data.status === "finished") {
-          if (!triggeredRef.current && !confirmLockRef.current) {
-            triggeredRef.current = true;
-            confirmLockRef.current = true;
-            console.log("[Cartela] Game active — jumping");
-            onGameStatusChange?.("active");
-            return onConfirm([]);
-          }
+    (async () => {
+      for (let attempt = 0; attempt < SYNC_RETRIES && !cancelled; attempt++) {
+        try {
+          const data = await getRoom(roomCode, attempt === 0 ? 2500 : 2000);
+          if (!cancelled) applyRoomState(data);
           return;
+        } catch {
+          await new Promise((r) => setTimeout(r, 300));
         }
-
-        // ─── Calculate remaining ───
-        let remaining = 0;
-
-        if (data.selectionEndsAt) {
-          const serverDeadline = new Date(data.selectionEndsAt).getTime();
-          if (Number.isFinite(serverDeadline)) {
-            const localDeadline = serverDeadline - serverOffsetRef.current;
-            remaining = Math.max(
-              0,
-              Math.floor((localDeadline - Date.now()) / 1000)
-            );
-          }
-        }
-
-        if (remaining === 0 && typeof data.remainingSeconds === "number") {
-          remaining = Math.max(0, data.remainingSeconds);
-        }
-
-        console.log(
-          `[Cartela] ${roomCode} ✓ attempt=${attemptCount} remaining=${remaining}s`
-        );
-
-        // 👈 If remaining=0 + waiting → poll
-        if (remaining === 0 && data.status === "waiting") {
-          setTimeout(fetchRoom, RETRY_DELAY_MS);
-          return;
-        }
-
-        // ✅ Set correct countdown from server (FAST)
-        if (remaining >= 0) {
-          setDeadlineAt(Date.now() + remaining * 1000);
-          setCountdown(remaining);
-        }
-        setSynced(true);
-      } catch (e) {
-        if (cancelled) return;
-        // 👈 ፈጣን retry
-        setTimeout(fetchRoom, RETRY_DELAY_MS);
       }
-    };
-
-    fetchRoom();
+      if (!cancelled) flash("ግንኙነት የለም — እንደገና እየሞከረ ነው");
+    })();
 
     (async () => {
       try {
         const token = localStorage.getItem("bingo_token");
-        const r = await fetch(`${API_BASE_URL}/api/wallet/balance`, {
+        const base = process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.onrender.com";
+        const r = await fetch(`${base}/api/wallet/balance`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         const d = await r.json();
         if (!cancelled && d.balance !== undefined) setCurrentBalance(d.balance);
       } catch {}
     })();
-
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode]);
+  }, [roomCode, applyRoomState, flash]);
 
-  // ═══════════════════════════════════════════════════
-  // Countdown tick — 200ms
-  // ═══════════════════════════════════════════════════
-  useEffect(() => {
-    if (!deadlineAt) return;
-    const tick = () => {
-      const rem = Math.max(0, Math.floor((deadlineAt - Date.now()) / 1000));
-      setCountdown(rem);
-    };
-    tick();
-    const timer = setInterval(tick, 200);
-    return () => clearInterval(timer);
-  }, [deadlineAt]);
-
-  // ═══════════════════════════════════════════════════
-  // Timer 0 → LiveGame
-  // ═══════════════════════════════════════════════════
-  useEffect(() => {
-    if (countdown === null || countdown > 0) return;
-    if (!synced && !syncFailed) return; // 👈 Wait for sync or fallback
-    if (triggeredRef.current || confirmLockRef.current) return;
-
-    triggeredRef.current = true;
-    confirmLockRef.current = true;
-    console.log("[Cartela] Timer 0 → LiveGame");
-    onGameStatusChange?.("active");
-
-    if (selectedCards.length > 0) return onConfirm(selectedCards);
-
-    const takenSet = new Set(takenCards);
-    const free = [];
-    for (let i = 1; i <= TOTAL_CARDS; i++) {
-      if (!takenSet.has(i)) free.push(i);
-    }
-    if (free.length > 0) {
-      const pick = free[Math.floor(Math.random() * free.length)];
-      return onConfirm([pick]);
-    }
-    onConfirm([]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [countdown, selectedCards, takenCards, synced, syncFailed]);
-
-  // ═══════════════════════════════════════════════════
-  // Socket
-  // ═══════════════════════════════════════════════════
+  // ───────────── Socket ─────────────
   useEffect(() => {
     const s = getSocket();
-    const onSel = ({ cardId }) =>
-      setTakenCards((p) => [...new Set([...p, cardId])]);
-    const onDesel = ({ cardId }) =>
-      setTakenCards((p) => p.filter((x) => x !== cardId));
-    const onBal = ({ balance: b }) => setCurrentBalance(b);
+    const watch = () => s.emit("watch_room", { roomCode });
 
+    const onRoomState = (st) => applyRoomState(st);
+    const onGameStarted = (d) => {
+      if (!d.roomCode || d.roomCode === roomCode) goLive();
+    };
+    const onSel = ({ cardId }) => setTakenCards((p) => [...new Set([...p, cardId])]);
+    const onDesel = ({ cardId }) => setTakenCards((p) => p.filter((x) => x !== cardId));
+    const onBal = ({ balance: b }) => setCurrentBalance(b);
+    const onMine = ({ roomCode: rc, cardIds }) => {
+      if (rc === roomCode && Array.isArray(cardIds)) {
+        setSelectedCards(cardIds);
+        setTakenCards((p) => [...new Set([...p, ...cardIds])]);
+      }
+    };
+    const onErr = ({ message, cardId }) => {
+      flash(message || "ስህተት");
+      if (cardId) setSelectedCards((p) => p.filter((x) => x !== cardId)); // optimistic ምርጫን መልስ
+    };
+
+    s.on("connect", watch);
+    s.on("room_state", onRoomState);
+    s.on("game_started", onGameStarted);
     s.on("card_selected", onSel);
     s.on("card_deselected", onDesel);
     s.on("balance_update", onBal);
+    s.on("my_reservations", onMine);
+    s.on("error_message", onErr);
+    if (s.connected) watch();
 
     return () => {
+      s.off("connect", watch);
+      s.off("room_state", onRoomState);
+      s.off("game_started", onGameStarted);
       s.off("card_selected", onSel);
       s.off("card_deselected", onDesel);
       s.off("balance_update", onBal);
+      s.off("my_reservations", onMine);
+      s.off("error_message", onErr);
+      clearTimeout(noticeTimerRef.current);
     };
-  }, []);
+  }, [roomCode, applyRoomState, goLive, flash]);
 
+  // ───────────── ቆጣሪ: በየ 100ms ከሰርቨር ሰዓት ይሰላል ─────────────
+  useEffect(() => {
+    if (!deadlineMs) return;
+    const tick = () => {
+      const ms = deadlineMs - serverNow();
+      setRemainingSec(Math.max(0, Math.ceil(ms / 1000)));
+    };
+    tick();
+    const id = setInterval(tick, 100);
+    return () => clearInterval(id);
+  }, [deadlineMs]);
+
+  // ───────────── ሰዓቱ 0 ሲደርስ ሰርቨሩ game_started እስኪልክ ይጠብቃል.
+  // ሶኬቱ ቢያመልጥ እንኳን በ REST ይጠይቃል (ወይም ባዶ ዙር ከሆነ አዲሱን ሰዓት ይወስዳል) ─────────────
+  useEffect(() => {
+    if (remainingSec !== 0 || wentLiveRef.current) return;
+    let stop = false;
+    const poll = async () => {
+      for (let i = 0; i < 20 && !stop && !wentLiveRef.current; i++) {
+        try {
+          applyRoomState(await getRoom(roomCode, 1500));
+        } catch {}
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    };
+    const first = setTimeout(poll, 600); // ለሶኬቱ ጊዜ ስጠው
+    return () => {
+      stop = true;
+      clearTimeout(first);
+    };
+  }, [remainingSec, roomCode, applyRoomState]);
+
+  // ───────────── ካርቴላ መምረጥ / መመለስ ─────────────
   const handleSelect = (id) => {
-    if (confirmLockRef.current) return;
-    if (takenCards.includes(id) && !selectedCards.includes(id)) return;
-    if (selectedCards.includes(id)) {
+    if (wentLiveRef.current || remainingSec === 0) return;
+    const isMine = selectedCards.includes(id);
+    if (takenCards.includes(id) && !isMine) return;
+
+    if (isMine) {
       getSocket().emit("deselect_card", { roomCode, cardId: id });
       setSelectedCards((p) => p.filter((x) => x !== id));
       return;
     }
+    if (selectedCards.length >= MAX_CARDS) return flash(`ቢበዛ ${MAX_CARDS} ካርቴላ ብቻ`);
+    if (currentBalance < stake) return flash("❌ ቀሪ ሂሳብ በቂ አይደለም");
     getSocket().emit("select_card", { roomCode, cardId: id });
     setSelectedCards((p) => [...p, id]);
+  };
+
+  // Back → ገንዘቡ ይመለስ (ጨዋታው ገና ካልጀመረ)
+  const handleCancel = () => {
+    if (!wentLiveRef.current) {
+      for (const id of selectedRef.current) {
+        getSocket().emit("deselect_card", { roomCode, cardId: id });
+      }
+    }
+    getSocket().emit("leave_room");
+    onCancel?.();
   };
 
   const numbers = Array.from({ length: TOTAL_CARDS }, (_, i) => i + 1);
@@ -313,19 +219,10 @@ export default function CartelaSelection({
   // ═══════════════════════════════════════════════════
   // Display
   // ═══════════════════════════════════════════════════
-  let timeStr = "…";
-  if (countdown !== null) {
-    timeStr = isWeeklyRoom
-      ? formatHHMMSS(countdown)
-      : formatSecondsOnly(countdown);
-  }
-
-  const isUrgent = countdown !== null && countdown <= 10 && countdown > 0;
-  const timeColor = isUrgent
-    ? "#e74c3c"
-    : isWeeklyRoom
-    ? "#f39c12"
-    : "#ffd43b";
+  const timeStr =
+    remainingSec === null ? "…" : formatCountdown(remainingSec, isWeeklyRoom);
+  const isUrgent = remainingSec !== null && remainingSec <= 10 && remainingSec > 0;
+  const timeColor = isUrgent ? "#e74c3c" : isWeeklyRoom ? "#f39c12" : "#ffd43b";
 
   return (
     <div
@@ -341,7 +238,7 @@ export default function CartelaSelection({
       }}
     >
       <button
-        onClick={onCancel}
+        onClick={handleCancel}
         style={{
           alignSelf: "flex-start",
           background: "#1a1a2e",
@@ -379,8 +276,8 @@ export default function CartelaSelection({
           }}
         >
           {roomCode} • STAKE {stake} ETB
-          {!synced && !syncFailed && " • syncing…"}
-          {syncFailed && " • offline"}
+          {remainingSec === null && " • syncing…"}
+          {notice && <span style={{ color: "#e74c3c" }}> • {notice}</span>}
         </div>
       </div>
 

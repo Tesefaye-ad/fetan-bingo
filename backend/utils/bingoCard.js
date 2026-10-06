@@ -131,6 +131,36 @@ function markNumber(card, marked, number) {
   }
 }
 
+/** የአሸናፊ ፓተርን ("row-2", "diag-1", "four-corners"...) → ["r-c", ...] ህዋሶች */
+function getWinningCells(pattern) {
+  const cells = [];
+  if (!pattern) return cells;
+  if (pattern.startsWith("row-")) {
+    const r = parseInt(pattern.split("-")[1], 10) - 1;
+    for (let c = 0; c < 5; c++) cells.push([r, c]);
+  } else if (pattern.startsWith("col-")) {
+    const c = parseInt(pattern.split("-")[1], 10) - 1;
+    for (let r = 0; r < 5; r++) cells.push([r, c]);
+  } else if (pattern === "diag-1") {
+    for (let i = 0; i < 5; i++) cells.push([i, i]);
+  } else if (pattern === "diag-2") {
+    for (let i = 0; i < 5; i++) cells.push([i, 4 - i]);
+  } else if (pattern === "four-corners") {
+    cells.push([0, 0], [0, 4], [4, 0], [4, 4]);
+  } else if (pattern === "full-card") {
+    for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) cells.push([r, c]);
+  }
+  return cells;
+}
+
+/** card + የተጠሩ ቁጥሮች → marked (5x5 boolean). መሃል (FREE) ሁልጊዜ true. */
+function computeMarked(card, calledNumbers) {
+  const called = new Set(calledNumbers);
+  return card.map((row, r) =>
+    row.map((v, c) => (r === 2 && c === 2) || called.has(v))
+  );
+}
+
 module.exports = {
   generate75BallCard,
   generateCards,
@@ -142,5 +172,7 @@ module.exports = {
   randomWinPattern,
   getPatternForRoom,
   patternLabel,
+  getWinningCells,
+  computeMarked,
   WIN_PATTERNS,
 };

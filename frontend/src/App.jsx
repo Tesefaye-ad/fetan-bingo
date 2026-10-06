@@ -4,9 +4,8 @@ import LiveGame from "./Livegame.jsx";
 import CartelaSelection from "./Cartelaselection.jsx";
 import AdminPanel from "./Adminpanel.jsx";
 import {
-  disconnectSocket,
   loginWithTelegram,
-  createRoom,
+  getRoom,
   getMe,
   getReferralInfo,
   getGameHistory,
@@ -103,15 +102,9 @@ function Login({ onLoggedIn }) {
 // GAME LOBBY — ያለ countdown
 // ═══════════════════════════════════════════════════════
 function GameLobby({ onPlayStake }) {
-  // ⚡ ወዲያውኑ ወደ ካርቴላ
+  // ጨዋታው አስቀድሞ ላይቭ ከሆነ App ወደ ላይቭ ጌም ያሻግራል, ካልሆነ ወደ ካርቴላ መምረጫ
   function play(fee) {
-    const fallbackCode = SHARED_ROOMS[fee] || `ROOM${fee}`;
-    onPlayStake(fee, fallbackCode);
-
-    // Backend ን በ background ጥራ
-    createRoom(fee, fallbackCode).catch((err) => {
-      console.warn("[GameLobby] createRoom background failed:", err.message);
-    });
+    onPlayStake(fee, SHARED_ROOMS[fee] || `ROOM${fee}`);
   }
 
   const GameButton = ({ fee, color1, color2, glowColor }) => {
@@ -850,11 +843,27 @@ function App() {
     );
   }
 
-  const handlePlayStake = (fee, code) => {
+  // "Play" ሲጫን: የክፍሉን ሁኔታ ከሰርቨር ጠይቆ
+  //   • ካርቴላ የመምረጫ ሰዓቱ አልቆ ጨዋታው ላይቭ ከሆነ → ቀጥታ ወደ ላይቭ ጌም (ካርቴላ መምረጫ ሳይታይ)
+  //   • አለበለዚያ → ወደ ካርቴላ መምረጫ
+  const handlePlayStake = async (fee, code) => {
     setStakeAmount(fee);
     setRoomCode(code);
-    setShowCartela(true);
-    setGameStatus("waiting");
+    let live = false;
+    try {
+      const room = await getRoom(code, 2500);
+      live = room.status === "active";
+    } catch (err) {
+      console.warn("[App] room status check failed:", err.message);
+    }
+    if (live) {
+      setCardIds([]);
+      setShowCartela(false);
+      setGameStatus("active");
+    } else {
+      setShowCartela(true);
+      setGameStatus("waiting");
+    }
   };
 
   const handleCartelaConfirm = (ids) => {
@@ -871,7 +880,6 @@ function App() {
   };
 
   const handleLeave = () => {
-    disconnectSocket();
     setRoomCode(null);
     setCardIds([]);
     setShowCartela(false);
@@ -880,8 +888,8 @@ function App() {
     setGameStatus("waiting");
   };
 
+  // ድል ፖፕ-አፕ (5 ሰከንድ) ካለቀ በኋላ → ወደ ካርቴላ መምረጫ ተመልሶ አዲስ ዙር ይጀምራል
   const handleGameEnded = () => {
-    disconnectSocket();
     setCardIds([]);
     setShowCartela(true);
     setGameStatus("waiting");

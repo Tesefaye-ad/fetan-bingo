@@ -305,9 +305,10 @@ export default function LiveGame({
   const [bingoPopup, setBingoPopup] = useState(null);
   const [soundOn, setSoundOn] = useState(true);
   const [numberAnimKey, setNumberAnimKey] = useState(0);
-
-  // 👈 ለ debug
-  console.log("[LiveGame] Mount — roomCode:", roomCode, "cardIds:", cardIds);
+  const [isSpectator, setIsSpectator] = useState(false);
+  const endedRef = useRef(false); // game_over አንድ ጊዜ ብቻ
+  const popupTimerRef = useRef(null);
+  const fallbackTimerRef = useRef(null);
 
   useEffect(() => {
     soundOnRef.current = soundOn;
@@ -321,15 +322,6 @@ export default function LiveGame({
     const socket = getSocket();
     socketRef.current = socket;
 
-    // 👈 Normalize cardIds
-    const normalizedCardIds = Array.isArray(cardIds)
-      ? cardIds.map((c) => parseInt(c, 10)).filter((c) => c > 0)
-      : cardIds
-      ? [parseInt(cardIds, 10)].filter((c) => c > 0)
-      : [];
-
-    console.log("[LiveGame] Normalized cardIds:", normalizedCardIds);
-
     const emitJoin = (reason = "initial") => {
       if (!socket.connected) {
         console.log(`[LiveGame] join_room (${reason}) — socket not ready`);
@@ -339,14 +331,9 @@ export default function LiveGame({
         console.log(`[LiveGame] join_room (${reason}) — already have cards, skip`);
         return;
       }
-      console.log(
-        `[LiveGame] join_room (${reason}) — emit with:`,
-        normalizedCardIds
-      );
-      socket.emit("join_room", {
-        roomCode,
-        cardIds: normalizedCardIds,
-      });
+      // ካርዶቹ በሰርቨሩ ላይ ተይዘዋል (ክፍያ አስቀድሞ ተከፍሏል) — እዚህ ክፍያ አይደገምም.
+      // ዘግይቶ የገባ ተጠቃሚ ደግሞ ሰርቨሩ እንደ ተመልካች ቀጥታ ጨዋታውን ያሳየዋል.
+      socket.emit("join_room", { roomCode });
     };
 
     const onDisconnect = () => {
@@ -361,8 +348,8 @@ export default function LiveGame({
     };
 
     const onStateRestore = (data) => {
-      console.log("[LiveGame] State restored:", data);
       cardsReceivedRef.current = true;
+      setIsSpectator(false);
       setCalledNumbers(data.calledNumbers || []);
       setWinPattern(data.winPattern || "any-row");
       setPrizePool(data.prizePool || 0);
@@ -384,11 +371,27 @@ export default function LiveGame({
       }
     };
 
+    // ዘግይቶ የገባ (ካርቴላ የሌለው) ተጠቃሚ — ቀጥታ ጨዋታውን ይመለከታል
+    const onSpectatorMode = (data) => {
+      cardsReceivedRef.current = true;
+      setIsSpectator(true);
+      setCalledNumbers(data.calledNumbers || []);
+      setWinPattern(data.winPattern || "any-row");
+      setPrizePool(data.prizePool || 0);
+      setPlayerCount(data.playerCount || 0);
+      setEntryFee(data.entryFee || 0);
+      if (data.calledNumbers?.length) {
+        const last = data.calledNumbers[data.calledNumbers.length - 1];
+        setLastNumber(last);
+        setLastLetter(getLetter(last).letter);
+      }
+    };
+
     const onYourCards = (d) => {
-      console.log("[LiveGame] Received your_cards:", d);
       if (!d.cards) return;
 
       cardsReceivedRef.current = true;
+      setIsSpectator(false);
       if (retryTimerRef.current) {
         clearTimeout(retryTimerRef.current);
         retryTimerRef.current = null;
@@ -407,19 +410,24 @@ export default function LiveGame({
       setPlayerCount(s.playerCount);
       setPrizePool(s.prizePool);
       setEntryFee(s.entryFee || 0);
-      setCalledNumbers(s.calledNumbers || []);
+      // ዘግይቶ የደረሰ (አሮጌ) room_state አዲስ የተጠራ ቁጥር እንዳይሰርዝ — ረጅሙን ብቻ ያስቀራል
+      setCalledNumbers((prev) =>
+        (s.calledNumbers?.length || 0) >= prev.length ? s.calledNumbers || [] : prev
+      );
       if (s.winPattern) setWinPattern(s.winPattern);
-      if (s.calledNumbers?.length) {
-        const last = s.calledNumbers[s.calledNumbers.length - 1];
-        setLastNumber(last);
-        setLastLetter(getLetter(last).letter);
-      }
     };
 
     const onGameStarted = (data) => {
-      console.log("[LiveGame] Game started:", data);
+      endedRef.current = false;
       setBingoPopup(null);
+      setCalledNumbers([]);
+      setLastNumber(null);
+      setLastLetter(null);
+      // የማሸነፊያው ፓተርን ጨዋታው በጀመረበት ቅጽበት ይታያል
       if (data.winPattern) setWinPattern(data.winPattern);
+      if (data.prizePool !== undefined) setPrizePool(data.prizePool);
+      if (data.playerCount !== undefined) setPlayerCount(data.playerCount);
+      if (data.entryFee) setEntryFee(data.entryFee);
     };
 
     const onNumberCalled = ({
@@ -452,22 +460,33 @@ export default function LiveGame({
       if (window.navigator.vibrate) window.navigator.vibrate(80);
     };
 
+    const returnToSelection = () => {
+      if (endedRef.current) return;
+      endedRef.current = true;
+      clearTimeout(popupTimerRef.current);
+      clearTimeout(fallbackTimerRef.current);
+      setBingoPopup(null);
+      if (onGameEnded) onGameEnded();
+      else onExit();
+    };
+
     const onBingoClaimed = (data) => {
-      console.log("[LiveGame] BINGO:", data);
       setBingoPopup(data);
+      // ፖፕ-አፕ ለ 5 ሰከንድ (ሰርቨሩ የሚነግረው ቀሪ ጊዜ) ይታያል ከዚያ ይጠፋል
+      const showMs = Math.max(500, Number(data.displayMs) || 5000);
+      clearTimeout(popupTimerRef.current);
+      popupTimerRef.current = setTimeout(() => setBingoPopup(null), showMs);
+      // game_over ቢጠፋ እንኳን ወደ ካርቴላ መምረጫ እንዲመለስ መጠባበቂያ
+      clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = setTimeout(returnToSelection, showMs + 3000);
       if (data.winPattern) setWinPattern(data.winPattern);
       if (soundOnRef.current) sound.bingo();
       if (window.navigator.vibrate)
         window.navigator.vibrate([100, 50, 100, 50, 200]);
     };
 
-    const onGameOver = () => {
-      console.log("[LiveGame] Game over — returning in 5s");
-      setTimeout(() => {
-        if (onGameEnded) onGameEnded();
-        else onExit();
-      }, 5000);
-    };
+    // ሰርቨሩ የ 5 ሰከንድ ፖፕ-አፕ ካለቀ በኋላ ነው game_over የሚልከው — ወዲያውኑ ወደ ምርጫ ገጽ ይመለሳል
+    const onGameOver = () => returnToSelection();
 
     const onNextGameReady = () => {
       setBingoPopup(null);
@@ -485,6 +504,7 @@ export default function LiveGame({
     socket.on("disconnect", onDisconnect);
     socket.on("connect", onConnect);
     socket.on("state_restore", onStateRestore);
+    socket.on("spectator_mode", onSpectatorMode);
     socket.on("your_cards", onYourCards);
     socket.on("room_state", onRoomState);
     socket.on("game_started", onGameStarted);
@@ -528,12 +548,15 @@ export default function LiveGame({
 
     return () => {
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      clearTimeout(popupTimerRef.current);
+      clearTimeout(fallbackTimerRef.current);
       socket.emit("leave_room");
       joinedRef.current = false;
       cardsReceivedRef.current = false;
       socket.off("disconnect", onDisconnect);
       socket.off("connect", onConnect);
       socket.off("state_restore", onStateRestore);
+      socket.off("spectator_mode", onSpectatorMode);
       socket.off("your_cards", onYourCards);
       socket.off("room_state", onRoomState);
       socket.off("game_started", onGameStarted);
@@ -602,7 +625,7 @@ export default function LiveGame({
           color: "#fff",
           minHeight: "100vh",
           background: "linear-gradient(180deg, #0f1420 0%, #1a0f2e 100%)",
-          paddingBottom: 75,
+          paddingBottom: 105,
         }}
       >
         {/* STATS */}
@@ -1023,6 +1046,27 @@ export default function LiveGame({
               </div>
             </div>
 
+            {/* SPECTATOR NOTICE */}
+            {isSpectator && cards.length === 0 && (
+              <div
+                style={{
+                  background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
+                  border: "1px dashed #888",
+                  borderRadius: 10,
+                  padding: 8,
+                  textAlign: "center",
+                  color: "#bbb",
+                  fontSize: 10,
+                  fontWeight: "bold",
+                }}
+              >
+                👀 ጨዋታው ተጀምሯል — እየተመለከቱ ነው
+                <div style={{ color: "#888", fontSize: 9, marginTop: 3 }}>
+                  ቀጣዩ ዙር ሲጀምር ካርቴላ መምረጥ ይችላሉ
+                </div>
+              </div>
+            )}
+
             {/* MY CARDS TRACKER */}
             {cards.length > 0 && (
               <div
@@ -1077,6 +1121,20 @@ export default function LiveGame({
             borderTop: "1px solid #2a2a40",
           }}
         >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: 6,
+              marginBottom: 6,
+              color: "#3498db",
+              fontSize: 13,
+              fontWeight: "bold",
+            }}
+          >
+            🎴 የመረጧቸው ካርቴላዎች: <span style={{ color: "#fff" }}>{cards.length}</span>
+          </div>
           <button
             onClick={onExit}
             style={{
