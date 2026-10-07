@@ -24,8 +24,8 @@ const { notifyWinnersGroup } = require("../services/winnerNotify");
 // ═══════════════════════════════════════════════════════
 // 👈 ቋሚ እሴቶች — ከ env የሚነበቡ (Render ላይ መቀየር ይቻላል)
 // ═══════════════════════════════════════════════════════
-const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 1000);
-const FIRST_CALL_DELAY_MS = Number(process.env.FIRST_CALL_DELAY_MS || 1000);
+const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 1500);
+const FIRST_CALL_DELAY_MS = Number(process.env.FIRST_CALL_DELAY_MS || 1500);
 const WINNER_DISPLAY_MS = Number(process.env.WINNER_DISPLAY_MS || 6000);
 const MAX_CARDS_PER_USER = Number(process.env.MAX_CARDS_PER_USER || 3);
 const RECONCILE_MS = 250;
