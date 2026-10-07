@@ -5,8 +5,8 @@
 //   waiting (ካርቴላ መምረጥ, ቋሚ ሰዓት)  →  active (ቁጥር መጥራት, በየ CALL_INTERVAL_MS)
 //   →  winner popup (WINNER_DISPLAY_MS)  →  game_over + reset → waiting (አዲስ ሰዓት)
 //
-// • ROOM10 / ROOM20 : ሁልጊዜ የሚሽከረከር 50 ሰከንድ (SELECTION_TIMER_MS) — ለሁሉም አንድ ዓይነት
-// • ROOM50 / ROOM100: በየቀኑ 12:00:00 / 12:05:00 (ኢትዮጵያ ሰዓት) — utils/schedule.js
+// • ROOM10 / ROOM20 : ሁልጊዜ የሚሽከረከር 50 ሰከንድ (SELECTION_TIMER_MS)
+// • ROOM50 / ROOM100: በየቀኑ 12:00:00 / 12:05:00 (ኢትዮጵያ ሰዓት)
 const mongoose = require("mongoose");
 const Game = require("../models/Game");
 const User = require("../models/User");
@@ -22,20 +22,19 @@ const rooms = require("../services/rooms");
 const { notifyWinnersGroup } = require("../services/winnerNotify");
 
 // ═══════════════════════════════════════════════════════
-// 👈 ቋሚ እሴቶች — ከ env የሚነበቡ (Render ላይ መቀየር ይቻላል)
+// ቋሚ እሴቶች — ከ env የሚነበቡ
 // ═══════════════════════════════════════════════════════
 const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 1500);
 const FIRST_CALL_DELAY_MS = Number(process.env.FIRST_CALL_DELAY_MS || 1500);
 const WINNER_DISPLAY_MS = Number(process.env.WINNER_DISPLAY_MS || 6000);
-const MAX_CARDS_PER_USER = Number(process.env.MAX_CARDS_PER_USER || 3);
 const RECONCILE_MS = 250;
-const ARM_WINDOW_MS = 1500; // ከመጀመሪያው በፊት በዚህ ጊዜ ውስጥ ትክክለኛ ታይመር ይቀናበራል
-const PRIZE_SHARE = Number(process.env.PRIZE_SHARE || 0.8); // 80% ወደ ሽልማት ገንዳ
+const ARM_WINDOW_MS = 1500;
+const PRIZE_SHARE = Number(process.env.PRIZE_SHARE || 0.8);
 
 // ───────────────────────── Runtime state ─────────────────────────
-const runtimes = new Map(); // roomCode → በሂደት ላይ ያለ ጨዋታ (በ memory)
-const startTimers = new Map(); // roomCode → ትክክለኛ የመጀመሪያ ታይመር
-const starting = new Map(); // roomCode → startGame/resume promise (በሂደት ላይ ያሉ)
+const runtimes = new Map();
+const startTimers = new Map();
+const starting = new Map();
 const lockTails = new Map();
 const activeUserIds = new Set();
 
@@ -44,7 +43,6 @@ function getActiveUserCount() {
 }
 
 // ───────────────────────── Helpers ─────────────────────────
-/** በአንድ ክፍል ላይ ስራዎችን በተራ ያስኬዳል (polling የሌለው mutex) */
 function withRoomLock(roomCode, fn) {
   const prev = lockTails.get(roomCode) || Promise.resolve();
   const run = prev.then(fn);
@@ -117,7 +115,7 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // RUNTIME (በ memory ያለ የጨዋታ ሁኔታ)
+  // RUNTIME
   // ═══════════════════════════════════════════════════════
   function createRuntime({
     gameId,
@@ -137,19 +135,19 @@ function initGameSocket(io) {
       players,
       called: [...called],
       calledSet: new Set(called),
-      index: new Map(), // ቁጥር → [{player, r, c}]
+      index: new Map(),
       timer: null,
       finishTimer: null,
       nextAt: 0,
       done: false,
-      result: null, // { payload, shownAt }
+      result: null,
       persist: Promise.resolve(),
     };
     for (const p of players) {
       for (let r = 0; r < 5; r++) {
         for (let c = 0; c < 5; c++) {
           const v = p.card[r][c];
-          if (v === 0) continue; // FREE
+          if (v === 0) continue;
           if (!rt.index.has(v)) rt.index.set(v, []);
           rt.index.get(v).push({ player: p, r, c });
         }
@@ -173,7 +171,7 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // START GAME — ሰዓቱ ሲያልቅ ወዲያውኑ
+  // START GAME
   // ═══════════════════════════════════════════════════════
   function startGame(roomCode) {
     if (runtimes.has(roomCode)) return Promise.resolve();
@@ -190,9 +188,8 @@ function initGameSocket(io) {
           rooms.LIGHT_SELECT
         );
         if (!light || light.status !== "waiting") return;
-        if (deadlineOf(light) > Date.now() + 20) return; // ገና አልደረሰም
+        if (deadlineOf(light) > Date.now() + 20) return;
 
-        // 1) በአንድ atomic ስራ ወደ active — ከዚህ በኋላ ማንም ካርቴላ ማስያዝ አይችልም
         const game = await Game.findOneAndUpdate(
           {
             roomCode,
@@ -212,17 +209,12 @@ function initGameSocket(io) {
           { new: true }
         );
 
-        // 2) ማንም ካርቴላ ካልያዘ → ዑደቱን እንደገና ጀምር (መደበኛ: አዲስ 50s, ሳምንታዊ: ነገ)
         if (!game) {
           const fresh = await rooms.resetToWaiting(roomCode);
           if (fresh) io.to(roomCode).emit("room_state", rooms.publicState(fresh));
-          console.log(
-            `[startGame] ${roomCode} — no cards selected → new cycle`
-          );
           return;
         }
 
-        // 3) የተያዙ ካርቴላዎች → ተጫዋቾች
         const seen = new Set();
         const players = [];
         for (const r of game.reservedCards) {
@@ -272,7 +264,6 @@ function initGameSocket(io) {
         });
         runtimes.set(roomCode, rt);
 
-        // 4) ፓተርን + ካርዶች ወዲያውኑ ለሁሉም
         io.to(roomCode).emit("game_started", {
           roomCode,
           winPattern: pattern,
@@ -284,9 +275,6 @@ function initGameSocket(io) {
         sendCardsToOwners(rt);
         broadcastRoomState(roomCode).catch(() => {});
 
-        console.log(
-          `[startGame] ${roomCode} — ${players.length} card(s), pool=${prizePool}, pattern=${pattern}, first call in ${FIRST_CALL_DELAY_MS}ms`
-        );
         scheduleTick(rt, FIRST_CALL_DELAY_MS);
       });
     } catch (err) {
@@ -295,7 +283,7 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // NUMBER CALLER — በየ CALL_INTERVAL_MS (drift የሌለው)
+  // NUMBER CALLER
   // ═══════════════════════════════════════════════════════
   function scheduleTick(rt, firstDelayMs) {
     rt.nextAt = Date.now() + firstDelayMs;
@@ -315,14 +303,12 @@ function initGameSocket(io) {
       rt.called.push(num);
       rt.calledSet.add(num);
 
-      // Auto-mark (በ memory) + ተጎድተው የሚሸነፉ ተጫዋቾችን መለየት
       const candidates = new Set();
       for (const hit of rt.index.get(num) || []) {
         hit.player.marked[hit.r][hit.c] = true;
         candidates.add(hit.player);
       }
 
-      // ወዲያውኑ ለሁሉም (DB ን አንጠብቅም — ሰዓቱ እንዳይዘገይ)
       io.to(rt.roomCode).emit("number_called", {
         number: num,
         letter: letterFor(num),
@@ -331,16 +317,12 @@ function initGameSocket(io) {
         serverTime: Date.now(),
       });
 
-      // በትእዛዝ ቅደም ተከተል DB ላይ ማስቀመጥ
       rt.persist = rt.persist
         .then(() =>
           Game.updateOne({ _id: rt.gameId }, { $push: { calledNumbers: num } })
         )
-        .catch((e) =>
-          console.error(`[persist:${rt.roomCode}]`, e.message)
-        );
+        .catch((e) => console.error(`[persist:${rt.roomCode}]`, e.message));
 
-      // ድል ማረጋገጥ
       const winners = [];
       for (const p of candidates) {
         if (p.hasWon) continue;
@@ -360,7 +342,6 @@ function initGameSocket(io) {
       console.error(`[tick:${rt.roomCode}]`, err);
     }
 
-    // ቀጣዩ ጥሪ — ከመጀመሪያው ጊዜ ጋር በማስላት (drift የሌለው)
     if (!rt.done) {
       rt.nextAt += CALL_INTERVAL_MS;
       rt.timer = setTimeout(
@@ -371,7 +352,7 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // WINNERS — ሽልማት, ፖፕ-አፕ, ከዚያ reset
+  // WINNERS
   // ═══════════════════════════════════════════════════════
   async function processWinners(rt, winners) {
     clearTimeout(rt.timer);
@@ -395,7 +376,6 @@ function initGameSocket(io) {
         rt.prizePool / winningCartelas.length
       );
 
-      // ለያንዳንዱ ተጫዋች (ብዙ ካርቴላ ቢኖረው ተደምሮ)
       const panel = [];
       for (const userId of userIds) {
         const mine = winners.filter((w) => w.player.userId === userId);
@@ -454,14 +434,10 @@ function initGameSocket(io) {
       };
       rt.result = { payload, shownAt: Date.now() };
       io.to(rt.roomCode).emit("bingo_claimed", payload);
-      console.log(
-        `[bingo] ${rt.roomCode} — ${panel.length} winner(s), ${winningCartelas.length} cartela(s)`
-      );
     } catch (err) {
       console.error(`[processWinners:${rt.roomCode}]`, err);
     }
 
-    // WINNER_DISPLAY_MS በኋላ (ስህተት ቢኖርም) → screenshot + reset
     rt.finishTimer = setTimeout(
       () =>
         finishRound(
@@ -477,7 +453,6 @@ function initGameSocket(io) {
   async function finishRound(rt, panel, winningCartelas, wasWin = false) {
     const { roomCode } = rt;
     try {
-      // Play 50 / Play 100: ፖፕ-አፕ ከታየ በኋላ ስክሪንሾት ወደ ቴሌግራም ግሩፕ
       if (wasWin && (rt.entryFee === 50 || rt.entryFee === 100)) {
         notifyWinnersGroup({
           roomCode,
@@ -500,7 +475,6 @@ function initGameSocket(io) {
         { $inc: { gamesPlayed: 1 } }
       );
 
-      // መጀመሪያ DB ን ዳግም አስጀምር — client ወደ ምርጫ ሲመለስ አዲስ ሰዓት እንዲያገኝ
       const fresh = await rooms.resetToWaiting(roomCode);
 
       io.to(roomCode).emit("game_over", {
@@ -512,7 +486,6 @@ function initGameSocket(io) {
       });
       io.to(roomCode).emit("next_game_ready", { roomCode });
       if (fresh) io.to(roomCode).emit("room_state", rooms.publicState(fresh));
-      console.log(`[finishRound] ${roomCode} — reset`);
     } catch (err) {
       console.error(`[finishRound:${roomCode}]`, err);
     } finally {
@@ -523,7 +496,7 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // RESUME — ሰርቨር እንደገና ከተነሳ በስራ ላይ ያለ ጨዋታ ይቀጥላል
+  // RESUME
   // ═══════════════════════════════════════════════════════
   function resumeGame(roomCode) {
     if (runtimes.has(roomCode)) return Promise.resolve();
@@ -562,9 +535,6 @@ function initGameSocket(io) {
           called: game.calledNumbers,
         });
         runtimes.set(roomCode, rt);
-        console.log(
-          `[resume] ${roomCode} — continuing at ${rt.called.length} called`
-        );
 
         const winners = [];
         for (const p of players) {
@@ -586,7 +556,7 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // RECONCILER — የሰዓት ማብቂያዎችን ይከታተላል (250ms) + ትክክለኛ ታይመር ያስታጥቃል
+  // RECONCILER
   // ═══════════════════════════════════════════════════════
   let reconciling = false;
   async function reconcile() {
@@ -600,7 +570,7 @@ function initGameSocket(io) {
       for (const g of waiting) {
         const t = deadlineOf(g);
         if (!t) {
-          await rooms.resetToWaiting(g.roomCode); // የጎደለ ሰዓት ጠግን
+          await rooms.resetToWaiting(g.roomCode);
           continue;
         }
         const delta = t - now;
@@ -633,14 +603,13 @@ function initGameSocket(io) {
   }
   setInterval(reconcile, RECONCILE_MS);
 
-  // ቋሚ ክፍሎች ሰርቨር ሲነሳ ይፈጠራሉ — የ 50 ሰከንድ ዑደት ከመጀመሪያው ይሽከረከራል
+  // ቋሚ ክፍሎች ሰርቨር ሲነሳ ይፈጠራሉ
   (async function boot() {
     try {
       for (const code of rooms.DEFAULT_ROOMS) {
         await rooms.ensureRoom(code);
         await rooms.ensureRoomCards(code);
       }
-      console.log("[boot] default rooms ready");
     } catch (err) {
       console.error("[boot] failed, retrying in 3s:", err.message);
       setTimeout(boot, 3000);
@@ -670,7 +639,6 @@ function initGameSocket(io) {
         socket.join(roomCode);
         socket.data.roomCode = roomCode;
         socket.emit("room_state", rooms.publicState(game));
-        // ተጠቃሚው ከዚህ በፊት የያዛቸው ካርቴላዎች
         socket.emit("my_reservations", {
           roomCode,
           cardIds: game.reservedCards
@@ -682,7 +650,7 @@ function initGameSocket(io) {
       }
     });
 
-    // ─────────── ካርቴላ መምረጥ (ክፍያ + ማስያዝ atomic) ───────────
+    // ─────────── ካርቴላ መምረጥ (ገደብ የለም — ብር ብቻ) ───────────
     socket.on("select_card", async ({ roomCode, cardId } = {}) => {
       try {
         roomCode = rooms.normalizeRoomCode(roomCode);
@@ -701,8 +669,7 @@ function initGameSocket(io) {
           (r) => r.telegramId === socket.telegramId
         );
         if (mine.some((r) => r.cardId === cardId)) return; // አስቀድሞ የራሱ ነው
-        if (mine.length >= MAX_CARDS_PER_USER)
-          return fail(`❌ ቢበዛ ${MAX_CARDS_PER_USER} ካርቴላ ብቻ`);
+        // 👈 ገደብ ተወግዷል — ብር ብቻ ወሰን ነው
 
         // 1) ክፍያ (ቀሪ ሂሳብ በቂ ከሆነ ብቻ — atomic)
         const user = await User.findOneAndUpdate(
@@ -727,21 +694,7 @@ function initGameSocket(io) {
             [deadlineField]: { $gt: new Date() },
             "reservedCards.cardId": { $ne: cardId },
             "players.cardId": { $ne: cardId },
-            $expr: {
-              $lt: [
-                {
-                  $size: {
-                    $filter: {
-                      input: "$reservedCards",
-                      cond: {
-                        $eq: ["$$this.telegramId", socket.telegramId],
-                      },
-                    },
-                  },
-                },
-                MAX_CARDS_PER_USER,
-              ],
-            },
+            // 👈 የካርቴላ ገደብ ተወግዷል
           },
           {
             $push: {
@@ -819,13 +772,12 @@ function initGameSocket(io) {
       }
     });
 
-    // ─────────── ወደ ላይቭ ጌም መግባት / እንደገና መገናኘት ───────────
+    // ─────────── ወደ ላይቭ ጌም መግባት ───────────
     socket.on("join_room", async ({ roomCode } = {}) => {
       try {
         roomCode = rooms.normalizeRoomCode(roomCode);
         if (!roomCode) return;
 
-        // ሰዓቱ አልቆ ጨዋታው እየተጀመረ ከሆነ እስኪጨርስ ብቻ ይጠብቃል
         if (starting.has(roomCode)) await starting.get(roomCode);
 
         {
@@ -867,7 +819,6 @@ function initGameSocket(io) {
             });
           }
 
-          // ፖፕ-አፕ እየታየ ከሆነ ለዘገየው ተጠቃሚም ቀሪውን ጊዜ ያሳይ
           if (rt?.result) {
             const left =
               WINNER_DISPLAY_MS - (Date.now() - rt.result.shownAt);

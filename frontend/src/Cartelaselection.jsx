@@ -3,16 +3,16 @@ import { getRoom, getSocket } from "./api";
 import { formatCountdown, serverNow } from "./serverClock";
 
 const TOTAL_CARDS = 1250;
-const MAX_CARDS = 3; // አንድ ተጠቃሚ ቢበዛ 3 ካርቴላ
 const WEEKLY_ROOMS = ["ROOM50", "ROOM100"];
 const SYNC_RETRIES = 8;
 
 // ═══════════════════════════════════════════════════════
 // የካርቴላ መምረጫ ገጽ
 //  • ሰዓቱ ከሰርቨር absolute ሰዓት (selectionEndsAt) ይሰላል → ለሁሉም ተመሳሳይ
-//  • ሰዓቱ ሲያልቅ ጨዋታውን የሚጀምረው ሰርቨር ነው (game_started) — ክላይንቱ ዝም ብሎ ይከተላል
-//  • ካርቴላ ያልመረጠ ሰው ያለ ክፍያ ተመልካች ሆኖ ወደ ላይቭ ጌም ይገባል
+//  • ሰዓቱ ሲያልቅ ጨዋታውን የሚጀምረው ሰርቨር ነው (game_started)
+//  • ካርቴላ ያልመረጠ ሰው ተመልካች ሆኖ ወደ ላይቭ ጌም ይገባል
 //  • ጨዋታው አስቀድሞ ላይቭ ከሆነ ወዲያውኑ ወደ ላይቭ ጌም ይሄዳል
+//  • 👈 የካርቴላ ገደብ የለም — ብር ብቻ ወሰን ነው
 // ═══════════════════════════════════════════════════════
 export default function CartelaSelection({
   roomCode,
@@ -26,7 +26,7 @@ export default function CartelaSelection({
 
   const [selectedCards, setSelectedCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
-  const [deadlineMs, setDeadlineMs] = useState(null); // የሰርቨር absolute ሰዓት (ms)
+  const [deadlineMs, setDeadlineMs] = useState(null);
   const [remainingSec, setRemainingSec] = useState(null);
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [notice, setNotice] = useState("");
@@ -47,7 +47,7 @@ export default function CartelaSelection({
     if (wentLiveRef.current) return;
     wentLiveRef.current = true;
     onGameStatusChange?.("active");
-    onConfirm([]); // ካርዶቹ በሰርቨሩ ተይዘዋል — ሰርቨሩ ራሱ ይልካቸዋል
+    onConfirm([]);
   }, [onConfirm, onGameStatusChange]);
 
   // የሰርቨር ሁኔታን ወደ state ተግብር
@@ -56,7 +56,9 @@ export default function CartelaSelection({
       if (!s || (s.roomCode && s.roomCode !== roomCode)) return;
       if (s.status === "active") return goLive();
       if (Array.isArray(s.takenCards) || Array.isArray(s.reservedCards)) {
-        setTakenCards([...new Set([...(s.takenCards || []), ...(s.reservedCards || [])])]);
+        setTakenCards([
+          ...new Set([...(s.takenCards || []), ...(s.reservedCards || [])]),
+        ]);
       }
       if (s.status === "waiting" && s.selectionEndsAt) {
         const t = new Date(s.selectionEndsAt).getTime();
@@ -94,7 +96,9 @@ export default function CartelaSelection({
     (async () => {
       try {
         const token = localStorage.getItem("bingo_token");
-        const base = process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.onrender.com";
+        const base =
+          process.env.REACT_APP_API_URL ||
+          "https://fetan-bingo-he4x.onrender.com";
         const r = await fetch(`${base}/api/wallet/balance`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
@@ -116,8 +120,10 @@ export default function CartelaSelection({
     const onGameStarted = (d) => {
       if (!d.roomCode || d.roomCode === roomCode) goLive();
     };
-    const onSel = ({ cardId }) => setTakenCards((p) => [...new Set([...p, cardId])]);
-    const onDesel = ({ cardId }) => setTakenCards((p) => p.filter((x) => x !== cardId));
+    const onSel = ({ cardId }) =>
+      setTakenCards((p) => [...new Set([...p, cardId])]);
+    const onDesel = ({ cardId }) =>
+      setTakenCards((p) => p.filter((x) => x !== cardId));
     const onBal = ({ balance: b }) => setCurrentBalance(b);
     const onMine = ({ roomCode: rc, cardIds }) => {
       if (rc === roomCode && Array.isArray(cardIds)) {
@@ -127,7 +133,7 @@ export default function CartelaSelection({
     };
     const onErr = ({ message, cardId }) => {
       flash(message || "ስህተት");
-      if (cardId) setSelectedCards((p) => p.filter((x) => x !== cardId)); // optimistic ምርጫን መልስ
+      if (cardId) setSelectedCards((p) => p.filter((x) => x !== cardId));
     };
 
     s.on("connect", watch);
@@ -165,8 +171,7 @@ export default function CartelaSelection({
     return () => clearInterval(id);
   }, [deadlineMs]);
 
-  // ───────────── ሰዓቱ 0 ሲደርስ ሰርቨሩ game_started እስኪልክ ይጠብቃል.
-  // ሶኬቱ ቢያመልጥ እንኳን በ REST ይጠይቃል (ወይም ባዶ ዙር ከሆነ አዲሱን ሰዓት ይወስዳል) ─────────────
+  // ───────────── ሰዓቱ 0 ሲደርስ ሰርቨሩ game_started እስኪልክ ይጠብቃል ─────────────
   useEffect(() => {
     if (remainingSec !== 0 || wentLiveRef.current) return;
     let stop = false;
@@ -178,7 +183,7 @@ export default function CartelaSelection({
         await new Promise((r) => setTimeout(r, 400));
       }
     };
-    const first = setTimeout(poll, 600); // ለሶኬቱ ጊዜ ስጠው
+    const first = setTimeout(poll, 600);
     return () => {
       stop = true;
       clearTimeout(first);
@@ -186,18 +191,27 @@ export default function CartelaSelection({
   }, [remainingSec, roomCode, applyRoomState]);
 
   // ───────────── ካርቴላ መምረጥ / መመለስ ─────────────
+  // 👈 ገደብ የለም — ብር ብቻ ወሰን ነው
   const handleSelect = (id) => {
     if (wentLiveRef.current || remainingSec === 0) return;
+
     const isMine = selectedCards.includes(id);
     if (takenCards.includes(id) && !isMine) return;
 
+    // ራሱ የመረጠውን መመለስ
     if (isMine) {
       getSocket().emit("deselect_card", { roomCode, cardId: id });
       setSelectedCards((p) => p.filter((x) => x !== id));
       return;
     }
-    if (selectedCards.length >= MAX_CARDS) return flash(`ቢበዛ ${MAX_CARDS} ካርቴላ ብቻ`);
-    if (currentBalance < stake) return flash("❌ ቀሪ ሂሳብ በቂ አይደለም");
+
+    // 👈 የብር ብቻ ማረጋገጫ — የፈለገውን ያህል ይምረጥ
+    if (currentBalance < stake) {
+      return flash(
+        `❌ ቀሪ ሂሳብ በቂ አይደለም — ${stake} ETB ያስፈልጋል (${currentBalance} አለ)`
+      );
+    }
+
     getSocket().emit("select_card", { roomCode, cardId: id });
     setSelectedCards((p) => [...p, id]);
   };
@@ -215,14 +229,20 @@ export default function CartelaSelection({
 
   const numbers = Array.from({ length: TOTAL_CARDS }, (_, i) => i + 1);
   const total = selectedCards.length * stake;
+  const maxAffordable = Math.floor(currentBalance / stake);
 
   // ═══════════════════════════════════════════════════
   // Display
   // ═══════════════════════════════════════════════════
   const timeStr =
     remainingSec === null ? "…" : formatCountdown(remainingSec, isWeeklyRoom);
-  const isUrgent = remainingSec !== null && remainingSec <= 10 && remainingSec > 0;
-  const timeColor = isUrgent ? "#e74c3c" : isWeeklyRoom ? "#f39c12" : "#ffd43b";
+  const isUrgent =
+    remainingSec !== null && remainingSec <= 10 && remainingSec > 0;
+  const timeColor = isUrgent
+    ? "#e74c3c"
+    : isWeeklyRoom
+    ? "#f39c12"
+    : "#ffd43b";
 
   return (
     <div
@@ -281,6 +301,7 @@ export default function CartelaSelection({
         </div>
       </div>
 
+      {/* Info cells: Wallet / Stake / Selected / Time */}
       <div
         style={{
           display: "grid",
@@ -315,24 +336,31 @@ export default function CartelaSelection({
         />
       </div>
 
+      {/* Selected / Total / Max row */}
       <div
         style={{
-          display: "flex",
-          justifyContent: "space-between",
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          gap: 6,
           background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
           border: "1px solid #2a2a40",
           borderRadius: 10,
-          padding: "8px 12px",
+          padding: "8px 10px",
           marginBottom: 8,
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: "bold",
+          textAlign: "center",
         }}
       >
         <span>
-          Selected: <b style={{ color: "#2ecc71" }}>{selectedCards.length}</b>
+          Selected:{" "}
+          <b style={{ color: "#2ecc71" }}>{selectedCards.length}</b>
         </span>
         <span>
           Total: <b style={{ color: "#f39c12" }}>{total} ETB</b>
+        </span>
+        <span>
+          Max: <b style={{ color: "#3498db" }}>{maxAffordable}</b>
         </span>
       </div>
 
@@ -346,12 +374,13 @@ export default function CartelaSelection({
           marginBottom: 8,
           paddingRight: 4,
           alignContent: "start",
-          maxHeight: "calc(100vh - 260px)",
+          maxHeight: "calc(100vh - 300px)",
           WebkitOverflowScrolling: "touch",
         }}
       >
         {numbers.map((n) => {
-          const isTaken = takenCards.includes(n) && !selectedCards.includes(n);
+          const isTaken =
+            takenCards.includes(n) && !selectedCards.includes(n);
           const isSelected = selectedCards.includes(n);
           return (
             <button
