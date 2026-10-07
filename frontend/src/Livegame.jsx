@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { getSocket } from "./api";
 
 const HEADERS = [
-  { letter: "B", color: "#4c6ef5", range: "1-15" },
-  { letter: "I", color: "#9c27b0", range: "16-30" },
-  { letter: "N", color: "#e91e63", range: "31-45" },
-  { letter: "G", color: "#4caf50", range: "46-60" },
-  { letter: "O", color: "#ff9800", range: "61-75" },
+  { letter: "B", color: "#4c6ef5" },
+  { letter: "I", color: "#9c27b0" },
+  { letter: "N", color: "#e91e63" },
+  { letter: "G", color: "#4caf50" },
+  { letter: "O", color: "#ff9800" },
 ];
 
 const PATTERN_LABELS = {
@@ -215,7 +215,7 @@ const sound = {
 };
 
 // ═══════════════════════════════════════════════════════
-// 75-NUMBER TRACKER
+// 75-NUMBER TRACKER — B I N G O ብቻ
 // ═══════════════════════════════════════════════════════
 function NumberTracker({ calledNumbers, lastNumber }) {
   return (
@@ -227,6 +227,7 @@ function NumberTracker({ calledNumbers, lastNumber }) {
         padding: 5,
       }}
     >
+      {/* 👈 B I N G O — ፊደል ብቻ */}
       <div
         style={{
           display: "grid",
@@ -244,14 +245,13 @@ function NumberTracker({ calledNumbers, lastNumber }) {
               textAlign: "center",
               fontWeight: "bold",
               borderRadius: 5,
-              padding: "3px 0",
+              padding: "5px 0",
               boxShadow: `0 0 8px ${h.color}66`,
+              fontSize: 14,
+              lineHeight: 1,
             }}
           >
-            <div style={{ fontSize: 12, lineHeight: 1.1 }}>{h.letter}</div>
-            <div style={{ fontSize: 7, opacity: 0.85, lineHeight: 1 }}>
-              {h.range}
-            </div>
+            {h.letter}
           </div>
         ))}
       </div>
@@ -306,7 +306,7 @@ function NumberTracker({ calledNumbers, lastNumber }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// USER CARD — በካርቴላ ብዛት ራስ-ሰር ይቀንሳል
+// USER CARD
 // ═══════════════════════════════════════════════════════
 function UserCard({ card, marked, cardId, lastNumber, cardCount = 1 }) {
   const sizes = {
@@ -735,21 +735,21 @@ export default function LiveGame({
           paddingBottom: 90,
         }}
       >
-        {/* ═══ STATS — 4 columns (Prize ተወግዷል) ═══ */}
+        {/* ═══ STATS — 5 አምዶች በአንድ መስመር ═══ */}
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
+            gridTemplateColumns: "repeat(5, 1fr)",
             gap: 3,
             marginBottom: 6,
             flexShrink: 0,
           }}
         >
           <Stat label="Game" value={roomCode} color="#f39c12" />
-  <Stat label="Players" value={playerCount} color="#3498db" />
-  <Stat label="Stake" value={entryFee} color="#9c27b0" />
-  <Stat label="Derash" value={prizePool} color="#2ecc71" />
-  <Stat label="Called" value={calledNumbers.length} color="#ffd43b" />
+          <Stat label="Players" value={playerCount} color="#3498db" />
+          <Stat label="Stake" value={entryFee} color="#9c27b0" />
+          <Stat label="ደራሽ" value={prizePool} color="#2ecc71" />
+          <Stat label="Called" value={calledNumbers.length} color="#ffd43b" />
         </div>
 
         {/* MAIN 2-COLUMN */}
@@ -1332,7 +1332,7 @@ export default function LiveGame({
                 )}
               </div>
 
-              {/* ═══ WINNING CARTELAS — ስም + ካርቴላ # + ብር ═══ */}
+              {/* WINNING CARTELAS — ስም + ካርቴላ # + ብር */}
               {bingoPopup.winningCartelas?.length > 0 && (
                 <div
                   style={{
@@ -1360,7 +1360,6 @@ export default function LiveGame({
                   </div>
 
                   {bingoPopup.winningCartelas.slice(0, 2).map((wc, idx) => {
-                    // 👈 የዚህን ካርቴላ ባለቤት ማግኘት
                     const owner = (bingoPopup.winners || []).find(
                       (w) =>
                         w.name === wc.name ||
@@ -1371,7 +1370,6 @@ export default function LiveGame({
 
                     return (
                       <div key={idx} style={{ marginBottom: 10 }}>
-                        {/* 👈 ስም + ካርቴላ # + ብር */}
                         <div
                           style={{
                             background:
