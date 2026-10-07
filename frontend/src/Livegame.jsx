@@ -309,11 +309,10 @@ function NumberTracker({ calledNumbers, lastNumber }) {
 // USER CARD — በካርቴላ ብዛት ራስ-ሰር ይቀንሳል
 // ═══════════════════════════════════════════════════════
 function UserCard({ card, marked, cardId, lastNumber, cardCount = 1 }) {
-  // 👈 በካርቴላ ብዛት መጠን ይወሰናል
   const sizes = {
-    1: { fontSize: 12, gap: 3, starSize: 14, pad: 4 },
-    2: { fontSize: 10, gap: 2, starSize: 12, pad: 3 },
-    3: { fontSize: 8, gap: 1.5, starSize: 10, pad: 2 },
+    1: { fontSize: 12, gap: 3 },
+    2: { fontSize: 10, gap: 2 },
+    3: { fontSize: 8, gap: 1.5 },
   };
   const sz = sizes[cardCount] || sizes[3];
 
@@ -325,7 +324,7 @@ function UserCard({ card, marked, cardId, lastNumber, cardCount = 1 }) {
     <div
       style={{
         marginBottom: 6,
-        padding: sz.pad,
+        padding: 3,
         background: isHot
           ? "linear-gradient(135deg, rgba(46,204,113,0.1), rgba(15,20,32,0.6))"
           : "linear-gradient(135deg, rgba(52,152,219,0.06), rgba(15,20,32,0.6))",
@@ -335,7 +334,6 @@ function UserCard({ card, marked, cardId, lastNumber, cardCount = 1 }) {
         transition: "all 0.3s ease",
       }}
     >
-      {/* Header */}
       <div
         style={{
           display: "flex",
@@ -390,7 +388,6 @@ function UserCard({ card, marked, cardId, lastNumber, cardCount = 1 }) {
         </div>
       </div>
 
-      {/* 5×5 grid */}
       <div
         style={{
           display: "grid",
@@ -738,21 +735,21 @@ export default function LiveGame({
           paddingBottom: 90,
         }}
       >
-        {/* STATS */}
+        {/* ═══ STATS — 4 columns (Prize ተወግዷል) ═══ */}
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(5, 1fr)",
+            gridTemplateColumns: "repeat(4, 1fr)",
             gap: 3,
             marginBottom: 6,
             flexShrink: 0,
           }}
         >
           <Stat label="Game" value={roomCode} color="#f39c12" />
-          <Stat label="Players" value={playerCount} color="#3498db" />
-          <Stat label="Stake" value={entryFee} color="#9c27b0" />
-          <Stat label="Prize" value={prizePool} color="#2ecc71" />
-          <Stat label="Called" value={calledNumbers.length} color="#ffd43b" />
+  <Stat label="Players" value={playerCount} color="#3498db" />
+  <Stat label="Stake" value={entryFee} color="#9c27b0" />
+  <Stat label="Derash" value={prizePool} color="#2ecc71" />
+  <Stat label="Called" value={calledNumbers.length} color="#ffd43b" />
         </div>
 
         {/* MAIN 2-COLUMN */}
@@ -787,7 +784,7 @@ export default function LiveGame({
               minHeight: 0,
             }}
           >
-            {/* ═══ CURRENT — always visible at top ═══ */}
+            {/* CURRENT — always visible */}
             <div
               style={{
                 background: lastInfo
@@ -944,7 +941,7 @@ export default function LiveGame({
               </div>
             </div>
 
-            {/* ═══ SCROLLABLE: PATTERN + CARDS ═══ */}
+            {/* SCROLLABLE: PATTERN + CARDS */}
             <div
               style={{
                 flex: 1,
@@ -1141,7 +1138,7 @@ export default function LiveGame({
         </div>
 
         {/* ═══════════════════════════════════════════════
-             BINGO POPUP — WITH WINNING CARTELAS
+             BINGO POPUP
            ═══════════════════════════════════════════════ */}
         {bingoPopup && (
           <>
@@ -1243,7 +1240,7 @@ export default function LiveGame({
                 </span>
               </div>
 
-              {/* ═══ WINNERS LIST ═══ */}
+              {/* WINNERS LIST */}
               <div
                 style={{
                   background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
@@ -1335,7 +1332,7 @@ export default function LiveGame({
                 )}
               </div>
 
-              {/* ═══ WINNING CARTELAS WITH MARKINGS ═══ */}
+              {/* ═══ WINNING CARTELAS — ስም + ካርቴላ # + ብር ═══ */}
               {bingoPopup.winningCartelas?.length > 0 && (
                 <div
                   style={{
@@ -1362,66 +1359,122 @@ export default function LiveGame({
                     🎴 WINNING CARTELAS ({bingoPopup.winningCartelas.length})
                   </div>
 
-                  {bingoPopup.winningCartelas.slice(0, 2).map((wc, idx) => (
-                    <div key={idx} style={{ marginBottom: 10 }}>
-                      <div
-                        style={{
-                          color: "#fff",
-                          fontSize: 11,
-                          marginBottom: 5,
-                          textAlign: "center",
-                          fontWeight: "bold",
-                        }}
-                      >
-                        #{wc.cardId} — {wc.name}
-                      </div>
+                  {bingoPopup.winningCartelas.slice(0, 2).map((wc, idx) => {
+                    // 👈 የዚህን ካርቴላ ባለቤት ማግኘት
+                    const owner = (bingoPopup.winners || []).find(
+                      (w) =>
+                        w.name === wc.name ||
+                        (Array.isArray(w.cartelas) &&
+                          w.cartelas.includes(wc.cardId))
+                    );
+                    const prizeAmount = owner?.prize ?? null;
 
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(5, 1fr)",
-                          gap: 3,
-                        }}
-                      >
-                        {wc.card.map((row, r) =>
-                          row.map((v, c) => {
-                            const m = wc.marked?.[r]?.[c];
-                            const free = r === 2 && c === 2;
-                            return (
-                              <div
-                                key={`${r}-${c}`}
-                                style={{
-                                  aspectRatio: 1,
-                                  background: free
-                                    ? "linear-gradient(135deg, #ffd43b, #f39c12)"
-                                    : m
-                                    ? "linear-gradient(135deg, #4caf50, #2ecc71)"
-                                    : "linear-gradient(135deg, #252d44, #1b2233)",
-                                  color: free ? "#1b2233" : "#fff",
-                                  fontSize: 12,
-                                  fontWeight: "bold",
-                                  borderRadius: 4,
-                                  border: free
-                                    ? "2px solid #ffd43b"
-                                    : m
-                                    ? "1px solid #2ecc71"
-                                    : "1px solid #2a2a40",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  boxShadow: m
-                                    ? "0 0 6px rgba(76,175,80,0.5)"
-                                    : "none",
-                                }}
-                              >
-                                {free ? "★" : v}
-                              </div>
-                            );
-                          })
-                        )}
+                    return (
+                      <div key={idx} style={{ marginBottom: 10 }}>
+                        {/* 👈 ስም + ካርቴላ # + ብር */}
+                        <div
+                          style={{
+                            background:
+                              "linear-gradient(135deg, rgba(243,156,18,0.15), rgba(15,20,32,0.4))",
+                            border: "1px solid rgba(243,156,18,0.4)",
+                            borderRadius: 8,
+                            padding: "5px 8px",
+                            marginBottom: 6,
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div
+                              style={{
+                                color: "#fff",
+                                fontSize: 11,
+                                fontWeight: "bold",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              👤 {wc.name}
+                            </div>
+                            <div
+                              style={{
+                                color: "#f39c12",
+                                fontSize: 9,
+                                fontWeight: "bold",
+                                marginTop: 1,
+                              }}
+                            >
+                              🎴 Card #{wc.cardId}
+                            </div>
+                          </div>
+                          {prizeAmount !== null && (
+                            <div
+                              style={{
+                                background: "rgba(46,204,113,0.2)",
+                                color: "#2ecc71",
+                                border: "1px solid rgba(46,204,113,0.5)",
+                                borderRadius: 20,
+                                padding: "3px 10px",
+                                fontSize: 11,
+                                fontWeight: "bold",
+                                flexShrink: 0,
+                              }}
+                            >
+                              +{prizeAmount} ETB
+                            </div>
+                          )}
+                        </div>
+
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(5, 1fr)",
+                            gap: 3,
+                          }}
+                        >
+                          {wc.card.map((row, r) =>
+                            row.map((v, c) => {
+                              const m = wc.marked?.[r]?.[c];
+                              const free = r === 2 && c === 2;
+                              return (
+                                <div
+                                  key={`${r}-${c}`}
+                                  style={{
+                                    aspectRatio: 1,
+                                    background: free
+                                      ? "linear-gradient(135deg, #ffd43b, #f39c12)"
+                                      : m
+                                      ? "linear-gradient(135deg, #4caf50, #2ecc71)"
+                                      : "linear-gradient(135deg, #252d44, #1b2233)",
+                                    color: free ? "#1b2233" : "#fff",
+                                    fontSize: 12,
+                                    fontWeight: "bold",
+                                    borderRadius: 4,
+                                    border: free
+                                      ? "2px solid #ffd43b"
+                                      : m
+                                      ? "1px solid #2ecc71"
+                                      : "1px solid #2a2a40",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    boxShadow: m
+                                      ? "0 0 6px rgba(76,175,80,0.5)"
+                                      : "none",
+                                  }}
+                                >
+                                  {free ? "★" : v}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
 
                   {bingoPopup.winningCartelas.length > 2 && (
                     <div

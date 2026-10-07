@@ -17,7 +17,35 @@ const SELECTION_TIMER_MS = Number(process.env.SELECTION_TIMER_MS || 50000);
 const MAX_NUMBER = 75;
 const DEFAULT_ROOMS = ["ROOM10", "ROOM20", "ROOM50", "ROOM100"];
 
-/** የሚታወቁ ክፍሎች ብቻ ይፈቀዳሉ (ማንም በዘፈቀደ ክፍል እንዳይፈጥር) */
+// ═══════════════════════════════════════════════════════
+// 👈 ለየክፍሉ የተለያየ የማሸነፊያ ፓተርን
+// ═══════════════════════════════════════════════════════
+const ROOM_PATTERNS = {
+  ROOM10: "any-row",        // ➡️ ማንኛውም ረድፍ (1 ረድፍ ሙሉ)
+  ROOM20: "any-column",     // ⬇️ ማንኛውም አምድ (1 አምድ ሙሉ)
+  ROOM50: "four-corners",   // 🔲 4 ማዕዘኖች ብቻ
+  ROOM100: "any-diagonal",  // ↘️ ማንኛውም ሰያፍ
+};
+
+/**
+ * 👈 የክፍሉን የማሸነፊያ ፓተርን ይወስናል
+ * ለ weekly rooms (ROOM50/ROOM100) → ከ schedule ይወሰዳል
+ * ለመደበኛ rooms → ከ ROOM_PATTERNS ይወሰዳል
+ */
+function patternForRoom(roomCode, fee) {
+  // Weekly rooms — ከ schedule utility
+  if (isWeeklyRoom(roomCode)) {
+    return getPatternForRoom(getWeeklyFee(roomCode));
+  }
+  // የክፍሉ የተለየ ፓተርን ካለ
+  if (ROOM_PATTERNS[roomCode]) {
+    return ROOM_PATTERNS[roomCode];
+  }
+  // Fallback — ከ fee ተመስርቶ
+  return getPatternForRoom(fee);
+}
+
+/** የሚታወቁ ክፍሎች ብቻ ይፈቀዳሉ */
 function normalizeRoomCode(code) {
   const c = String(code || "").trim().toUpperCase();
   return DEFAULT_ROOMS.includes(c) ? c : null;
@@ -38,7 +66,7 @@ function waitingFields(roomCode, fee) {
     status: "waiting",
     entryFee: fee,
     isWeeklyGame: weekly,
-    winPattern: getPatternForRoom(fee),
+    winPattern: patternForRoom(roomCode, fee), // 👈 አዲስ — ከ room ተመስርቶ
     calledNumbers: [],
     prizePool: 0,
     players: [],
@@ -81,7 +109,7 @@ async function ensureRoomCards(roomCode) {
   }
 }
 
-/** ክፍሉን ወደ አዲስ "waiting" ዙር ይመልሳል (አዲስ ሰዓት ቆጣሪ ወይም የነገ መጀመሪያ ሰዓት) */
+/** ክፍሉን ወደ አዲስ "waiting" ዙር ይመልሳል */
 async function resetToWaiting(roomCode) {
   const current = await Game.findOne({ roomCode }).select("entryFee");
   const fee = current?.entryFee || feeForRoom(roomCode);
@@ -92,19 +120,37 @@ async function resetToWaiting(roomCode) {
   );
 }
 
-/** ለ client የሚላክ የክፍል ሁኔታ. ሰዓቱ ሁልጊዜ በ absolute ISO + serverTime ይላካል. */
+// ═══════════════════════════════════════════════════════
+// 👈 publicState — UNIQUE USER COUNT + TOTAL CARDS
+// ═══════════════════════════════════════════════════════
 function publicState(game) {
   const deadline =
     game.isWeeklyGame && game.scheduledStart
       ? game.scheduledStart
       : game.selectionEndsAt;
   const now = Date.now();
+
+  // 👈 የተለያዩ ተጠቃሚዎች ብዛት
+  // አንድ ሰው 3 ካርቴላ ቢመርጥም → 1 ብቻ ይቆጠራል
+  const uniqueUserIds = new Set();
+  for (const p of game.players || []) {
+    const key = String(p.user || p.telegramId || "");
+    if (key) uniqueUserIds.add(key);
+  }
+
+  // 👈 ጠቅላላ ካርቴላዎች (ተጫዋቾች × ካርዶቻቸው)
+  const totalCards = (game.players || []).length;
+
   return {
     roomCode: game.roomCode,
     status: game.status,
     entryFee: game.entryFee,
     prizePool: game.prizePool,
-    playerCount: game.players.length,
+
+    // 👈 አዲስ መስኮች
+    playerCount: uniqueUserIds.size, // የሰዎች ብዛት (unique)
+    totalCards,                       // ጠቅላላ ካርቴላዎች
+
     calledNumbers: game.calledNumbers,
     maxNumber: game.maxNumber,
     takenCards: game.players.map((p) => p.cardId),
@@ -126,6 +172,7 @@ module.exports = {
   SELECTION_TIMER_MS,
   MAX_NUMBER,
   DEFAULT_ROOMS,
+  ROOM_PATTERNS, // 👈 አዲስ
   normalizeRoomCode,
   feeForRoom,
   waitingFields,
@@ -134,4 +181,5 @@ module.exports = {
   ensureRoomCards,
   resetToWaiting,
   publicState,
+  patternForRoom, // 👈 አዲስ
 };
