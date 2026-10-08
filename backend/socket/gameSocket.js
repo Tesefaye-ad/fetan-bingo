@@ -25,7 +25,7 @@ const { notifyWinnersGroup } = require("../services/winnerNotify");
 // ═══════════════════════════════════════════════════════
 const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 1500);
 const FIRST_CALL_DELAY_MS = Number(process.env.FIRST_CALL_DELAY_MS || 1500);
-const WINNER_DISPLAY_MS = Number(process.env.WINNER_DISPLAY_MS || 6000);
+const WINNER_DISPLAY_MS = 6000;
 const RECONCILE_MS = 250;
 const ARM_WINDOW_MS = 1500;
 const PRIZE_SHARE = Number(process.env.PRIZE_SHARE || 0.8);

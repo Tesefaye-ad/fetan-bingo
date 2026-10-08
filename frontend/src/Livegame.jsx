@@ -227,7 +227,6 @@ function NumberTracker({ calledNumbers, lastNumber }) {
         padding: 5,
       }}
     >
-      {/* 👈 B I N G O — ፊደል ብቻ */}
       <div
         style={{
           display: "grid",
@@ -470,9 +469,11 @@ export default function LiveGame({
   const [soundOn, setSoundOn] = useState(true);
   const [numberAnimKey, setNumberAnimKey] = useState(0);
   const [isSpectator, setIsSpectator] = useState(false);
+  const [countdown, setCountdown] = useState(0); // 👈 አዲስ
   const endedRef = useRef(false);
   const popupTimerRef = useRef(null);
   const fallbackTimerRef = useRef(null);
+  const countdownTimerRef = useRef(null); // 👈 አዲስ
 
   useEffect(() => {
     soundOnRef.current = soundOn;
@@ -605,18 +606,36 @@ export default function LiveGame({
       endedRef.current = true;
       clearTimeout(popupTimerRef.current);
       clearTimeout(fallbackTimerRef.current);
+      clearInterval(countdownTimerRef.current);
       setBingoPopup(null);
+      setCountdown(0);
       if (onGameEnded) onGameEnded();
       else onExit();
     };
 
     const onBingoClaimed = (data) => {
       setBingoPopup(data);
-      const showMs = Math.max(500, Number(data.displayMs) || 5000);
+      // 👈 6 ሰከንድ ቆይቶ ቀጥታ ወደ ካርቴላ ምርጫ
+      const showMs = Math.max(1000, Number(data.displayMs) || 6000);
+
+      // 👈 Countdown ማሳያ
+      setCountdown(Math.ceil(showMs / 1000));
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = setInterval(() => {
+        setCountdown((c) => {
+          if (c <= 1) {
+            clearInterval(countdownTimerRef.current);
+            return 0;
+          }
+          return c - 1;
+        });
+      }, 1000);
+
       clearTimeout(popupTimerRef.current);
       popupTimerRef.current = setTimeout(() => setBingoPopup(null), showMs);
       clearTimeout(fallbackTimerRef.current);
-      fallbackTimerRef.current = setTimeout(returnToSelection, showMs + 3000);
+      fallbackTimerRef.current = setTimeout(returnToSelection, showMs);
+
       if (data.winPattern) setWinPattern(data.winPattern);
       if (soundOnRef.current) sound.bingo();
       if (window.navigator.vibrate)
@@ -662,6 +681,7 @@ export default function LiveGame({
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       clearTimeout(popupTimerRef.current);
       clearTimeout(fallbackTimerRef.current);
+      clearInterval(countdownTimerRef.current);
       socket.emit("leave_room");
       joinedRef.current = false;
       cardsReceivedRef.current = false;
@@ -735,39 +755,57 @@ export default function LiveGame({
           paddingBottom: 90,
         }}
       >
-        {/* ═══ STATS — icon + label + value (Choose Cards style) ═══ */}
-<div
-  style={{
-    display: "grid",
-    gridTemplateColumns: "repeat(5, 1fr)",
-    background:
-      "linear-gradient(135deg, rgba(243,156,18,0.08), rgba(15,20,32,0.9))",
-    border: "1px solid rgba(243,156,18,0.5)",
-    borderRadius: 10,
-    padding: "6px 4px",
-    marginBottom: 6,
-    flexShrink: 0,
-    boxShadow: "0 0 12px rgba(243,156,18,0.15)",
-  }}
->
-  <Stat icon="🎮" label="Game" value={roomCode} color="#f39c12" size={11} />
-  <Stat
-    icon="👥"
-    label="Players"
-    value={playerCount}
-    color="#3498db"
-    size={14}
-  />
-  <Stat icon="🎯" label="Stake" value={entryFee} color="#e91e63" size={14} />
-  <Stat icon="💰" label="Derash" value={prizePool} color="#2ecc71" size={14} />
-  <Stat
-    icon="📢"
-    label="Called"
-    value={calledNumbers.length}
-    color="#ffd43b"
-    size={14}
-  />
-</div>
+        {/* ═══ STATS — icon + label + value ═══ */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(5, 1fr)",
+            background:
+              "linear-gradient(135deg, rgba(243,156,18,0.08), rgba(15,20,32,0.9))",
+            border: "1px solid rgba(243,156,18,0.5)",
+            borderRadius: 10,
+            padding: "6px 4px",
+            marginBottom: 6,
+            flexShrink: 0,
+            boxShadow: "0 0 12px rgba(243,156,18,0.15)",
+          }}
+        >
+          <Stat
+            icon="🎮"
+            label="Game"
+            value={roomCode}
+            color="#f39c12"
+            size={11}
+          />
+          <Stat
+            icon="👥"
+            label="Players"
+            value={playerCount}
+            color="#3498db"
+            size={14}
+          />
+          <Stat
+            icon="🎯"
+            label="Stake"
+            value={entryFee}
+            color="#e91e63"
+            size={14}
+          />
+          <Stat
+            icon="💰"
+            label="Derash"
+            value={prizePool}
+            color="#2ecc71"
+            size={14}
+          />
+          <Stat
+            icon="📢"
+            label="Called"
+            value={calledNumbers.length}
+            color="#ffd43b"
+            size={14}
+          />
+        </div>
 
         {/* MAIN 2-COLUMN */}
         <div
@@ -801,7 +839,7 @@ export default function LiveGame({
               minHeight: 0,
             }}
           >
-            {/* CURRENT — always visible */}
+            {/* CURRENT */}
             <div
               style={{
                 background: lastInfo
@@ -853,7 +891,7 @@ export default function LiveGame({
                   fontWeight: "bold",
                 }}
               >
-              
+                ⚡ CURRENT
               </div>
 
               {lastInfo ? (
@@ -954,7 +992,7 @@ export default function LiveGame({
                   fontWeight: "bold",
                 }}
               >
-                
+                📢 {calledNumbers.length} / 75
               </div>
             </div>
 
@@ -1086,7 +1124,7 @@ export default function LiveGame({
                         fontWeight: "bold",
                       }}
                     >
-                      {cards.length} 
+                      {cards.length}
                     </div>
                   </div>
 
@@ -1133,7 +1171,7 @@ export default function LiveGame({
               fontWeight: "bold",
             }}
           >
-          
+            🎴 የመረጧቸው ካርቴላዎች:{" "}
             <span style={{ color: "#fff" }}>{cards.length}</span>
           </div>
           <button
@@ -1154,9 +1192,7 @@ export default function LiveGame({
           </button>
         </div>
 
-        {/* ═══════════════════════════════════════════════
-             BINGO POPUP
-           ═══════════════════════════════════════════════ */}
+        {/* ═══ BINGO POPUP ═══ */}
         {bingoPopup && (
           <>
             <Confetti />
@@ -1349,7 +1385,7 @@ export default function LiveGame({
                 )}
               </div>
 
-              {/* WINNING CARTELAS — ስም + ካርቴላ # + ብር */}
+              {/* WINNING CARTELAS */}
               {bingoPopup.winningCartelas?.length > 0 && (
                 <div
                   style={{
@@ -1523,16 +1559,38 @@ export default function LiveGame({
                 💰 Pool: {bingoPopup.prizePool} ETB
               </div>
 
+              {/* 👈 Countdown display */}
               <div
                 style={{
                   color: "#888",
-                  fontSize: 10,
+                  fontSize: 11,
                   marginBottom: 20,
-                  fontStyle: "italic",
                   flexShrink: 0,
+                  textAlign: "center",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
                 }}
               >
-                ወደ ካርቴላ ምርጫ በመመለስ ላይ...
+                <span>ወደ ካርቴላ ምርጫ በመመለስ ላይ...</span>
+                {countdown > 0 && (
+                  <span
+                    style={{
+                      color: "#f39c12",
+                      fontWeight: "900",
+                      fontFamily: "monospace",
+                      fontSize: 16,
+                      background: "rgba(243,156,18,0.15)",
+                      border: "1px solid rgba(243,156,18,0.5)",
+                      borderRadius: 20,
+                      padding: "2px 10px",
+                      textShadow: "0 0 10px rgba(243,156,18,0.6)",
+                    }}
+                  >
+                    {countdown}s
+                  </span>
+                )}
               </div>
             </div>
           </>
@@ -1545,11 +1603,9 @@ export default function LiveGame({
 function Stat({ icon, label, value, color = "#fff", size = 16 }) {
   return (
     <div style={{ textAlign: "center", padding: "2px 0" }}>
-      {/* Icon on top */}
       <div style={{ fontSize: 14, marginBottom: 2, lineHeight: 1 }}>
         {icon}
       </div>
-      {/* Label in middle */}
       <div
         style={{
           color: "#888",
@@ -1562,7 +1618,6 @@ function Stat({ icon, label, value, color = "#fff", size = 16 }) {
       >
         {label}
       </div>
-      {/* Value at bottom — large colored monospace */}
       <div
         style={{
           color,
