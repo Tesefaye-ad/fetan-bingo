@@ -30,7 +30,6 @@ export default function CartelaSelection({
   const [remainingSec, setRemainingSec] = useState(null);
   const [currentBalance, setCurrentBalance] = useState(balance);
   const [notice, setNotice] = useState("");
-  const [isGoingLive, setIsGoingLive] = useState(false);
 
   const wentLiveRef = useRef(false);
   const selectedRef = useRef([]);
@@ -56,18 +55,12 @@ export default function CartelaSelection({
     }, 2500);
   }, []);
 
-  // ───────────── ወደ ላይቭ ጌም — አንድ ጊዜ ብቻ ─────────────
+  // ───────────── ወደ ላይቭ ጌም — ቀጥታ ያለ overlay ─────────────
   const goLive = useCallback(() => {
     if (wentLiveRef.current) return;
     wentLiveRef.current = true;
-    setIsGoingLive(true);
-
-    // ለ 1 ሰከንድ "ጨዋታው ተጀመረ" አሳይ ከዚያ ተሸጋገር
-    setTimeout(() => {
-      if (!mountedRef.current) return;
-      onGameStatusChange?.("active");
-      onConfirm([]);
-    }, 800);
+    onGameStatusChange?.("active");
+    onConfirm([]);
   }, [onConfirm, onGameStatusChange]);
 
   // ───────────── የሰርቨር ሁኔታን ወደ state ተግብር ─────────────
@@ -95,7 +88,6 @@ export default function CartelaSelection({
   // ───────────── ክፍል ሲቀየር ዳግም አስጀምር ─────────────
   useEffect(() => {
     wentLiveRef.current = false;
-    setIsGoingLive(false);
     setSelectedCards([]);
     setTakenCards([]);
     setDeadlineMs(null);
@@ -218,7 +210,7 @@ export default function CartelaSelection({
   // ───────────── ካርቴላ መምረጥ / መመለስ ─────────────
   // 👈 ገደብ የለም — ብር ብቻ ወሰን ነው
   const handleSelect = (id) => {
-    if (wentLiveRef.current || remainingSec === 0 || isGoingLive) return;
+    if (wentLiveRef.current || remainingSec === 0) return;
 
     const isMine = selectedCards.includes(id);
     if (takenCards.includes(id) && !isMine) return;
@@ -232,9 +224,7 @@ export default function CartelaSelection({
 
     // 👈 የብር ብቻ ማረጋገጫ — የፈለገውን ያህል ይምረጥ
     if (currentBalance < stake) {
-      return flash(
-        `❌ ቀሪ ሂሳብ በቂ አይደለም — ${stake} ETB ያስፈልጋል`
-      );
+      return flash(`❌ ቀሪ ሂሳብ በቂ አይደለም — ${stake} ETB ያስፈልጋል`);
     }
 
     getSocket().emit("select_card", { roomCode, cardId: id });
@@ -243,7 +233,7 @@ export default function CartelaSelection({
 
   // ───────────── Back → ገንዘቡ ይመለስ (ጨዋታው ገና ካልጀመረ) ─────────────
   const handleCancel = () => {
-    if (!wentLiveRef.current && !isGoingLive) {
+    if (!wentLiveRef.current) {
       const s = getSocket();
       // የተመረጡትን ሁሉንም መልስ
       for (const id of selectedRef.current) {
@@ -276,48 +266,6 @@ export default function CartelaSelection({
     : isWeeklyRoom
     ? "#f39c12"
     : "#ffd43b";
-
-  // ───────────── "ጨዋታው ተጀመረ" overlay ─────────────
-  if (isGoingLive) {
-    return (
-      <div
-        style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(15,20,32,0.96)",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "#fff",
-          zIndex: 999,
-          gap: 16,
-        }}
-      >
-        <div
-          style={{
-            fontSize: 60,
-            animation: "ringPulse 1s ease-in-out infinite",
-          }}
-        >
-          🎮
-        </div>
-        <div
-          style={{
-            color: "#f39c12",
-            fontSize: 24,
-            fontWeight: "900",
-            letterSpacing: 2,
-          }}
-        >
-          ጨዋታው ተጀመረ!
-        </div>
-        <div style={{ color: "#888", fontSize: 13 }}>
-          ወደ ላይቭ ጌም በመሸጋገር ላይ...
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div

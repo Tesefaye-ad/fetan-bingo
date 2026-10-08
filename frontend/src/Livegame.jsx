@@ -879,7 +879,7 @@ export default function LiveGame({
                   zIndex: 3,
                 }}
               >
-                {soundOn ? "🔊" : "🔇"}
+                {soundOn ? "🔇" : "🔊"}
               </button>
 
               <div
@@ -891,7 +891,7 @@ export default function LiveGame({
                   fontWeight: "bold",
                 }}
               >
-                ⚡ CURRENT
+              
               </div>
 
               {lastInfo ? (
@@ -977,23 +977,7 @@ export default function LiveGame({
                 </div>
               )}
 
-              <div
-                style={{
-                  marginTop: 5,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 3,
-                  background: `${lastInfo?.color || "#f39c12"}22`,
-                  border: `1px solid ${lastInfo?.color || "#f39c12"}66`,
-                  borderRadius: 20,
-                  padding: "2px 9px",
-                  fontSize: 9,
-                  color: lastInfo?.color || "#f39c12",
-                  fontWeight: "bold",
-                }}
-              >
-                📢 {calledNumbers.length} / 75
-              </div>
+              
             </div>
 
             {/* SCROLLABLE: PATTERN + CARDS */}
@@ -1065,7 +1049,7 @@ export default function LiveGame({
                   <div
                     style={{ color: "#888", fontSize: 9, marginTop: 3 }}
                   >
-                    ቀጣዩ ዙር ካርቴላ መምረጥ ይችላሉ
+                    ቀጣይ ዙር ካርቴላ መምረጥ ይችላሉ
                   </div>
                 </div>
               )}
@@ -1171,8 +1155,7 @@ export default function LiveGame({
               fontWeight: "bold",
             }}
           >
-            🎴 የመረጧቸው ካርቴላዎች:{" "}
-            <span style={{ color: "#fff" }}>{cards.length}</span>
+            
           </div>
           <button
             onClick={onExit}
@@ -1458,7 +1441,7 @@ export default function LiveGame({
                                 marginTop: 1,
                               }}
                             >
-                              🎴 Card #{wc.cardId}
+                              🎴 Cartela #{wc.cardId}
                             </div>
                           </div>
                           {prizeAmount !== null && (
@@ -1542,21 +1525,7 @@ export default function LiveGame({
                 </div>
               )}
 
-              {/* Pool badge */}
-              <div
-                style={{
-                  background: "linear-gradient(135deg,#2ecc71,#27ae60)",
-                  borderRadius: 20,
-                  padding: "6px 16px",
-                  fontSize: 13,
-                  fontWeight: "bold",
-                  color: "#fff",
-                  boxShadow: "0 0 20px rgba(46,204,113,0.5)",
-                  marginBottom: 8,
-                  flexShrink: 0,
-                }}
-              >
-                💰 Pool: {bingoPopup.prizePool} ETB
+                
               </div>
 
               {/* 👈 Countdown display */}
@@ -1573,7 +1542,6 @@ export default function LiveGame({
                   gap: 6,
                 }}
               >
-                <span>ወደ ካርቴላ ምርጫ በመመለስ ላይ...</span>
                 {countdown > 0 && (
                   <span
                     style={{
@@ -1592,7 +1560,6 @@ export default function LiveGame({
                   </span>
                 )}
               </div>
-            </div>
           </>
         )}
       </div>
