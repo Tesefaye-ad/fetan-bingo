@@ -840,7 +840,26 @@ export default function LiveGame({
             }}
           >
             {/* CURRENT */}
-            
+            <div
+              style={{
+                background: lastInfo
+                  ? `linear-gradient(135deg, ${lastInfo.color}33 0%, #1a1a2e 40%, #0f1420 100%)`
+                  : "linear-gradient(135deg, #1a1a2e, #0f1420)",
+                border: flashNumber
+                  ? `2px solid ${lastInfo?.color || "#ffd43b"}`
+                  : "2px solid #f39c12",
+                borderRadius: 12,
+                padding: "8px 6px 6px",
+                textAlign: "center",
+                position: "relative",
+                overflow: "hidden",
+                boxShadow: flashNumber
+                  ? `0 0 25px ${lastInfo?.color || "#ffd43b"}99`
+                  : `0 0 12px ${lastInfo?.color || "#f39c12"}55`,
+                transition: "all 0.3s ease",
+                flexShrink: 0,
+              }}
+            >
               <button
                 onClick={() => setSoundOn((s) => !s)}
                 style={{
@@ -1543,7 +1562,7 @@ export default function LiveGame({
               </div>
           </>
         )}
-      
+      </div>
     </>
   );
 }
