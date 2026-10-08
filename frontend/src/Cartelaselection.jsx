@@ -284,7 +284,7 @@ export default function CartelaSelection({
             letterSpacing: 1,
           }}
         >
-          CHOOSE CARDS
+          CHOOSE CARTELA
         </div>
         <div
           style={{
@@ -295,7 +295,6 @@ export default function CartelaSelection({
             marginTop: 2,
           }}
         >
-          {roomCode} • STAKE {stake} ETB
           {remainingSec === null && " • syncing…"}
           {notice && <span style={{ color: "#e74c3c" }}> • {notice}</span>}
         </div>

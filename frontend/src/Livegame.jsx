@@ -735,22 +735,39 @@ export default function LiveGame({
           paddingBottom: 90,
         }}
       >
-        {/* ═══ STATS — 5 አምዶች በአንድ መስመር ═══ */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(5, 1fr)",
-            gap: 3,
-            marginBottom: 6,
-            flexShrink: 0,
-          }}
-        >
-          <Stat label="Game" value={roomCode} color="#f39c12" />
-          <Stat label="Players" value={playerCount} color="#3498db" />
-          <Stat label="Stake" value={entryFee} color="#9c27b0" />
-          <Stat label="ደራሽ" value={prizePool} color="#2ecc71" />
-          <Stat label="Called" value={calledNumbers.length} color="#ffd43b" />
-        </div>
+        {/* ═══ STATS — icon + label + value (Choose Cards style) ═══ */}
+<div
+  style={{
+    display: "grid",
+    gridTemplateColumns: "repeat(5, 1fr)",
+    background:
+      "linear-gradient(135deg, rgba(243,156,18,0.08), rgba(15,20,32,0.9))",
+    border: "1px solid rgba(243,156,18,0.5)",
+    borderRadius: 10,
+    padding: "6px 4px",
+    marginBottom: 6,
+    flexShrink: 0,
+    boxShadow: "0 0 12px rgba(243,156,18,0.15)",
+  }}
+>
+  <Stat icon="🎮" label="Game" value={roomCode} color="#f39c12" size={11} />
+  <Stat
+    icon="👥"
+    label="Players"
+    value={playerCount}
+    color="#3498db"
+    size={14}
+  />
+  <Stat icon="🎯" label="Stake" value={entryFee} color="#e91e63" size={14} />
+  <Stat icon="💰" label="Derash" value={prizePool} color="#2ecc71" size={14} />
+  <Stat
+    icon="📢"
+    label="Called"
+    value={calledNumbers.length}
+    color="#ffd43b"
+    size={14}
+  />
+</div>
 
         {/* MAIN 2-COLUMN */}
         <div
@@ -836,7 +853,7 @@ export default function LiveGame({
                   fontWeight: "bold",
                 }}
               >
-                ⚡ CURRENT
+              
               </div>
 
               {lastInfo ? (
@@ -937,7 +954,7 @@ export default function LiveGame({
                   fontWeight: "bold",
                 }}
               >
-                📢 {calledNumbers.length} / 75
+                
               </div>
             </div>
 
@@ -1049,7 +1066,7 @@ export default function LiveGame({
                         letterSpacing: 1,
                       }}
                     >
-                      🎴 MY CARDS
+                      🎴 MY CARTELA
                     </div>
                     <div
                       style={{
@@ -1116,7 +1133,7 @@ export default function LiveGame({
               fontWeight: "bold",
             }}
           >
-            🎴 የመረጧቸው ካርቴላዎች:{" "}
+            🎴 SELECTED CARTELAS:{" "}
             <span style={{ color: "#fff" }}>{cards.length}</span>
           </div>
           <button
@@ -1525,33 +1542,35 @@ export default function LiveGame({
   );
 }
 
-function Stat({ label, value, color = "#fff" }) {
+function Stat({ icon, label, value, color = "#fff", size = 16 }) {
   return (
-    <div
-      style={{
-        background: `linear-gradient(135deg, ${color}22, ${color}08)`,
-        border: `1px solid ${color}66`,
-        borderRadius: 8,
-        padding: "4px 2px",
-        textAlign: "center",
-      }}
-    >
+    <div style={{ textAlign: "center", padding: "2px 0" }}>
+      {/* Icon on top */}
+      <div style={{ fontSize: 14, marginBottom: 2, lineHeight: 1 }}>
+        {icon}
+      </div>
+      {/* Label in middle */}
       <div
         style={{
-          color: "#aaa",
-          fontSize: 7,
-          marginBottom: 1,
+          color: "#888",
+          fontSize: 8,
+          marginBottom: 2,
           fontWeight: "bold",
           letterSpacing: 0.3,
+          lineHeight: 1.2,
         }}
       >
         {label}
       </div>
+      {/* Value at bottom — large colored monospace */}
       <div
         style={{
           color,
-          fontSize: 10,
-          fontWeight: "bold",
+          fontSize: size,
+          fontWeight: "900",
+          lineHeight: 1.15,
+          fontFamily: "monospace",
+          letterSpacing: 0.5,
           textShadow: `0 0 8px ${color}66`,
         }}
       >
