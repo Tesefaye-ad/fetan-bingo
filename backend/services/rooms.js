@@ -2,10 +2,7 @@
 // ROOMS SERVICE — ለ REST እና ለ Socket የሚጋራ የክፍል አስተዳደር
 // ═══════════════════════════════════════════════════════
 const Game = require("../models/Game");
-const {
-  generate1250Cards,
-  TOTAL_CARDS,
-} = require("../utils/bingoCard");
+const { generate1250Cards, TOTAL_CARDS } = require("../utils/bingoCard");
 const {
   getNextDailyStart,
   isWeeklyRoom,
@@ -27,19 +24,18 @@ const EASY_PATTERNS = ["any-row", "any-column"];
 const HARD_PATTERNS = ["any-diagonal", "four-corners", "full-card"];
 
 // የእያንዳንዱ ፓተርን የመመረጥ ዕድል (ክብደት)
-// ብዙ ክብደት = ብዙ ጊዜ ይመረጣል
 const PATTERN_WEIGHTS = {
   // 🟢 ቀላል
-  "any-row": 6,         // 60%
-  "any-column": 4,      // 40%
+  "any-row": 6, // 60%
+  "any-column": 4, // 40%
   // 🔴 ከባድ
-  "any-diagonal": 4,    // 40%
-  "four-corners": 4,    // 40%
-  "full-card": 2,       // 20%
+  "any-diagonal": 4, // 40%
+  "four-corners": 4, // 40%
+  "full-card": 2, // 20%
 };
 
 // ገደብ — ከዚህ በታች ቀላል፣ ከዚህ በላይ ከባድ
-const HARD_STAKE_THRESHOLD = 50;
+const HARD_STAKE_THRESHOLD = Number(process.env.HARD_STAKE_THRESHOLD || 50);
 
 /**
  * 👈 በSTAKE ደረጃ የተመደበ ራንደም ፓተርን ይመርጣል
@@ -58,23 +54,15 @@ function pickRandomPattern(fee) {
     for (let i = 0; i < w; i++) weightPool.push(p);
   }
 
-  const picked = weightPool[Math.floor(Math.random() * weightPool.length)];
-
-  const tier = isHard ? "🔴 HARD" : "🟢 EASY";
-  console.log(
-    `[rooms] fee=${feeNum} → ${tier} → 🎯 ${picked}  (pool: ${pool.join(" | ")})`
-  );
-  return picked;
+  return weightPool[Math.floor(Math.random() * weightPool.length)];
 }
 
 /**
  * 👈 የክፍሉን የማሸነፊያ ፓተርን ይወስናል
- * - Weekly rooms (ROOM50/ROOM100) → ሁልጊዜ ከባድ
  * - ROOM10/ROOM20 → ቀላል
+ * - ROOM50/ROOM100 → ከባድ
  */
 function patternForRoom(roomCode, fee) {
-  // 👈 weekly rooms ሁልጊዜ ከባድ (በ pickRandomPattern በ fee ይወሰናል)
-  // (ROOM50/ROOM100 → fee >= 50 → HARD)
   return pickRandomPattern(fee);
 }
 
@@ -184,7 +172,7 @@ function publicState(game) {
     totalCards,
     calledNumbers: game.calledNumbers,
     maxNumber: game.maxNumber,
-    takenCards: game.players.map((p) => p.cardId),
+    takenCards: (game.players || []).map((p) => p.cardId),
     reservedCards: (game.reservedCards || []).map((r) => r.cardId),
     winPattern: game.winPattern || "any-row",
     isWeeklyGame: !!game.isWeeklyGame,

@@ -15,7 +15,6 @@ const {
   TOTAL_CARDS,
   checkWin,
   computeMarked,
-  getPatternForRoom,
 } = require("../utils/bingoCard");
 const { verifySocketToken } = require("../routes/auth");
 const rooms = require("../services/rooms");
@@ -240,7 +239,10 @@ function initGameSocket(io) {
 
         const prizePool =
           Math.floor(game.entryFee * PRIZE_SHARE) * players.length;
-        const pattern = getPatternForRoom(game.entryFee);
+
+        // 👈 በየጨዋታው ራንደም ፓተርን (ቀላል ለ 10/20, ከባድ ለ 50/100)
+        const pattern = rooms.pickRandomPattern(game.entryFee);
+
         await Game.updateOne(
           { _id: game._id },
           { $set: { players, reservedCards: [], prizePool, winPattern: pattern } }
@@ -669,7 +671,6 @@ function initGameSocket(io) {
           (r) => r.telegramId === socket.telegramId
         );
         if (mine.some((r) => r.cardId === cardId)) return; // አስቀድሞ የራሱ ነው
-        // 👈 ገደብ ተወግዷል — ብር ብቻ ወሰን ነው
 
         // 1) ክፍያ (ቀሪ ሂሳብ በቂ ከሆነ ብቻ — atomic)
         const user = await User.findOneAndUpdate(
@@ -694,7 +695,6 @@ function initGameSocket(io) {
             [deadlineField]: { $gt: new Date() },
             "reservedCards.cardId": { $ne: cardId },
             "players.cardId": { $ne: cardId },
-            // 👈 የካርቴላ ገደብ ተወግዷል
           },
           {
             $push: {
