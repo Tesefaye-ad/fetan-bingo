@@ -12,6 +12,7 @@ import {
   getAchievements,
   getNotifications,
   markNotificationsRead,
+  getWalletHistory,
   useTelegram,
 } from "./api";
 
@@ -23,7 +24,6 @@ const ENV_ADMIN_IDS = (process.env.REACT_APP_ADMIN_IDS || "")
 const ADMIN_IDS =
   ENV_ADMIN_IDS.length > 0 ? ENV_ADMIN_IDS : DEFAULT_ADMIN_IDS;
 
-// 👈 60s ለ Render cold start (ከ axios 60s timeout ጋር እንዲመሳሰል)
 const LOGIN_TIMEOUT_MS = 60000;
 
 const SHARED_ROOMS = {
@@ -58,7 +58,7 @@ function Login({ onLoggedIn }) {
         bonusBalance: 200,
         gamesWon: 0,
         referralCount: 0,
-        isAdmin: true, // 👈 Dev ሁኔታ — admin አሳይ
+        isAdmin: true,
       });
       return;
     }
@@ -79,7 +79,6 @@ function Login({ onLoggedIn }) {
         if (cancelled) return;
         console.warn("[Login] failed:", err?.message);
 
-        // 👈 Fallback — ግን isAdmin ከ ADMIN_IDS እንወስን
         if (telegramUser?.id) {
           const tgId = String(telegramUser.id);
           const isAdminFallback = ADMIN_IDS.includes(tgId);
@@ -90,7 +89,7 @@ function Login({ onLoggedIn }) {
             username: telegramUser.username || `user_${tgId}`,
             balance: 0,
             gamesWon: 0,
-            isAdmin: isAdminFallback, // 👈 እዚህ ወሳኝ ነው!
+            isAdmin: isAdminFallback,
           });
         } else {
           onLoggedIn(null);
@@ -225,24 +224,6 @@ function GameLobby({ onPlayStake }) {
             Fetan Bingo
           </span>
         </h1>
-
-        <div
-          style={{
-            marginTop: 12,
-            color: "#888",
-            fontSize: 13,
-            fontWeight: "600",
-            letterSpacing: 4,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 10,
-          }}
-        >
-          <span style={{ color: "#f39c12", fontSize: 14 }}>✦</span>
-          <span>ቁጥር ያግኙ ያሸንፉ</span>
-          <span style={{ color: "#f39c12", fontSize: 14 }}>✦</span>
-        </div>
       </div>
 
       <div
@@ -362,6 +343,323 @@ function GameLobby({ onPlayStake }) {
 }
 
 // ═══════════════════════════════════════════════════════
+// HISTORY PAGE — Transactions + Games
+// ═══════════════════════════════════════════════════════
+function HistoryPage() {
+  const [tab, setTab] = useState("transactions");
+  const [transactions, setTransactions] = useState([]);
+  const [games, setGames] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const [txs, gms] = await Promise.all([
+        getWalletHistory().catch(() => []),
+        getGameHistory(50).catch(() => []),
+      ]);
+      if (cancelled) return;
+      setTransactions(txs || []);
+      setGames(gms || []);
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const typeIcon = {
+    deposit: "📥",
+    withdrawal: "📤",
+    entry_fee: "🎯",
+    prize: "🏆",
+    refund: "↩️",
+    transfer_in: "📩",
+    transfer_out: "📨",
+  };
+
+  const isOut = (tx) =>
+    ["withdrawal", "entry_fee", "transfer_out"].includes(tx.type);
+
+  return (
+    <div
+      style={{
+        padding: 15,
+        maxWidth: 480,
+        margin: "0 auto",
+        color: "#fff",
+        paddingBottom: 100,
+        background: "linear-gradient(180deg, #0a0a14 0%, #150a2e 100%)",
+        minHeight: "100vh",
+      }}
+    >
+      {/* Header */}
+      <h2
+        style={{
+          color: "#f39c12",
+          margin: "0 0 16px",
+          fontSize: 22,
+          fontWeight: "900",
+          letterSpacing: 1,
+          textAlign: "center",
+          background: "linear-gradient(135deg, #f39c12, #ffd43b, #f39c12)",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          backgroundClip: "text",
+        }}
+      >
+        📜 HISTORY
+      </h2>
+
+      {/* Sub-tabs */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 8,
+          marginBottom: 16,
+        }}
+      >
+        <button
+          onClick={() => setTab("transactions")}
+          style={{
+            background: tab === "transactions" ? "#f39c12" : "#1a1a2e",
+            color: tab === "transactions" ? "#111" : "#fff",
+            border: `1px solid ${
+              tab === "transactions" ? "#f39c12" : "#2a2a40"
+            }`,
+            borderRadius: 10,
+            padding: "10px",
+            fontSize: 13,
+            fontWeight: "bold",
+            cursor: "pointer",
+            boxShadow:
+              tab === "transactions"
+                ? "0 0 15px rgba(243,156,18,0.4)"
+                : "none",
+          }}
+        >
+          💰 Transactions ({transactions.length})
+        </button>
+        <button
+          onClick={() => setTab("games")}
+          style={{
+            background: tab === "games" ? "#3498db" : "#1a1a2e",
+            color: "#fff",
+            border: `1px solid ${tab === "games" ? "#3498db" : "#2a2a40"}`,
+            borderRadius: 10,
+            padding: "10px",
+            fontSize: 13,
+            fontWeight: "bold",
+            cursor: "pointer",
+            boxShadow:
+              tab === "games" ? "0 0 15px rgba(52,152,219,0.4)" : "none",
+          }}
+        >
+          🎮 Games ({games.length})
+        </button>
+      </div>
+
+      {loading && (
+        <div style={{ textAlign: "center", color: "#888", padding: 40 }}>
+          Loading...
+        </div>
+      )}
+
+      {/* ═══ TRANSACTIONS ═══ */}
+      {!loading && tab === "transactions" && (
+        <>
+          {transactions.length === 0 ? (
+            <div
+              style={{
+                textAlign: "center",
+                padding: 40,
+                color: "#666",
+                border: "1px dashed #2a2a40",
+                borderRadius: 12,
+                fontSize: 13,
+              }}
+            >
+              <div style={{ fontSize: 40, marginBottom: 10, opacity: 0.5 }}>
+                📭
+              </div>
+              <div style={{ fontWeight: "700" }}>No transactions yet</div>
+            </div>
+          ) : (
+            transactions.map((tx) => {
+              const out = isOut(tx);
+              return (
+                <div
+                  key={tx._id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    background:
+                      "linear-gradient(135deg, rgba(26,26,46,0.9), rgba(15,20,32,0.9))",
+                    border: `1px solid ${
+                      tx.status === "completed"
+                        ? out
+                          ? "rgba(231,76,60,0.3)"
+                          : "rgba(46,204,113,0.3)"
+                        : tx.status === "pending"
+                        ? "rgba(243,156,18,0.4)"
+                        : "rgba(42,42,64,0.6)"
+                    }`,
+                    borderRadius: 12,
+                    padding: "12px 14px",
+                    marginBottom: 8,
+                  }}
+                >
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 10 }}
+                  >
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 10,
+                        background: out
+                          ? "rgba(231,76,60,0.15)"
+                          : "rgba(46,204,113,0.15)",
+                        border: `1px solid ${
+                          out
+                            ? "rgba(231,76,60,0.4)"
+                            : "rgba(46,204,113,0.4)"
+                        }`,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 18,
+                      }}
+                    >
+                      {typeIcon[tx.type] || "💰"}
+                    </div>
+                    <div>
+                      <div
+                        style={{
+                          fontWeight: "700",
+                          textTransform: "capitalize",
+                          fontSize: 12,
+                          marginBottom: 2,
+                        }}
+                      >
+                        {tx.type.replace("_", " ")}
+                      </div>
+                      <div style={{ color: "#666", fontSize: 10 }}>
+                        {new Date(tx.createdAt).toLocaleString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div
+                      style={{
+                        color: out ? "#e74c3c" : "#2ecc71",
+                        fontWeight: "900",
+                        fontSize: 14,
+                      }}
+                    >
+                      {out ? "-" : "+"}
+                      {tx.amount} ETB
+                    </div>
+                    <div
+                      style={{
+                        color:
+                          tx.status === "pending"
+                            ? "#f39c12"
+                            : tx.status === "failed"
+                            ? "#e74c3c"
+                            : "#666",
+                        fontSize: 9,
+                        fontWeight: "700",
+                        textTransform: "uppercase",
+                        marginTop: 2,
+                      }}
+                    >
+                      {tx.status}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </>
+      )}
+
+      {/* ═══ GAMES ═══ */}
+      {!loading && tab === "games" && (
+        <>
+          {games.length === 0 ? (
+            <div
+              style={{
+                textAlign: "center",
+                padding: 40,
+                color: "#666",
+                border: "1px dashed #2a2a40",
+                borderRadius: 12,
+                fontSize: 13,
+              }}
+            >
+              <div style={{ fontSize: 40, marginBottom: 10, opacity: 0.5 }}>
+                🎮
+              </div>
+              <div style={{ fontWeight: "700" }}>No games yet</div>
+            </div>
+          ) : (
+            games.map((g, i) => (
+              <div
+                key={i}
+                style={{
+                  background: "#1a1a2e",
+                  border: `1px solid ${g.won ? "#2ecc71" : "#2a2a40"}`,
+                  borderRadius: 10,
+                  padding: 12,
+                  marginBottom: 8,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: 4,
+                  }}
+                >
+                  <div
+                    style={{ fontWeight: "bold", fontSize: 13, color: "#fff" }}
+                  >
+                    {g.roomCode} {g.won && "🏆"}
+                  </div>
+                  <div
+                    style={{
+                      color: g.won ? "#2ecc71" : "#888",
+                      fontSize: 12,
+                      fontWeight: "bold",
+                    }}
+                  >
+                    {g.won ? `+${g.prizePool} ETB` : `-${g.entryFee} ETB`}
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: "#888" }}>
+                  {g.finishedAt
+                    ? new Date(g.finishedAt).toLocaleString()
+                    : "—"}
+                </div>
+              </div>
+            ))
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
 // PROFILE
 // ═══════════════════════════════════════════════════════
 const ALL_ACHIEVEMENTS = [
@@ -377,7 +675,6 @@ function Profile({ user, balance, onUserUpdate }) {
   const [tab, setTab] = useState("Stats");
   const [profile, setProfile] = useState(user);
   const [referral, setReferral] = useState(null);
-  const [history, setHistory] = useState([]);
   const [achievements, setAchievements] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [unread, setUnread] = useState(0);
@@ -385,10 +682,9 @@ function Profile({ user, balance, onUserUpdate }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [me, ref, hist, ach, notifs] = await Promise.all([
+      const [me, ref, ach, notifs] = await Promise.all([
         getMe().catch(() => null),
         getReferralInfo().catch(() => null),
-        getGameHistory(20).catch(() => []),
         getAchievements().catch(() => []),
         getNotifications(20).catch(() => ({
           notifications: [],
@@ -401,7 +697,6 @@ function Profile({ user, balance, onUserUpdate }) {
         onUserUpdate?.(me);
       }
       if (ref) setReferral(ref);
-      setHistory(hist);
       setAchievements(ach);
       setNotifications(notifs.notifications || []);
       setUnread(notifs.unreadCount || 0);
@@ -488,50 +783,48 @@ function Profile({ user, balance, onUserUpdate }) {
           overflowX: "auto",
         }}
       >
-        {["Stats", "History", "Achievements", "Invite", "Notifications"].map(
-          (t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              style={{
-                flex: 1,
-                minWidth: 75,
-                background: tab === t ? "#f39c12" : "#1a1a2e",
-                color: tab === t ? "#111" : "#fff",
-                border: "none",
-                borderRadius: 8,
-                padding: "8px 4px",
-                fontSize: 11,
-                fontWeight: "bold",
-                cursor: "pointer",
-                position: "relative",
-              }}
-            >
-              {t}
-              {t === "Notifications" && unread > 0 && (
-                <span
-                  style={{
-                    position: "absolute",
-                    top: -4,
-                    right: -4,
-                    background: "#e74c3c",
-                    color: "#fff",
-                    borderRadius: "50%",
-                    width: 18,
-                    height: 18,
-                    fontSize: 10,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontWeight: "bold",
-                  }}
-                >
-                  {unread}
-                </span>
-              )}
-            </button>
-          )
-        )}
+        {["Stats", "Achievements", "Invite", "Notifications"].map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            style={{
+              flex: 1,
+              minWidth: 75,
+              background: tab === t ? "#f39c12" : "#1a1a2e",
+              color: tab === t ? "#111" : "#fff",
+              border: "none",
+              borderRadius: 8,
+              padding: "8px 4px",
+              fontSize: 11,
+              fontWeight: "bold",
+              cursor: "pointer",
+              position: "relative",
+            }}
+          >
+            {t}
+            {t === "Notifications" && unread > 0 && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: -4,
+                  right: -4,
+                  background: "#e74c3c",
+                  color: "#fff",
+                  borderRadius: "50%",
+                  width: 18,
+                  height: 18,
+                  fontSize: 10,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: "bold",
+                }}
+              >
+                {unread}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
       {tab === "Stats" && (
@@ -563,48 +856,6 @@ function Profile({ user, balance, onUserUpdate }) {
             color="#e67e22"
           />
         </div>
-      )}
-
-      {tab === "History" && (
-        <>
-          {history.length === 0 && <EmptyState text="No games yet" icon="🎮" />}
-          {history.map((g, i) => (
-            <div
-              key={i}
-              style={{
-                background: "#1a1a2e",
-                border: `1px solid ${g.won ? "#2ecc71" : "#2a2a40"}`,
-                borderRadius: 10,
-                padding: 12,
-                marginBottom: 8,
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  marginBottom: 4,
-                }}
-              >
-                <div style={{ fontWeight: "bold", fontSize: 13 }}>
-                  {g.roomCode} {g.won && "🏆"}
-                </div>
-                <div
-                  style={{
-                    color: g.won ? "#2ecc71" : "#888",
-                    fontSize: 12,
-                    fontWeight: "bold",
-                  }}
-                >
-                  {g.won ? `+${g.prizePool} ETB` : `-${g.entryFee} ETB`}
-                </div>
-              </div>
-              <div style={{ fontSize: 11, color: "#888" }}>
-                {g.finishedAt ? new Date(g.finishedAt).toLocaleString() : "—"}
-              </div>
-            </div>
-          ))}
-        </>
       )}
 
       {tab === "Achievements" && (
@@ -809,7 +1060,6 @@ function App() {
   const [showCartela, setShowCartela] = useState(false);
   const [stakeAmount, setStakeAmount] = useState(10);
   const [activeTab, setActiveTab] = useState("Game");
-  const [showWalletHistory, setShowWalletHistory] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [gameStatus, setGameStatus] = useState("waiting");
 
@@ -818,21 +1068,10 @@ function App() {
     user?.isAdmin === true ||
     (user?.telegramId && ADMIN_IDS.includes(String(user.telegramId)));
 
-  // 👈 Debug log — በ console ይመልከቱ
-  useEffect(() => {
-    if (user) {
-      console.log("[App] User:", {
-        telegramId: user.telegramId,
-        isAdmin: user.isAdmin,
-        adminIds: ADMIN_IDS,
-        finalIsAdmin: isAdmin,
-      });
-    }
-  }, [user, isAdmin]);
-
   const tabs = [
     { id: "Game", label: "Game", icon: "🎮" },
     { id: "Wallet", label: "Wallet", icon: "💳" },
+    { id: "History", label: "History", icon: "📜" },
     { id: "Profile", label: "Profile", icon: "👤" },
   ];
   if (isAdmin) tabs.push({ id: "Admin", label: "Admin", icon: "⚙️" });
@@ -950,54 +1189,10 @@ function App() {
       )}
 
       {activeTab === "Wallet" && (
-        <>
-          <div
-            style={{
-              padding: "10px 15px",
-              maxWidth: "450px",
-              margin: "0 auto",
-              display: "flex",
-              gap: 8,
-            }}
-          >
-            <button
-              onClick={() => setShowWalletHistory(false)}
-              style={{
-                flex: 1,
-                background: !showWalletHistory ? "#f39c12" : "#1a1a2e",
-                color: !showWalletHistory ? "#111" : "#fff",
-                border: "1px solid #f39c12",
-                borderRadius: 10,
-                padding: "10px",
-                fontWeight: "bold",
-                cursor: "pointer",
-              }}
-            >
-              💳 Wallet
-            </button>
-            <button
-              onClick={() => setShowWalletHistory(true)}
-              style={{
-                flex: 1,
-                background: showWalletHistory ? "#f39c12" : "#1a1a2e",
-                color: showWalletHistory ? "#111" : "#fff",
-                border: "1px solid #f39c12",
-                borderRadius: 10,
-                padding: "10px",
-                fontWeight: "bold",
-                cursor: "pointer",
-              }}
-            >
-              📜 History
-            </button>
-          </div>
-          <Wallet
-            balance={balance}
-            setBalance={setBalance}
-            showHistory={showWalletHistory}
-          />
-        </>
+        <Wallet balance={balance} setBalance={setBalance} />
       )}
+
+      {activeTab === "History" && <HistoryPage />}
 
       {activeTab === "Profile" && (
         <Profile

@@ -1086,7 +1086,7 @@ export default function LiveGame({
                         fontWeight: "bold",
                       }}
                     >
-                      {cards.length} / 3
+                      {cards.length} 
                     </div>
                   </div>
 
@@ -1133,7 +1133,7 @@ export default function LiveGame({
               fontWeight: "bold",
             }}
           >
-            🎴 SELECTED CARTELAS:{" "}
+          
             <span style={{ color: "#fff" }}>{cards.length}</span>
           </div>
           <button
