@@ -5,7 +5,7 @@ const express = require("express");
 const { requireAuth } = require("./auth");
 const {
   verifyAndCreditDeposit,
-} = require("../services/telebirr/depositWorkflow");
+} = require("../services/telebirr/depositVerifier");
 
 const router = express.Router();
 router.use(requireAuth);
