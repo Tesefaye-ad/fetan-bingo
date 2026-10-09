@@ -441,276 +441,247 @@ function UserCard({ card, marked, cardId, lastNumber, cardCount = 1 }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🎯 CURRENT NUMBER — BIG & BEAUTIFUL
+// CURRENT NUMBER — Beautiful Animated Display
 // ═══════════════════════════════════════════════════════
-function CurrentNumber({
-  number,
-  letter,
-  color,
-  flash,
-  animKey,
-  soundOn,
-  onToggleSound,
-}) {
-  const c = color || "#f39c12";
-  const displayLetter = letter || "?";
+function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey, flashNumber }) {
+  if (!lastInfo) {
+    return (
+      <div
+        style={{
+          position: "relative",
+          width: 64,
+          height: 64,
+          margin: "0 auto",
+          overflow: "visible",
+        }}
+      >
+        {/* Idle pulse rings */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "50%",
+            border: "2px solid #f39c12",
+            animation: "pulseRing1 2s ease-in-out infinite",
+            pointerEvents: "none",
+          }}
+        />
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "50%",
+            border: "2px solid #f39c12",
+            animation: "pulseRing2 2s ease-in-out 0.5s infinite",
+            pointerEvents: "none",
+          }}
+        />
+
+        <div
+          style={{
+            position: "relative",
+            width: 64,
+            height: 64,
+            borderRadius: "50%",
+            background: "radial-gradient(circle, #1a1a2e 0%, #0f1420 100%)",
+            border: "3px dashed #2a2a40",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#444",
+            fontSize: 22,
+            fontWeight: "bold",
+            animation: "ringPulse 2s ease-in-out infinite",
+            zIndex: 5,
+          }}
+        >
+          ?
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
       style={{
         position: "relative",
-        background: number
-          ? `radial-gradient(circle at 50% 30%, ${c}33 0%, ${c}11 30%, #0f1420 75%)`
-          : "radial-gradient(circle at 50% 50%, #1a1a2e 0%, #0f1420 100%)",
-        border: `2px solid ${number ? c : "#2a2a40"}`,
-        borderRadius: 20,
-        padding: "16px 12px 14px",
-        textAlign: "center",
-        boxShadow: number
-          ? flash
-            ? `0 0 40px ${c}cc, 0 0 80px ${c}66, inset 0 0 30px ${c}22`
-            : `0 0 22px ${c}66, inset 0 0 15px ${c}11`
-          : "0 0 12px rgba(243,156,18,0.15)",
-        transition: "all 0.3s ease",
-        overflow: "visible", // ✅ ring አይቆረጥም
-        flexShrink: 0,
+        width: 64,
+        height: 64,
+        margin: "0 auto",
+        overflow: "visible", // 👈 ወሳኝ - rings ከውጭ እንዲታዩ
       }}
     >
-      {/* Sound toggle — bigger */}
-      <button
-        onClick={onToggleSound}
+      {/* ═══════════════════════════════════════════ */}
+      {/* 🌊 RING 1 — ውስጣዊ፣ ፈጣን */}
+      {/* ═══════════════════════════════════════════ */}
+      <div
         style={{
           position: "absolute",
-          top: 10,
-          right: 10,
-          background: soundOn
-            ? "linear-gradient(135deg, #2ecc71, #27ae60)"
-            : "linear-gradient(135deg, #555, #333)",
-          color: "#fff",
-          border: "none",
-          borderRadius: 10,
-          width: 34,
-          height: 34,
-          fontSize: 15,
-          fontWeight: "bold",
-          cursor: "pointer",
-          zIndex: 10,
-          boxShadow: soundOn
-            ? "0 0 14px rgba(46,204,113,0.8)"
-            : "0 2px 6px rgba(0,0,0,0.5)",
+          inset: 0,
+          borderRadius: "50%",
+          border: `2px solid ${lastInfo.color}`,
+          animation: "pulseRing1 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+          pointerEvents: "none",
+          boxShadow: `0 0 15px ${lastInfo.color}`,
+        }}
+      />
+
+      {/* ═══════════════════════════════════════════ */}
+      {/* 🌊 RING 2 — መካከለኛ፣ 0.3s delay */}
+      {/* ═══════════════════════════════════════════ */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: "50%",
+          border: `2px solid ${lastInfo.color}cc`,
+          animation:
+            "pulseRing2 1.5s cubic-bezier(0.4, 0, 0.6, 1) 0.3s infinite",
+          pointerEvents: "none",
+        }}
+      />
+
+      {/* ═══════════════════════════════════════════ */}
+      {/* 🌊 RING 3 — ውጫዊ፣ 0.6s delay */}
+      {/* ═══════════════════════════════════════════ */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: "50%",
+          border: `2px solid ${lastInfo.color}99`,
+          animation:
+            "pulseRing3 1.5s cubic-bezier(0.4, 0, 0.6, 1) 0.6s infinite",
+          pointerEvents: "none",
+        }}
+      />
+
+      {/* ═══════════════════════════════════════════ */}
+      {/* 🔄 Rotating Dashed Ring */}
+      {/* ═══════════════════════════════════════════ */}
+      <div
+        style={{
+          position: "absolute",
+          inset: -8,
+          borderRadius: "50%",
+          border: `2px dashed ${lastInfo.color}aa`,
+          animation: "rotateDashed 6s linear infinite",
+          pointerEvents: "none",
+        }}
+      />
+
+      {/* ═══════════════════════════════════════════ */}
+      {/* 💡 Outer Glow Aura */}
+      {/* ═══════════════════════════════════════════ */}
+      <div
+        style={{
+          position: "absolute",
+          inset: -12,
+          borderRadius: "50%",
+          background: `radial-gradient(circle, 
+                       ${lastInfo.color}33 0%, 
+                       ${lastInfo.color}11 40%, 
+                       transparent 70%)`,
+          animation: "blink 1.5s ease-in-out infinite",
+          pointerEvents: "none",
+          zIndex: 1,
+        }}
+      />
+
+      {/* ═══════════════════════════════════════════ */}
+      {/* ✨ MAIN CIRCLE */}
+      {/* ═══════════════════════════════════════════ */}
+      <div
+        key={numberAnimKey}
+        style={{
+          position: "relative",
+          width: 64,
+          height: 64,
+          borderRadius: "50%",
+          background: `radial-gradient(circle at 30% 25%, 
+                       #ffffff 0%, 
+                       #f8f8f8 35%, 
+                       ${lastInfo.color}22 70%, 
+                       ${lastInfo.color}44 100%)`,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          transition: "all 0.2s",
-        }}
-      >
-        {soundOn ? "🔊" : "🔇"}
-      </button>
-
-      {/* LIVE indicator */}
-      {number && (
-        <div
-          style={{
-            position: "absolute",
-            top: 14,
-            left: 12,
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            background: "rgba(231,76,60,0.25)",
-            border: "1px solid rgba(231,76,60,0.6)",
-            borderRadius: 20,
-            padding: "3px 9px",
-            fontSize: 8,
-            fontWeight: "900",
-            color: "#e74c3c",
-            letterSpacing: 1.2,
-          }}
-        >
-          <span
-            style={{
-              width: 5,
-              height: 5,
-              borderRadius: "50%",
-              background: "#e74c3c",
-              boxShadow: "0 0 8px #e74c3c",
-              animation: "livePulse 1s ease-in-out infinite",
-            }}
-          />
-          LIVE
-        </div>
-      )}
-
-      {/* Title */}
-      <div
-        style={{
-          color: c,
-          fontSize: 10,
-          marginBottom: 8,
-          letterSpacing: 3,
           fontWeight: "900",
-          textShadow: `0 0 12px ${c}`,
-          marginTop: number ? 18 : 4,
+          color: lastInfo.color,
+          border: `3px solid ${lastInfo.color}`,
+          animation: `
+            numberBigPop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1),
+            blink 1.5s ease-in-out infinite,
+            numberFloat 2s ease-in-out infinite
+          `,
+          zIndex: 5,
+          overflow: "hidden",
+          textShadow: `
+            0 1px 2px #ffffff,
+            0 2px 8px ${lastInfo.color}66,
+            0 0 20px ${lastInfo.color}88
+          `,
         }}
       >
-        {number ? "⚡ CURRENT BALL ⚡" : "⏳ WAITING..."}
-      </div>
-
-      {/* The BIG circle */}
-      <div
-        style={{
-          position: "relative",
-          width: 110,
-          height: 110,
-          margin: "0 auto 12px",
-        }}
-      >
-        {/* Outer pulse ring 1 */}
+        {/* 💫 Shimmer */}
         <div
           style={{
             position: "absolute",
-            inset: -10,
+            inset: 0,
             borderRadius: "50%",
-            border: `3px solid ${c}`,
-            animation: "ringPulse 1.8s ease-in-out infinite",
+            background: `linear-gradient(120deg, 
+                         transparent 30%, 
+                         rgba(255,255,255,0.85) 50%, 
+                         transparent 70%)`,
+            backgroundSize: "200% 100%",
+            animation: "shimmer 2s linear infinite",
             pointerEvents: "none",
-            opacity: 0.55,
+            mixBlendMode: "overlay",
+            zIndex: 10,
           }}
         />
 
-        {/* Outer pulse ring 2 */}
+        {/* ✨ Sparkle dot */}
         <div
           style={{
             position: "absolute",
-            inset: -20,
+            top: 6,
+            right: 8,
+            width: 4,
+            height: 4,
             borderRadius: "50%",
-            border: `2px solid ${c}88`,
-            animation: "ringPulse 1.8s ease-in-out infinite 0.35s",
+            background: "#fff",
+            boxShadow: `0 0 6px #fff, 0 0 12px ${lastInfo.color}`,
+            animation: "blink 0.8s ease-in-out infinite",
             pointerEvents: "none",
-            opacity: 0.35,
+            zIndex: 11,
           }}
         />
 
-        {/* Rotating dashed ring */}
-        {number && (
-          <div
-            style={{
-              position: "absolute",
-              inset: -5,
-              borderRadius: "50%",
-              border: `2px dashed ${c}aa`,
-              animation: "ringRotate 10s linear infinite",
-              pointerEvents: "none",
-            }}
-          />
-        )}
-
-        {/* Main circle */}
-        <div
-          key={animKey}
+        {/* Letter + Number */}
+        <span
           style={{
+            fontSize: 11,
+            opacity: 0.85,
+            marginRight: 1,
+            fontWeight: "800",
+            zIndex: 12,
             position: "relative",
-            width: 110,
-            height: 110,
-            borderRadius: "50%",
-            background: number
-              ? `radial-gradient(circle at 32% 28%, #ffffff 0%, #fafafa 30%, ${c}33 65%, ${c}66 100%)`
-              : "radial-gradient(circle at 50% 50%, #1a1a2e 0%, #0f1420 100%)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            border: number ? `5px solid ${c}` : "3px dashed #2a2a40",
-            animation: number
-              ? "numberBigPop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1)"
-              : "ringPulse 2s ease-in-out infinite",
-            boxShadow: number
-              ? `0 0 40px ${c}99, 0 0 70px ${c}44, inset 0 -10px 30px ${c}44, inset 0 10px 20px #ffffff`
-              : "none",
-            zIndex: 2,
-            overflow: "hidden",
           }}
         >
-          {number ? (
-            <>
-              <div
-                style={{
-                  fontSize: 16,
-                  fontWeight: "900",
-                  color: c,
-                  opacity: 0.75,
-                  letterSpacing: 3,
-                  lineHeight: 1,
-                  marginBottom: 2,
-                  textShadow: "0 1px 2px #ffffff",
-                }}
-              >
-                {displayLetter}
-              </div>
-              <div
-                style={{
-                  fontSize: 40,
-                  fontWeight: "900",
-                  lineHeight: 1,
-                  color: c,
-                  textShadow: `0 2px 4px #ffffff, 0 3px 10px ${c}66`,
-                  letterSpacing: -1,
-                }}
-              >
-                {number}
-              </div>
-            </>
-          ) : (
-            <div
-              style={{
-                fontSize: 40,
-                color: "#444",
-                fontWeight: "900",
-              }}
-            >
-              ?
-            </div>
-          )}
-
-          {/* Shimmer */}
-          {number && (
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                background:
-                  "linear-gradient(120deg, transparent 40%, rgba(255,255,255,0.7) 50%, transparent 60%)",
-                backgroundSize: "200% 100%",
-                animation: "shimmer 2.5s linear infinite",
-                pointerEvents: "none",
-                mixBlendMode: "overlay",
-              }}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* Bottom badge */}
-      <div
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          background: number ? `${c}22` : "rgba(243,156,18,0.1)",
-          border: `1.5px solid ${number ? c : "#f39c12"}66`,
-          borderRadius: 20,
-          padding: "4px 14px",
-          fontSize: 11,
-          color: number ? c : "#f39c12",
-          fontWeight: "900",
-          textShadow: number ? `0 0 8px ${c}66` : "none",
-          letterSpacing: 0.5,
-          boxShadow: number
-            ? `0 0 12px ${c}44, inset 0 0 10px ${c}11`
-            : "none",
-        }}
-      >
-        📢 {number ? "LIVE" : "STANDBY"}
+          {lastLetter || lastInfo.letter}
+        </span>
+        <span
+          style={{
+            fontSize: 22,
+            fontWeight: "900",
+            lineHeight: 1,
+            zIndex: 12,
+            position: "relative",
+          }}
+        >
+          {lastNumber}
+        </span>
       </div>
     </div>
   );
@@ -978,6 +949,9 @@ export default function LiveGame({
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
   const cardCount = cards.length || 1;
 
+  // ═══════════════════════════════════════════════════════
+  // 🎬 ANIMATION STYLES — 3 Pulse Rings + Shimmer + Blink
+  // ═══════════════════════════════════════════════════════
   const animationStyles = `
     @keyframes popIn {
       0% { transform: scale(0); opacity: 0; }
@@ -998,8 +972,8 @@ export default function LiveGame({
     }
     @keyframes numberBigPop {
       0% { transform: scale(0) rotate(-180deg); opacity: 0; filter: blur(10px); }
-      40% { transform: scale(1.3) rotate(10deg); opacity: 1; filter: blur(0); }
-      70% { transform: scale(1.05) rotate(-5deg); }
+      40% { transform: scale(1.4) rotate(10deg); opacity: 1; filter: blur(0); }
+      70% { transform: scale(1.1) rotate(-5deg); }
       100% { transform: scale(1) rotate(0deg); }
     }
     @keyframes ringRotate {
@@ -1007,16 +981,56 @@ export default function LiveGame({
       100% { transform: rotate(360deg); }
     }
     @keyframes ringPulse {
-      0%, 100% { transform: scale(1); opacity: 0.7; }
-      50% { transform: scale(1.15); opacity: 0.15; }
+      0%, 100% { transform: scale(1); opacity: 0.5; }
+      50% { transform: scale(1.2); opacity: 0.15; }
     }
-    @keyframes livePulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.4; transform: scale(1.4); }
+
+    /* ═══════════════════════════════════════════════════ */
+    /* ✨ አዲስ የተጨመሩ animations                        */
+    /* ═══════════════════════════════════════════════════ */
+
+    /* 🌊 3 Pulse Rings — ወደ ውጭ የሚሰፋ */
+    @keyframes pulseRing1 {
+      0%   { transform: scale(1);    opacity: 0.8; }
+      100% { transform: scale(1.9);  opacity: 0; }
     }
+    @keyframes pulseRing2 {
+      0%   { transform: scale(1);    opacity: 0.7; }
+      100% { transform: scale(2.2);  opacity: 0; }
+    }
+    @keyframes pulseRing3 {
+      0%   { transform: scale(1);    opacity: 0.6; }
+      100% { transform: scale(2.5);  opacity: 0; }
+    }
+
+    /* 💫 Shimmer — ብሩህ መብረቅ */
     @keyframes shimmer {
-      0% { background-position: -200% center; }
+      0%   { background-position: -200% center; }
       100% { background-position: 200% center; }
+    }
+
+    /* ✨ Blink — የሚያብረቀርቅ */
+    @keyframes blink {
+      0%, 100% { 
+        box-shadow: 0 0 20px currentColor, 0 0 40px currentColor, 
+                    inset 0 0 15px rgba(255,255,255,0.3);
+      }
+      50% { 
+        box-shadow: 0 0 40px currentColor, 0 0 80px currentColor, 
+                    inset 0 0 25px rgba(255,255,255,0.5);
+      }
+    }
+
+    /* 🔄 Rotate Dashed */
+    @keyframes rotateDashed {
+      0%   { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* 🌟 Number Float */
+    @keyframes numberFloat {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50%      { transform: translateY(-2px) scale(1.02); }
     }
   `;
 
@@ -1052,41 +1066,11 @@ export default function LiveGame({
             boxShadow: "0 0 12px rgba(243,156,18,0.15)",
           }}
         >
-          <Stat
-            icon="🎮"
-            label="Game"
-            value={roomCode}
-            color="#f39c12"
-            size={11}
-          />
-          <Stat
-            icon="👥"
-            label="Players"
-            value={playerCount}
-            color="#3498db"
-            size={14}
-          />
-          <Stat
-            icon="🎯"
-            label="Stake"
-            value={entryFee}
-            color="#e91e63"
-            size={14}
-          />
-          <Stat
-            icon="💰"
-            label="Derash"
-            value={prizePool}
-            color="#2ecc71"
-            size={14}
-          />
-          <Stat
-            icon="📢"
-            label="Called"
-            value={calledNumbers.length}
-            color="#ffd43b"
-            size={14}
-          />
+          <Stat icon="🎮" label="Game" value={roomCode} color="#f39c12" size={11} />
+          <Stat icon="👥" label="Players" value={playerCount} color="#3498db" size={14} />
+          <Stat icon="🎯" label="Stake" value={entryFee} color="#e91e63" size={14} />
+          <Stat icon="💰" label="Derash" value={prizePool} color="#2ecc71" size={14} />
+          <Stat icon="📢" label="Called" value={calledNumbers.length} color="#ffd43b" size={14} />
         </div>
 
         {/* MAIN 2-COLUMN */}
@@ -1100,16 +1084,8 @@ export default function LiveGame({
           }}
         >
           {/* LEFT: 75-TRACKER */}
-          <div
-            style={{
-              overflowY: "auto",
-              minHeight: 0,
-            }}
-          >
-            <NumberTracker
-              calledNumbers={calledNumbers}
-              lastNumber={lastNumber}
-            />
+          <div style={{ overflowY: "auto", minHeight: 0 }}>
+            <NumberTracker calledNumbers={calledNumbers} lastNumber={lastNumber} />
           </div>
 
           {/* RIGHT COLUMN */}
@@ -1121,18 +1097,59 @@ export default function LiveGame({
               minHeight: 0,
             }}
           >
-            {/* 🎯 CURRENT — BIG & BEAUTIFUL */}
-            <CurrentNumber
-              number={lastNumber}
-              letter={lastLetter || lastInfo?.letter}
-              color={lastInfo?.color}
-              flash={flashNumber}
-              animKey={numberAnimKey}
-              soundOn={soundOn}
-              onToggleSound={() => setSoundOn((s) => !s)}
-            />
+            {/* CURRENT — Beautiful Animated Circle */}
+            <div
+              style={{
+                background: lastInfo
+                  ? `linear-gradient(135deg, ${lastInfo.color}33 0%, #1a1a2e 40%, #0f1420 100%)`
+                  : "linear-gradient(135deg, #1a1a2e, #0f1420)",
+                border: flashNumber
+                  ? `2px solid ${lastInfo?.color || "#ffd43b"}`
+                  : "2px solid #f39c12",
+                borderRadius: 12,
+                padding: "12px 6px 10px",
+                textAlign: "center",
+                position: "relative",
+                overflow: "visible",
+                boxShadow: flashNumber
+                  ? `0 0 25px ${lastInfo?.color || "#ffd43b"}99`
+                  : `0 0 12px ${lastInfo?.color || "#f39c12"}55`,
+                transition: "all 0.3s ease",
+                flexShrink: 0,
+              }}
+            >
+              <button
+                onClick={() => setSoundOn((s) => !s)}
+                style={{
+                  position: "absolute",
+                  top: 4,
+                  right: 4,
+                  background: soundOn
+                    ? "linear-gradient(135deg, #2ecc71, #27ae60)"
+                    : "#555",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 5,
+                  padding: "2px 5px",
+                  fontSize: 10,
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                  zIndex: 20,
+                }}
+              >
+                {soundOn ? "🔊" : "🔇"}
+              </button>
 
-            {/* SCROLLABLE */}
+              <CurrentNumber
+                lastInfo={lastInfo}
+                lastLetter={lastLetter}
+                lastNumber={lastNumber}
+                numberAnimKey={numberAnimKey}
+                flashNumber={flashNumber}
+              />
+            </div>
+
+            {/* SCROLLABLE: PATTERN + CARDS */}
             <div
               style={{
                 flex: 1,
@@ -1146,8 +1163,7 @@ export default function LiveGame({
               {/* PATTERN */}
               <div
                 style={{
-                  background:
-                    "linear-gradient(135deg, #1a1a2e 0%, #0f1420 100%)",
+                  background: "linear-gradient(135deg, #1a1a2e 0%, #0f1420 100%)",
                   border: "2px solid #f39c12",
                   borderRadius: 10,
                   padding: 5,
@@ -1412,7 +1428,7 @@ export default function LiveGame({
                 </span>
               </div>
 
-              {/* WINNERS */}
+              {/* WINNERS LIST */}
               <div
                 style={{
                   background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
@@ -1446,7 +1462,9 @@ export default function LiveGame({
                       borderRadius: 8,
                       padding: "6px 8px",
                       marginBottom:
-                        i < Math.min(bingoPopup.winners.length, 3) - 1 ? 5 : 0,
+                        i < Math.min(bingoPopup.winners.length, 3) - 1
+                          ? 5
+                          : 0,
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
