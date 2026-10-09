@@ -12,7 +12,8 @@ const SYNC_RETRIES = 8;
 //  • ሰዓቱ ሲያልቅ ጨዋታውን የሚጀምረው ሰርቨር ነው (game_started)
 //  • ካርቴላ ያልመረጠ ሰው ተመልካች ሆኖ ወደ ላይቭ ጌም ይገባል
 //  • ጨዋታው አስቀድሞ ላይቭ ከሆነ ወዲያውኑ ወደ ላይቭ ጌም ይሄዳል
-//  • 👈 የካርቴላ ገደብ የለም — ብር ብቻ ወሰን ነው
+//  • ገደብ የለም — ብር ብቻ ወሰን ነው
+//  • አንድ ካርቴላ አንድ ተጠቃሚ ብቻ → ቀይ + መጫን አይቻልም
 // ═══════════════════════════════════════════════════════
 export default function CartelaSelection({
   roomCode,
@@ -55,7 +56,7 @@ export default function CartelaSelection({
     }, 2500);
   }, []);
 
-  // ───────────── ወደ ላይቭ ጌም — ቀጥታ ያለ overlay ─────────────
+  // ───────────── ወደ ላይቭ ጌም ─────────────
   const goLive = useCallback(() => {
     if (wentLiveRef.current) return;
     wentLiveRef.current = true;
@@ -134,20 +135,32 @@ export default function CartelaSelection({
     const watch = () => s.emit("watch_room", { roomCode });
 
     const onRoomState = (st) => applyRoomState(st);
+
     const onGameStarted = (d) => {
       if (!d.roomCode || d.roomCode === roomCode) goLive();
     };
-    const onSel = ({ cardId }) =>
+
+    // ሌላ ተጠቃሚ ካርቴላ ሲመርጥ → ቀይ (ስም አይላክም)
+    const onSel = ({ cardId }) => {
+      if (typeof cardId !== "number") return;
       setTakenCards((p) => [...new Set([...p, cardId])]);
-    const onDesel = ({ cardId }) =>
+    };
+
+    // ተጠቃሚው ካርቴላ ሲመልስ → ነጻ
+    const onDesel = ({ cardId }) => {
+      if (typeof cardId !== "number") return;
       setTakenCards((p) => p.filter((x) => x !== cardId));
+    };
+
     const onBal = ({ balance: b }) => setCurrentBalance(b);
+
     const onMine = ({ roomCode: rc, cardIds }) => {
       if (rc === roomCode && Array.isArray(cardIds)) {
         setSelectedCards(cardIds);
         setTakenCards((p) => [...new Set([...p, ...cardIds])]);
       }
     };
+
     const onErr = ({ message, cardId }) => {
       flash(message || "ስህተት");
       if (cardId) setSelectedCards((p) => p.filter((x) => x !== cardId));
@@ -176,7 +189,7 @@ export default function CartelaSelection({
     };
   }, [roomCode, applyRoomState, goLive, flash]);
 
-  // ───────────── ቆጣሪ: በየ 100ms ከሰርቨር ሰዓት ይሰላል ─────────────
+  // ───────────── ቆጣሪ ─────────────
   useEffect(() => {
     if (!deadlineMs) return;
     const tick = () => {
@@ -188,7 +201,7 @@ export default function CartelaSelection({
     return () => clearInterval(id);
   }, [deadlineMs]);
 
-  // ───────────── ሰዓቱ 0 ሲደርስ ሰርቨሩ game_started እስኪልክ ይጠብቃል ─────────────
+  // ───────────── ሰዓቱ 0 ሲደርስ ─────────────
   useEffect(() => {
     if (remainingSec !== 0 || wentLiveRef.current) return;
     let stop = false;
@@ -207,13 +220,20 @@ export default function CartelaSelection({
     };
   }, [remainingSec, roomCode, applyRoomState]);
 
-  // ───────────── ካርቴላ መምረጥ / መመለስ ─────────────
-  // 👈 ገደብ የለም — ብር ብቻ ወሰን ነው
+  // ═══════════════════════════════════════════════════
+  // ካርቴላ መምረጥ / መመለስ
+  // ═══════════════════════════════════════════════════
   const handleSelect = (id) => {
     if (wentLiveRef.current || remainingSec === 0) return;
 
     const isMine = selectedCards.includes(id);
-    if (takenCards.includes(id) && !isMine) return;
+    const isTakenByOther = takenCards.includes(id) && !isMine;
+
+    // 🔴 በሌላ ተጠቃሚ ከተያዘ → flash ብቻ
+    if (isTakenByOther) {
+      flash("🔒 ካርቴላው ተይዟል");
+      return;
+    }
 
     // ራሱ የመረጠውን መመለስ
     if (isMine) {
@@ -222,7 +242,7 @@ export default function CartelaSelection({
       return;
     }
 
-    // 👈 የብር ብቻ ማረጋገጫ — የፈለገውን ያህል ይምረጥ
+    // የብር ማረጋገጫ
     if (currentBalance < stake) {
       return flash(`❌ ቀሪ ሂሳብ በቂ አይደለም — ${stake} ETB ያስፈልጋል`);
     }
@@ -231,15 +251,13 @@ export default function CartelaSelection({
     setSelectedCards((p) => [...p, id]);
   };
 
-  // ───────────── Back → ገንዘቡ ይመለስ (ጨዋታው ገና ካልጀመረ) ─────────────
+  // ───────────── Back ─────────────
   const handleCancel = () => {
     if (!wentLiveRef.current) {
       const s = getSocket();
-      // የተመረጡትን ሁሉንም መልስ
       for (const id of selectedRef.current) {
         s.emit("deselect_card", { roomCode, cardId: id });
       }
-      // ከዚያ ክፍሉን ተው
       setTimeout(() => {
         s.emit("leave_room");
         onCancel?.();
@@ -254,9 +272,6 @@ export default function CartelaSelection({
   const total = selectedCards.length * stake;
   const maxAffordable = Math.floor(currentBalance / stake);
 
-  // ═══════════════════════════════════════════════════
-  // Display
-  // ═══════════════════════════════════════════════════
   const timeStr =
     remainingSec === null ? "…" : formatCountdown(remainingSec, isWeeklyRoom);
   const isUrgent =
@@ -323,7 +338,7 @@ export default function CartelaSelection({
         </div>
       </div>
 
-      {/* Info cells: Wallet / Stake / Selected / Time */}
+      {/* Info cells */}
       <div
         style={{
           display: "grid",
@@ -358,7 +373,7 @@ export default function CartelaSelection({
         />
       </div>
 
-      {/* Selected / Total / Max row */}
+      {/* Selected / Total / Max */}
       <div
         style={{
           display: "grid",
@@ -386,7 +401,9 @@ export default function CartelaSelection({
         </span>
       </div>
 
-      {/* Numbers grid */}
+      {/* ═══════════════════════════════════════════════ */}
+      {/* Numbers grid — taken ካርቴላዎች ቀይ */}
+      {/* ═══════════════════════════════════════════════ */}
       <div
         style={{
           flex: 1,
@@ -405,16 +422,18 @@ export default function CartelaSelection({
           const isTaken =
             takenCards.includes(n) && !selectedCards.includes(n);
           const isSelected = selectedCards.includes(n);
+
           return (
             <button
               key={n}
               onClick={() => handleSelect(n)}
-              disabled={isTaken}
               style={{
                 padding: "9px 0",
                 borderRadius: 6,
                 border: isSelected
                   ? "2px solid #2ecc71"
+                  : isTaken
+                  ? "2px solid #c0392b"
                   : "1px solid #2a2a40",
                 background: isTaken
                   ? "linear-gradient(135deg, #c0392b, #8e1f1f)"
@@ -425,10 +444,13 @@ export default function CartelaSelection({
                 fontWeight: "bold",
                 fontSize: 10,
                 cursor: isTaken ? "not-allowed" : "pointer",
-                opacity: isTaken ? 0.6 : 1,
+                opacity: isTaken ? 0.7 : 1,
                 boxShadow: isSelected
                   ? "0 0 10px rgba(46,204,113,0.6)"
+                  : isTaken
+                  ? "0 0 6px rgba(192,57,43,0.5)"
                   : "none",
+                transition: "all 0.2s ease",
               }}
             >
               {n}

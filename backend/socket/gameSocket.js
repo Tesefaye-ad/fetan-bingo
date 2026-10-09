@@ -723,9 +723,10 @@ function initGameSocket(io) {
           game: game._id,
           meta: { action: "reserve", cardId },
         });
+
+        // 👈 የካርቴላው ቁጥር ብቻ ይላካል (ባለቤት ስም አይላክም)
         io.to(roomCode).emit("card_selected", {
           cardId,
-          telegramId: socket.telegramId,
         });
         socket.emit("balance_update", { balance: user.balance });
       } catch (err) {
@@ -763,9 +764,10 @@ function initGameSocket(io) {
           action: "deselect",
           cardId,
         });
+
+        // 👈 የካርቴላው ቁጥር ብቻ ይላካል
         io.to(roomCode).emit("card_deselected", {
           cardId,
-          telegramId: socket.telegramId,
         });
       } catch (err) {
         console.error("[deselect_card]", err);

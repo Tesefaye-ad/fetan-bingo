@@ -391,9 +391,7 @@ const handleBalance = async (ctx) => {
     `🧳 <b>Account Info</b>\n\n` +
     `👤 Name: <b>${esc(user.firstName || "User")} ${esc(user.lastName || "")}</b>\n` +
     `📱 Phone: ${esc(user.phone || "Not registered")}\n` +
-    `💰 Main: <b>${formatMoney(user.balance)} ETB</b>\n` +
-    `🎁 Bonus: <b>${formatMoney(user.bonusBalance || 0)} ETB</b>\n` +
-    `🆔 ID: <code>${user.telegramId}</code>`;
+    `💰 Main: <b>${formatMoney(user.balance)} ETB</b>\n` ;
 
   const keyboard = Markup.inlineKeyboard([
     [
@@ -441,10 +439,9 @@ const handleDeposit = async (ctx) => {
     `<b>የሚቀጥሉት እርምጃዎች:</b>\n\n` +
     `1️⃣ ወደ ቴሌብር ቁጥር ይላኩ:\n` +
     `<code>${DEPOSIT_PHONE}</code>\n` +
-    `👤 ስም: <b>${esc(DEPOSIT_NAME)}</b>\n\n` +
+    ` <b>${esc(DEPOSIT_NAME)}</b>\n\n` +
     `2️⃣ የተላከበትን <b>ሙሉ SMS</b> ኮፒ አድርገው እዚህ ላይ Paste ያድርጉ\n\n` +
-    `⚠️ <i>አነስተኛ: ${MIN_DEPOSIT} ETB</i>\n` +
-    `⚠️ <i>ራሱ ያረጋግጣል — አስተዳዳሪ አያስፈልግም!</i>`;
+   
 
   await ctx.reply(text, {
     parse_mode: "HTML",
