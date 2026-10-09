@@ -5,13 +5,15 @@ const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
 
+// ═══════════════════════════════════════════════════════
+// ROUTES
+// ═══════════════════════════════════════════════════════
 const authRoutes = require("./routes/auth");
 const walletRoutes = require("./routes/wallet");
-const telebirrDeposit = require("./routes/telebirrDeposit");
+const depositRoutes = require("./routes/deposit"); // 👈 አዲሱ (telebirrDeposit ተተክቷል)
 const gameRoutes = require("./routes/game");
 const adminRoutes = require("./routes/admin");
 const { initGameSocket } = require("./socket/gameSocket");
-const depositRoutes = require("./routes/deposit");
 
 // ═══════════════════════════════════════════════════════
 // DATABASE CONNECTION
@@ -91,24 +93,38 @@ app.get("/", (req, res) =>
 app.get("/health", (req, res) => res.json({ ok: true, ts: Date.now() }));
 
 // ═══════════════════════════════════════════════════════
-// 👈 ROUTES — userRouter አሁን ተጭኗል!
+// ROUTES — MOUNT
 // ═══════════════════════════════════════════════════════
 app.use("/api/auth", authRoutes);
-app.use("/api/user", authRoutes.userRouter); // 👈 አዲስ — በጣም ወሳኝ!
+app.use("/api/user", authRoutes.userRouter);
+
+// 👈 walletRoutes + depositRoutes ሁለቱም /api/wallet ላይ
+//     ግን የተለያዩ መንገዶች አሏቸው — አይጋጩም:
+//     • wallet.js  → /balance, /history, /deposit/initiate, /withdraw, /transfer
+//     • deposit.js → /deposit/verify
 app.use("/api/wallet", walletRoutes);
-app.use("/api/wallet", telebirrDeposit);
-app.use("/api/game", gameRoutes);
-app.use("/api/admin", adminRoutes);
 app.use("/api/wallet", depositRoutes);
 
+app.use("/api/game", gameRoutes);
+app.use("/api/admin", adminRoutes);
+
+// ═══════════════════════════════════════════════════════
+// 404 + ERROR HANDLERS
+// ═══════════════════════════════════════════════════════
 app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
 app.use((err, req, res, next) => {
   console.error("[error]", err);
   res.status(500).json({ error: "Internal server error" });
 });
 
+// ═══════════════════════════════════════════════════════
+// SOCKET
+// ═══════════════════════════════════════════════════════
 initGameSocket(io);
 
+// ═══════════════════════════════════════════════════════
+// START SERVER
+// ═══════════════════════════════════════════════════════
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`[server] Running on port ${PORT}`);
@@ -117,7 +133,7 @@ server.listen(PORT, "0.0.0.0", () => {
 connectDB();
 
 // ═══════════════════════════════════════════════════════
-// KEEP-ALIVE
+// KEEP-ALIVE (Render cold start ለመከላከል)
 // ═══════════════════════════════════════════════════════
 const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 
