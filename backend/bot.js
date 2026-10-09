@@ -10,6 +10,7 @@ const { verifyTelebirrReceipt } = require("./services/telebirrVerify");
 // ═══════════════════════════════════════════════════════
 const User = require("./models/User");
 const Transaction = require("./models/Transaction");
+const { Notification } = require("./models/User");
 
 // ═══════════════════════════════════════════════════════
 // ADMIN TELEGRAM IDs
@@ -33,6 +34,9 @@ function getBannerSource() {
   return null;
 }
 
+// ═══════════════════════════════════════════════════════
+// ENV
+// ═══════════════════════════════════════════════════════
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WEBAPP_URL = process.env.BOT_WEBAPP_URL;
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
@@ -55,8 +59,25 @@ if (!BOT_TOKEN) {
 }
 
 const bot = new Telegraf(BOT_TOKEN);
+
+// ═══════════════════════════════════════════════════════
+// CONVERSATION STATE
+// ═══════════════════════════════════════════════════════
 const pendingAction = new Map();
 
+function setStep(userId, data) {
+  pendingAction.set(String(userId), data);
+}
+function getStep(userId) {
+  return pendingAction.get(String(userId));
+}
+function clearStep(userId) {
+  pendingAction.delete(String(userId));
+}
+
+// ═══════════════════════════════════════════════════════
+// MAIN KEYBOARD
+// ═══════════════════════════════════════════════════════
 const MAIN_MENU_TEXT =
   "👋 Welcome to Fetan Bingo! Choose an option below.\n\n" +
   "እንኳን ወደ Fetan Bingo በደህና መጡ! ከታች ያሉትን ቁልፎች በመጠቀም ጨዋታውን መጫወት ይችላሉ።";
@@ -73,19 +94,47 @@ function mainKeyboard() {
       Markup.button.callback("Deposit 💵", "action_deposit"),
     ],
     [
-      Markup.button.callback("Withdraw 💵", "action_withdraw"),
+      Markup.button.callback("Withdraw 📤", "action_withdraw"),
       Markup.button.callback("Invite 🔗", "action_invite"),
     ],
     [
       Markup.button.callback("Instruction 📖", "action_instruction"),
       Markup.button.callback("Contact Support ☎️", "action_support"),
     ],
-    
+    [Markup.button.callback("Convert Bonus 💱", "action_convert")],
   ]);
 }
 
 // ═══════════════════════════════════════════════════════
-// Telebirr SMS መተንተኛ
+// HELPERS
+// ═══════════════════════════════════════════════════════
+function formatMoney(n) {
+  return Number(n || 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function esc(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+async function notifyAdmin(text) {
+  if (!ADMIN_CHAT_ID) return;
+  try {
+    await bot.telegram.sendMessage(ADMIN_CHAT_ID, text, {
+      parse_mode: "HTML",
+    });
+  } catch (err) {
+    console.error("[bot] admin notify failed:", err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// Telebirr SMS Parser (internal)
 // ═══════════════════════════════════════════════════════
 function parseTelebirrSMS(text) {
   const clean = String(text || "").replace(/\s+/g, " ").trim();
@@ -160,7 +209,7 @@ function parseTelebirrSMS(text) {
 }
 
 // ═══════════════════════════════════════════════════════
-// ፈጣን የተጠቃሚ ፍለጋ/ፍጠር
+// GET OR CREATE USER
 // ═══════════════════════════════════════════════════════
 async function getOrCreateUser(ctx, referredBy) {
   try {
@@ -176,6 +225,7 @@ async function getOrCreateUser(ctx, referredBy) {
           username: tgUser.username,
           firstName: tgUser.first_name,
           lastName: tgUser.last_name,
+          lastActiveAt: new Date(),
         },
         $setOnInsert: {
           balance: 0,
@@ -206,7 +256,7 @@ async function getOrCreateUser(ctx, referredBy) {
 }
 
 // ═══════════════════════════════════════════════════════
-// የ referral ቦነስ
+// REFERRAL BONUS
 // ═══════════════════════════════════════════════════════
 async function processReferralBonus(telegramId, referredBy) {
   try {
@@ -233,14 +283,16 @@ async function processReferralBonus(telegramId, referredBy) {
   }
 }
 
-// ---------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════
 // /start
-// ---------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════
 bot.start(async (ctx) => {
   try {
     const payload = ctx.startPayload || "";
     const referredBy = payload.startsWith("ref_") ? payload.slice(4) : null;
     const telegramId = String(ctx.from.id);
+
+    clearStep(telegramId);
 
     const banner = getBannerSource();
     if (banner) {
@@ -275,9 +327,9 @@ bot.action("play_not_configured", async (ctx) => {
   await ctx.reply("The game link isn't configured yet.");
 });
 
-// ---------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════
 // REGISTER
-// ---------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════
 const handleRegister = async (ctx) => {
   const user = await getOrCreateUser(ctx);
   if (!user) return ctx.reply("Please try again.");
@@ -327,30 +379,30 @@ bot.on("contact", async (ctx) => {
   }
 });
 
-// ---------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════
 // CHECK BALANCE
-// ---------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════
 const handleBalance = async (ctx) => {
   const user = await getOrCreateUser(ctx);
   if (!user) return;
 
   const text =
-    `🧳 Account Info\n\n` +
-    `Name:     ${user.firstName || "User"} ${user.lastName || ""}\n` +
-    `Phone:    ${user.phone || "Not registered"}\n` +
-    `Main wallet:  ${user.balance}\n` +
-    `Play wallet:  ${user.bonusBalance || 0}\n` +
-    `Coin:      0`;
+    `🧳 <b>Account Info</b>\n\n` +
+    `👤 Name: <b>${esc(user.firstName || "User")} ${esc(user.lastName || "")}</b>\n` +
+    `📱 Phone: ${esc(user.phone || "Not registered")}\n` +
+    `💰 Main: <b>${formatMoney(user.balance)} ETB</b>\n` +
+    `🎁 Bonus: <b>${formatMoney(user.bonusBalance || 0)} ETB</b>\n` +
+    `🆔 ID: <code>${user.telegramId}</code>`;
 
   const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("📋 COPY CODE", "copy_code")],
     [
-      Markup.button.callback("💵 Deposit", "action_deposit"),
-      Markup.button.callback("🤑 Withdraw", "action_withdraw"),
+      Markup.button.callback("📥 Deposit", "action_deposit"),
+      Markup.button.callback("📤 Withdraw", "action_withdraw"),
     ],
+    [Markup.button.callback("📋 COPY CODE", "copy_code")],
   ]);
 
-  await ctx.reply(text, keyboard);
+  await ctx.reply(text, { parse_mode: "HTML", ...keyboard });
 };
 
 bot.hears("Check Balance 💵", handleBalance);
@@ -373,25 +425,30 @@ bot.action("copy_code", async (ctx) => {
   }
 });
 
-// ---------------------------------------------------------------------
-// DEPOSIT
-// ---------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════
+// 💵 DEPOSIT FLOW
+// ═══════════════════════════════════════════════════════
 const handleDeposit = async (ctx) => {
-  getOrCreateUser(ctx).catch(() => {});
+  const user = await getOrCreateUser(ctx);
+  if (!user) return;
+
+  setStep(user.telegramId, { type: "deposit" });
 
   const text =
-    "💵 ማስገባት የሚፈልጉትን መጠን ከ10 ብር ጀምሮ ያስገቡ::\n\n" +
-    "✨ ብር ማስገባት የሚችሉት አሁን በተቀመጠው የ Telebirr አካውንት ብቻ ነው::\n" +
-    "🚫 ከዚህ ውጭ የላከ አንስተናግድም 🚫\n\n" +
-    "👇 Telebirr የሚለውን ይምረጡ 👇";
+    `💵 <b>Deposit Money</b>\n\n` +
+    `✨ ብር ማስገባት የሚችሉት አሁን በተቀመጠው የ Telebirr አካውንት ብቻ ነው::\n\n` +
+    `<b>የሚቀጥሉት እርምጃዎች:</b>\n\n` +
+    `1️⃣ ወደ ቴሌብር ቁጥር ይላኩ:\n<code>${DEPOSIT_PHONE}</code>\n\n` +
+    `2️⃣ የተላከበትን <b>ሙሉ SMS</b> ኮፒ አድርገው እዚህ ላይ Paste ያድርጉ\n\n` +
+    `⚠️ <i>አነስተኛ: ${MIN_DEPOSIT} ETB</i>\n` +
+    `⚠️ <i>አስተዳዳሪ አያስፈልግም — ራሱ ያረጋግጣል!</i>`;
 
-  const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("Telebirr", "telebirr_pay")],
-    [Markup.button.callback("❌ Cancel", "cancel_action")],
-  ]);
-
-  await ctx.reply(text, keyboard);
-  pendingAction.set(String(ctx.from.id), { type: "deposit" });
+  await ctx.reply(text, {
+    parse_mode: "HTML",
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback("❌ Cancel", "cancel_action")],
+    ]),
+  });
 };
 
 bot.hears("Deposit 💵", handleDeposit);
@@ -400,57 +457,317 @@ bot.action("action_deposit", async (ctx) => {
   await handleDeposit(ctx);
 });
 
-bot.action("telebirr_pay", async (ctx) => {
-  await ctx.answerCbQuery();
-  await ctx.reply(
-    `የሚያጋጥማቹ ችግር ካለ: ${SUPPORT_CONTACT} ላይ ያግኙን::\n\n` +
-      `1. ከታች ባለው የ Telebirr አካውንት ብር ያስገቡ\n` +
-      `Phone: ${DEPOSIT_PHONE}\n\n` +
-      `2. የከፈሉበትን የ SMS መልእክት (message) copy በማድረግ እዚህ ላይ Paste አድርገው ይላኩን 👇👇👇`
-  );
-});
-
-bot.action("cancel_action", async (ctx) => {
-  await ctx.answerCbQuery("❌ Cancelled");
-  pendingAction.delete(String(ctx.from.id));
-  await ctx.reply("❌ ሂደቱ ተሰርዟል።", mainKeyboard());
-});
-
-// ---------------------------------------------------------------------
-// WITHDRAW
-// ---------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════
+// 📤 WITHDRAW FLOW
+// ═══════════════════════════════════════════════════════
 const handleWithdraw = async (ctx) => {
   const user = await getOrCreateUser(ctx);
   if (!user) return;
 
-  const text =
-    "📩 ገንዘብ ማውጣት (Withdrawal)\n\n" +
-    `• ያልዎት ቀሪ ሂሳብ: ${user.balance} ETB\n` +
-    `• አነስተኛ ማውጣት የሚቻል: ${MIN_WITHDRAW} ETB\n\n` +
-    "ገንዘብ ለማውጣት በ WebApp ውስጥ ያለውን Wallet ገፅ ይጠቀሙ ወይም አስተዳዳሪውን ያናግሩ::";
+  // ─── ስልክ ቁጥር ካሌለ → ጠይቅ ───
+  if (!user.phone) {
+    setStep(user.telegramId, { type: "withdraw_phone" });
+    return ctx.reply(
+      `📱 <b>የስልክ ቁጥር ያስፈልጋል</b>\n\n` +
+        `ብር ለማውጣት መጀመሪያ የስልክ ቁጥርዎን መመዝገብ ያስፈልጋል።\n\n` +
+        `👇 የሚከፈልበትን የ Telebirr ስልክ ቁጥር ይላኩ\n` +
+        `(ለምሳሌ: <code>0911223344</code>)`,
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback("❌ Cancel", "cancel_action")],
+        ]),
+      }
+    );
+  }
 
-  await ctx.reply(text, mainKeyboard());
+  // ─── ቀሪ ሂሳብ ማረጋገጫ ───
+  if (user.balance < MIN_WITHDRAW) {
+    return ctx.reply(
+      `❌ <b>ቀሪ ሂሳብ በቂ አይደለም</b>\n\n` +
+        `💰 ያልዎት: <b>${formatMoney(user.balance)} ETB</b>\n` +
+        `📌 አነስተኛ ማውጣት: <b>${MIN_WITHDRAW} ETB</b>`,
+      { parse_mode: "HTML", ...mainKeyboard() }
+    );
+  }
+
+  // ─── Step 1: መጠን ጠይቅ ───
+  setStep(user.telegramId, { type: "withdraw_amount" });
+
+  await ctx.reply(
+    `📤 <b>Withdraw Money</b>\n\n` +
+      `💰 ያልዎት: <b>${formatMoney(user.balance)} ETB</b>\n` +
+      `📌 አነስተኛ: <b>${MIN_WITHDRAW} ETB</b>\n` +
+      `📱 ወደ: <code>${user.phone}</code>\n\n` +
+      `👇 ማውጣት የሚፈልጉትን መጠን ይላኩ (ለምሳሌ: <code>100</code>)`,
+    {
+      parse_mode: "HTML",
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback("❌ Cancel", "cancel_action")],
+      ]),
+    }
+  );
 };
 
 bot.hears("Withdraw 💵", handleWithdraw);
+bot.hears("Withdraw 📤", handleWithdraw);
 bot.action("action_withdraw", async (ctx) => {
   await ctx.answerCbQuery();
   await handleWithdraw(ctx);
 });
 
-// ---------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════
+// CONFIRM WITHDRAW (Callback)
+// ═══════════════════════════════════════════════════════
+bot.action("confirm_withdraw", async (ctx) => {
+  await ctx.answerCbQuery("⏳ Processing...");
+  try {
+    const user = await getOrCreateUser(ctx);
+    if (!user) return;
+
+    const step = getStep(user.telegramId);
+    if (!step || step.type !== "withdraw_confirm") {
+      return ctx.reply("❌ የቆየ ጥያቄ። እንደገና ይጀምሩ።", mainKeyboard());
+    }
+
+    const { amount } = step;
+    clearStep(user.telegramId);
+
+    // ═══ Atomic deduction ═══
+    const updated = await User.findOneAndUpdate(
+      {
+        _id: user._id,
+        balance: { $gte: amount },
+        isBanned: { $ne: true },
+      },
+      { $inc: { balance: -amount } },
+      { new: true }
+    );
+
+    if (!updated) {
+      return ctx.editMessageText(
+        "❌ ቀሪ ሂሳብ በቂ አይደለም ወይም አካውንትዎ ታግዷል።"
+      );
+    }
+
+    // ═══ Create pending transaction ═══
+    const tx = await Transaction.create({
+      user: user._id,
+      type: "withdrawal",
+      amount,
+      balanceAfter: updated.balance,
+      status: "pending",
+      meta: {
+        phone: updated.phone,
+        method: "telebirr",
+        source: "bot",
+        requestedAt: new Date(),
+      },
+    });
+
+    // ═══ User confirmation ═══
+    await ctx.editMessageText(
+      `✅ <b>የወጪ ጥያቄ ተልኳል</b>\n\n` +
+        `💰 መጠን: <b>${amount} ETB</b>\n` +
+        `📱 ወደ: <code>${esc(updated.phone)}</code>\n` +
+        `💳 ቀሪ ሂሳብ: <b>${formatMoney(updated.balance)} ETB</b>\n` +
+        `🔖 Ref: <code>${tx._id}</code>\n\n` +
+        `⏳ አስተዳዳሪ ካረጋገጠ በ24 ሰዓት ውስጥ ይከፈላል።`,
+      { parse_mode: "HTML" }
+    );
+    await ctx.reply("👇", mainKeyboard());
+
+    // ═══ Admin notification ═══
+    if (ADMIN_CHAT_ID) {
+      const adminText =
+        `🆕 <b>Withdrawal Request</b>\n\n` +
+        `👤 <b>${esc(updated.firstName || "User")} ${esc(
+          updated.lastName || ""
+        )}</b>\n` +
+        `🆔 <code>${updated.telegramId}</code>\n` +
+        `📱 <code>${esc(updated.phone)}</code>\n\n` +
+        `💰 መጠን: <b>${amount} ETB</b>\n` +
+        `💳 ቀሪ: <b>${formatMoney(updated.balance)} ETB</b>\n` +
+        `🔖 Ref: <code>${tx._id}</code>\n` +
+        `🕐 ${new Date().toLocaleString("en-US", {
+          timeZone: "Africa/Addis_Ababa",
+        })}`;
+
+      await bot.telegram
+        .sendMessage(ADMIN_CHAT_ID, adminText, {
+          parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: "✅ Approve", callback_data: `wd_ok:${tx._id}` },
+                { text: "❌ Reject", callback_data: `wd_no:${tx._id}` },
+              ],
+            ],
+          },
+        })
+        .catch((err) =>
+          console.error("[withdraw] admin notify failed:", err.message)
+        );
+    }
+  } catch (err) {
+    console.error("[confirm_withdraw]", err);
+    await ctx.reply("⚠️ ስህተት ተፈጥሯል። እንደገና ይሞክሩ።", mainKeyboard());
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// ADMIN WITHDRAW — APPROVE
+// ═══════════════════════════════════════════════════════
+bot.action(/^wd_ok:(.+)$/, async (ctx) => {
+  try {
+    if (!ADMIN_TELEGRAM_IDS.includes(String(ctx.from.id))) {
+      return ctx.answerCbQuery("❌ Admin only");
+    }
+    await ctx.answerCbQuery("✅ Processing...");
+
+    const txId = ctx.match[1];
+    const tx = await Transaction.findById(txId);
+    if (!tx) return ctx.editMessageText("❌ Transaction not found");
+    if (tx.status !== "pending") {
+      return ctx.editMessageText(
+        `⚠️ ይህ ግብይት ቀድሞ ተሰርቷል (${tx.status})`
+      );
+    }
+
+    tx.status = "completed";
+    await tx.save();
+
+    const user = await User.findByIdAndUpdate(
+      tx.user,
+      { $inc: { totalWithdrawals: tx.amount } },
+      { new: true }
+    );
+
+    await ctx.editMessageText(
+      `✅ <b>WITHDRAWAL APPROVED</b>\n\n` +
+        `👤 ${esc(user?.firstName || "User")}\n` +
+        `📱 <code>${esc(user?.phone)}</code>\n` +
+        `💰 ${tx.amount} ETB\n` +
+        `🔖 <code>${tx._id}</code>\n` +
+        `🕐 ${new Date().toLocaleString("en-US", {
+          timeZone: "Africa/Addis_Ababa",
+        })}`,
+      { parse_mode: "HTML" }
+    );
+
+    if (user?.telegramId) {
+      await bot.telegram
+        .sendMessage(
+          user.telegramId,
+          `✅ <b>ወጪ ጥያቄዎ ተፈጽሟል!</b>\n\n` +
+            `💰 መጠን: <b>${formatMoney(tx.amount)} ETB</b>\n` +
+            `📱 ወደ: <code>${esc(user.phone)}</code>\n` +
+            `🔖 Ref: <code>${tx._id}</code>\n\n` +
+            `💳 ገንዘቡ ወደ Telebirr ተልኳል — እባክዎ ያረጋግጡ።`,
+          { parse_mode: "HTML" }
+        )
+        .catch(() => {});
+
+      await Notification.create({
+        user: user._id,
+        title: "✅ Withdrawal Approved",
+        body: `Your withdrawal of ${tx.amount} ETB has been processed.`,
+        type: "withdraw",
+      }).catch(() => {});
+    }
+  } catch (err) {
+    console.error("[wd_ok]", err);
+    await ctx.reply("⚠️ ስህተት ተፈጥሯል።");
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// ADMIN WITHDRAW — REJECT
+// ═══════════════════════════════════════════════════════
+bot.action(/^wd_no:(.+)$/, async (ctx) => {
+  try {
+    if (!ADMIN_TELEGRAM_IDS.includes(String(ctx.from.id))) {
+      return ctx.answerCbQuery("❌ Admin only");
+    }
+    await ctx.answerCbQuery("❌ Rejecting...");
+
+    const txId = ctx.match[1];
+    const tx = await Transaction.findById(txId);
+    if (!tx) return ctx.editMessageText("❌ Transaction not found");
+    if (tx.status !== "pending") {
+      return ctx.editMessageText(
+        `⚠️ ይህ ግብይት ቀድሞ ተሰርቷል (${tx.status})`
+      );
+    }
+
+    // Refund
+    const user = await User.findByIdAndUpdate(
+      tx.user,
+      { $inc: { balance: tx.amount } },
+      { new: true }
+    );
+
+    tx.status = "failed";
+    tx.balanceAfter = user?.balance ?? tx.balanceAfter;
+    tx.meta = { ...(tx.meta || {}), rejectReason: "Rejected by admin" };
+    await tx.save();
+
+    await ctx.editMessageText(
+      `❌ <b>WITHDRAWAL REJECTED</b>\n\n` +
+        `👤 ${esc(user?.firstName || "User")}\n` +
+        `💰 ${tx.amount} ETB — ተመልሷል\n` +
+        `🔖 <code>${tx._id}</code>`,
+      { parse_mode: "HTML" }
+    );
+
+    if (user?.telegramId) {
+      await bot.telegram
+        .sendMessage(
+          user.telegramId,
+          `❌ <b>ወጪ ጥያቄዎ ውድቅ ሆኗል</b>\n\n` +
+            `💰 ${formatMoney(tx.amount)} ETB ወደ ዋሌትዎ ተመልሷል\n` +
+            `💳 አሁን: <b>${formatMoney(user.balance)} ETB</b>\n\n` +
+            `📞 ችግር ካለ ${SUPPORT_CONTACT} ያግኙን።`,
+          { parse_mode: "HTML" }
+        )
+        .catch(() => {});
+
+      await Notification.create({
+        user: user._id,
+        title: "❌ Withdrawal Rejected",
+        body: `Your withdrawal of ${tx.amount} ETB was rejected. Funds returned.`,
+        type: "warning",
+      }).catch(() => {});
+    }
+  } catch (err) {
+    console.error("[wd_no]", err);
+    await ctx.reply("⚠️ ስህተት ተፈጥሯል።");
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// CANCEL
+// ═══════════════════════════════════════════════════════
+bot.action("cancel_action", async (ctx) => {
+  await ctx.answerCbQuery("❌ Cancelled");
+  clearStep(ctx.from.id);
+  await ctx.editMessageText("❌ ሂደቱ ተሰርዟል።").catch(() => {});
+  await ctx.reply("👇", mainKeyboard());
+});
+
+// ═══════════════════════════════════════════════════════
 // INSTRUCTION
-// ---------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════
 const handleInstruction = async (ctx) => {
   const text =
-    "📖 የጨዋታው መመሪያ:\n\n" +
-    '1. "Register 📝" የሚለውን ተጭነው ይመዝገቡ።\n' +
-    '2. "Deposit 💵" የሚለውን ተጭነው ወደ ዋሌት ብር ያስቀምጡ።\n' +
-    '3. "Play 🎮" የሚለውን ተጭነው WebApp ይክፈቱ።\n' +
-    "4. የሚወዱትን እስቴክ (Stake 10 ወይም Stake 20) እና የሎተሪ ቁጥር ይምረጡ።\n" +
-    "5. ሰዓቱ ሲያልቅ እጣው በቀጥታ ይወጣል፤ ካሸነፉ ገንዘቡ ወዲያውኑ ወደ Main Walletዎ ገቢ ይሆናል!";
-
-  await ctx.reply(text, mainKeyboard());
+    `📖 <b>የጨዋታው መመሪያ</b>\n\n` +
+    `1️⃣ "Register 📝" ተጭነው ይመዝገቡ\n` +
+    `2️⃣ "Deposit 💵" ተጭነው ብር ያስገቡ\n` +
+    `   → ወደ ${DEPOSIT_PHONE} ላኩ → SMS ይለጥፉ\n` +
+    `3️⃣ "Withdraw 📤" ተጭነው ብር ያውጡ\n` +
+    `4️⃣ "Play 🎮" ተጭነው WebApp ይክፈቱ\n` +
+    `5️⃣ ካርቴላ ይምረጡ → ይጫወቱ → ያሸንፉ!`;
+  await ctx.reply(text, { parse_mode: "HTML", ...mainKeyboard() });
 };
 
 bot.hears("Instruction 📖", handleInstruction);
@@ -459,9 +776,9 @@ bot.action("action_instruction", async (ctx) => {
   await handleInstruction(ctx);
 });
 
-// ---------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════
 // INVITE
-// ---------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════
 const handleInvite = async (ctx) => {
   const user = await getOrCreateUser(ctx);
   if (!user) return;
@@ -470,26 +787,22 @@ const handleInvite = async (ctx) => {
   const link = `https://t.me/${botInfo.username}?start=ref_${user.telegramId}`;
 
   const text =
-    "🔥 ባንድዎ ያለውን ስልክ በመጠቀም ብቻ ዕድልዎን ይሞክሩ!\n\n" +
-    "🎉 ወደ Fetan Bingo ይቀላቀሉ እና አሁኑኑ መሸነፍ ይጀምሩ!\n\n" +
-    "🎁 ልዩ ቦነስ: ከታች ባለው ሊንክ ሲመዘገብ ብቻ የ 10 ETB ቦነስ በ Play Wallet ላይ ይጨመርልዎታል!\n\n" +
-    "✅ ቀላል አሰፈዋት\n" +
-    "✅ ፈጣን ዲፖዚት እና ዊዝድሮዋል\n" +
-    "✅ አስተማማኝ እና ፈጣን ክፍያ ማውጣት\n\n" +
-    "🔗 የእርሶው መጋበዣ ሊንክ:\n" +
-    `${link}\n\n` +
-    "👇 አሁን በመመዝገብ ናፍ ቦነስዎን ይሰብስቡ!";
+    `🔥 ባንድዎ ያለውን ስልክ በመጠቀም ብቻ ዕድልዎን ይሞክሩ!\n\n` +
+    `🎁 <b>ልዩ ቦነስ:</b> ከታች ባለው ሊንክ ሲመዘገብ ብቻ የ 10 ETB ቦነስ ይጨመርልዎታል!\n\n` +
+    `🔗 የእርሶው መጋበዣ ሊንክ:\n` +
+    `<code>${link}</code>\n\n` +
+    `👥 የተጋበዙ: <b>${user.referralCount || 0}</b>`;
 
   const keyboard = Markup.inlineKeyboard([
     [
       Markup.button.switchToChat(
         "📤 ለጓደኛ Share አድርግ",
-        "🎉 ወደ Fetan Lottery ተቀላቀል!"
+        `🎉 ወደ Fetan Bingo ተቀላቀል!\n${link}`
       ),
     ],
   ]);
 
-  await ctx.reply(text, keyboard);
+  await ctx.reply(text, { parse_mode: "HTML", ...keyboard });
 };
 
 bot.hears("Invite 🔗", handleInvite);
@@ -498,9 +811,9 @@ bot.action("action_invite", async (ctx) => {
   await handleInvite(ctx);
 });
 
-// ---------------------------------------------------------------------
-// SUPPORT 
-// ---------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════
+// SUPPORT
+// ═══════════════════════════════════════════════════════
 const handleSupport = async (ctx) => {
   await ctx.reply(`☎️ Need help? Message ${SUPPORT_CONTACT}.`, mainKeyboard());
 };
@@ -510,11 +823,14 @@ bot.action("action_support", async (ctx) => {
   await handleSupport(ctx);
 });
 
+// ═══════════════════════════════════════════════════════
+// CONVERT BONUS
+// ═══════════════════════════════════════════════════════
 const handleConvert = async (ctx) => {
   const user = await getOrCreateUser(ctx);
   if (!user) return;
   if (user.bonusBalance <= 0) {
-    return ctx.reply("No bonus balance to convert.", mainKeyboard());
+    return ctx.reply("❌ ምንም ቦነስ የለም።", mainKeyboard());
   }
   const converted = user.bonusBalance * BONUS_CONVERSION_RATE;
   await User.updateOne(
@@ -527,461 +843,530 @@ const handleConvert = async (ctx) => {
     type: "deposit",
     amount: converted,
     balanceAfter: user.balance + converted,
+    reference: `BONUS-${Date.now()}`,
+    status: "completed",
     meta: { source: "bonus_conversion" },
   });
 
   await ctx.reply(
-    `✅ Converted ${converted} ETB. New balance: ${
-      user.balance + converted
-    } ETB.`,
-    mainKeyboard()
+    `✅ <b>ተቀይሯል!</b>\n\n` +
+      `🎁 ቦነስ: <b>${formatMoney(user.bonusBalance)} ETB</b>\n` +
+      `💰 አዲስ ቀሪ: <b>${formatMoney(user.balance + converted)} ETB</b>`,
+    { parse_mode: "HTML", ...mainKeyboard() }
   );
 };
 
+bot.hears("Convert Bonus 💱", handleConvert);
+bot.action("action_convert", async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleConvert(ctx);
+});
 
 // ═══════════════════════════════════════════════════════
-// 📱 TEXT HANDLER — SMS + STRICT VERIFY + AUTO-APPROVE
+// 📱 TEXT HANDLER — STATE MACHINE
 // ═══════════════════════════════════════════════════════
 bot.on("text", async (ctx) => {
   try {
-    const key = String(ctx.from.id);
-    const step = pendingAction.get(key);
-
-    const user = await getOrCreateUser(ctx);
-    if (!user) return;
-
+    const userId = String(ctx.from.id);
+    const step = getStep(userId);
     const rawText = ctx.message.text.trim();
-    const parsed = parseTelebirrSMS(rawText);
 
-    // Ignore non-deposit messages
-    if (!step && !parsed.amount) return;
+    // ─── Cancel word ───
+    if (/^(cancel|exit|stop|ሰርዝ)$/i.test(rawText)) {
+      clearStep(userId);
+      return ctx.reply("❌ ሂደቱ ተሰርዟል።", mainKeyboard());
+    }
 
-    // If user just typed a plain number → guide them
-    if (step?.type === "deposit" && !parsed.transactionId && !parsed.phone) {
-      const justNumber = Number(rawText);
-      if (justNumber && justNumber > 0) {
+    // ═══════════════════════════════════════════════════
+    // 💵 DEPOSIT (SMS)
+    // ═══════════════════════════════════════════════════
+    if (!step || step.type === "deposit") {
+      const parsed = parseTelebirrSMS(rawText);
+
+      // If user just typed a plain number → guide them
+      if (step?.type === "deposit" && !parsed.transactionId && !parsed.phone) {
+        const justNumber = Number(rawText);
+        if (justNumber && justNumber > 0) {
+          return ctx.reply(
+            `📥 ማስገባት ለማድረግ <b>${justNumber} ETB</b>:\n\n` +
+              `1️⃣ ወደ <code>${DEPOSIT_PHONE}</code> ይላኩ\n` +
+              `2️⃣ የከፈሉበትን ሙሉ SMS copy አድርገው እዚህ ላይ paste ያድርጉ\n\n` +
+              `⚠️ SMS ሙሉ ጽሑፍ ይላኩ — ቁጥር ብቻ አይላኩ።`,
+            { parse_mode: "HTML", ...mainKeyboard() }
+          );
+        }
+      }
+
+      // Ignore non-deposit messages
+      if (!step && !parsed.amount) return;
+
+      // Must have amount
+      if (!parsed.amount) {
         return ctx.reply(
-          `📥 ማስገባት ለማድረግ ${justNumber} ETB:\n\n` +
-            `1️⃣ ወደ ${DEPOSIT_PHONE} ይላኩ\n` +
-            `2️⃣ የከፈሉበትን ሙሉ SMS copy አድርገው እዚህ ላይ paste ያድርጉ\n\n` +
-            `⚠️ SMS ሙሉ ጽሑፍ ይላኩ — ቁጥር ብቻ አይላኩ።`,
+          "❌ ከ SMS ውስጥ የገንዘብ መጠን ማግኘት አልቻልኩም።\n\n" +
+            "እባክዎ የ Telebirr SMS ሙሉ በሙሉ copy አድርገው እዚህ ይላኩ።",
           mainKeyboard()
         );
       }
-    }
 
-    // Must have amount
-    if (!parsed.amount) {
-      return ctx.reply(
-        "❌ ከ SMS ውስጥ የገንዘብ መጠን ማግኘት አልቻልኩም።\n\n" +
-          "እባክዎ የ Telebirr SMS ሙሉ በሙሉ copy አድርገው እዚህ ይላኩ።",
-        mainKeyboard()
-      );
-    }
-
-    let amount = parsed.amount;
-
-    // Min amount
-    if (amount < MIN_DEPOSIT) {
-      return ctx.reply(
-        `❌ አነስተኛ ማስገባት ${MIN_DEPOSIT} ETB ነው። የላኩት: ${amount} ETB`,
-        mainKeyboard()
-      );
+      return handleDepositSms(ctx, parsed);
     }
 
     // ═══════════════════════════════════════════════════
-    // DUPLICATE CHECK #1 — SMS fingerprint
+    // 📱 WITHDRAW — ስልክ ቁጥር መጀመሪያ
     // ═══════════════════════════════════════════════════
-    const existingBySMS = await Transaction.findOne({
-      "meta.smsFingerprint": parsed.fingerprint,
-    }).lean();
-
-    if (existingBySMS) {
-      const dateStr = new Date(existingBySMS.createdAt).toLocaleString(
-        "en-US",
-        {
-          timeZone: "Africa/Addis_Ababa",
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        }
-      );
-      return ctx.reply(
-        `⚠️ <b>ይህ SMS ከዚህ በፊት ተልኳል!</b>\n\n` +
-          `📅 ${dateStr}\n` +
-          `💰 ${existingBySMS.amount} ETB\n` +
-          `📋 ${existingBySMS.status.toUpperCase()}\n\n` +
-          `❌ ተመሳሳይ SMS ሁለት ጊዜ መላክ አይቻልም።`,
-        { parse_mode: "HTML", ...mainKeyboard() }
-      );
-    }
-
-    // ═══════════════════════════════════════════════════
-    // DUPLICATE CHECK #2 — Telebirr Transaction ID
-    // ═══════════════════════════════════════════════════
-    if (parsed.transactionId) {
-      const existingByTxId = await Transaction.findOne({
-        "meta.transactionId": parsed.transactionId,
-      }).lean();
-
-      if (existingByTxId) {
+    if (step.type === "withdraw_phone") {
+      const phone = rawText.replace(/[^\d+]/g, "");
+      if (!/^(09|07|\+2519|\+2517|2519|2517)\d{8}$/.test(phone)) {
         return ctx.reply(
-          `⚠️ <b>ይህ የግብይት ቁጥር ከዚህ በፊት ተልኳል!</b>\n\n` +
-            `🔖 <code>${parsed.transactionId}</code>\n` +
-            `💰 ${existingByTxId.amount} ETB\n` +
-            `📋 ${existingByTxId.status.toUpperCase()}\n\n` +
-            `❌ አንድ ግብይት ሁለት ጊዜ መመዝገብ አይቻልም።`,
-          { parse_mode: "HTML", ...mainKeyboard() }
+          "❌ ትክክለኛ የኢትዮጵያ ስልክ ቁጥር ያስገቡ (ለምሳሌ: <code>0911223344</code>)",
+          {
+            parse_mode: "HTML",
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback("❌ Cancel", "cancel_action")],
+            ]),
+          }
         );
       }
-    }
 
-    // ═══════════════════════════════════════════════════
-    // 🌐 RECEIPT ONLINE VERIFICATION — Strict
-    // ═══════════════════════════════════════════════════
-    let receiptData = null;
+      const user = await getOrCreateUser(ctx);
+      if (!user) return;
 
-    if (!parsed.transactionId) {
-      // No TxID → pending for manual review
-      const reference = `DEP-${Date.now()}-${Math.floor(Math.random() * 999)}`;
-      try {
-        await Transaction.create({
-          user: user._id,
-          type: "deposit",
-          amount,
-          balanceAfter: user.balance,
-          reference,
-          status: "pending",
-          meta: {
-            smsFingerprint: parsed.fingerprint,
-            transactionId: null,
-            smsPhone: parsed.phone || null,
-            smsRaw: parsed.raw.slice(0, 500),
-            source: "telebirr_sms",
-            requiresManualReview: true,
-            verificationReason: "no_transaction_id",
-          },
-        });
-      } catch (err) {
-        if (err.code === 11000) {
-          return ctx.reply(
-            "⚠️ ይህ SMS በቅርብ ጊዜ ተመዝግቧል።",
-            mainKeyboard()
-          );
-        }
-        throw err;
-      }
-
-      pendingAction.delete(key);
+      await User.updateOne({ _id: user._id }, { $set: { phone } });
+      clearStep(userId);
 
       await ctx.reply(
-        `⏳ <b>ማረጋገጫ አልተቻለም</b>\n\n` +
-          `📎 Transaction ID አልተገኘም\n` +
-          `💰 መጠን: <b>${amount} ETB</b>\n\n` +
-          `📋 ጥያቄዎ ለአስተዳዳሪ ተልኳል — በእጅ ይጸድቃል።\n` +
-          `🔖 Ref: <code>${reference}</code>\n\n` +
-          `⚠️ ገንዘቡ እስኪረጋገጥ ድረስ አልገባም።`,
-        { parse_mode: "HTML", ...mainKeyboard() }
+        `✅ ስልክ ቁጥር ተመዝግቧል: <code>${phone}</code>\n\n` +
+          `👇 አሁን መጠን ይላኩ`,
+        { parse_mode: "HTML" }
       );
 
-      if (ADMIN_CHAT_ID) {
-        bot.telegram
-          .sendMessage(
-            ADMIN_CHAT_ID,
-            `⚠️ <b>Manual Review (No TxID)</b>\n\n` +
-              `👤 ${user.firstName || "User"} (${user.telegramId})\n` +
-              `💰 ${amount} ETB\n` +
-              `📎 Ref: <code>${reference}</code>`,
-            { parse_mode: "HTML" }
-          )
-          .catch(() => {});
+      return handleWithdraw(ctx);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 📤 WITHDRAW — መጠን
+    // ═══════════════════════════════════════════════════
+    if (step.type === "withdraw_amount") {
+      const amount = Number(rawText.replace(/,/g, ""));
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return ctx.reply(
+          "❌ እባክዎ ትክክለኛ ቁጥር ይላኩ (ለምሳሌ: <code>100</code>)",
+          {
+            parse_mode: "HTML",
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback("❌ Cancel", "cancel_action")],
+            ]),
+          }
+        );
       }
-      return;
-    }
 
-    // ─── TxID exists → run online verification ───
-    const checkMsg = await ctx
-      .reply(
-        `🔍 ደረሰኙን በኢትዮ ቴሌኮም ላይ በማረጋገጥ ላይ...\n` +
-          `📎 ID: ${parsed.transactionId}`
-      )
-      .catch(() => null);
+      const user = await getOrCreateUser(ctx);
+      if (!user) return;
 
-    const result = await verifyTelebirrReceipt({
-      transactionId: parsed.transactionId,
-      expectedAmount: amount,
-      expectedRecipientPhone: DEPOSIT_PHONE,
-      expectedSenderPhone: user.phone || null,
-      maxAgeHours: MAX_SMS_AGE_HOURS,
-    });
-
-    if (checkMsg) {
-      ctx.telegram
-        .deleteMessage(ctx.chat.id, checkMsg.message_id)
-        .catch(() => {});
-    }
-
-    // ───────────────────────────────────────────────
-    // ❌ VERIFICATION FAILED
-    // ───────────────────────────────────────────────
-    if (!result.ok) {
-      // Case A: Explicit mismatch → REJECT outright
-      const explicitRejections = [
-        "amount_mismatch",
-        "wrong_recipient",
-        "wrong_sender",
-        "not_completed",
-        "invoice_mismatch",
-        "stale",
-        "invalid_id",
-      ];
-
-      if (explicitRejections.includes(result.reason)) {
-        pendingAction.delete(key);
-
-        await ctx.reply(
-          `${result.message}\n\n` +
-            `❌ ገንዘቡ ወደ አካውንትዎ አልገባም።\n` +
-            `📞 ችግር ካለ ${SUPPORT_CONTACT} ያግኙን።`,
+      if (amount < MIN_WITHDRAW) {
+        return ctx.reply(
+          `❌ አነስተኛ ማውጣት ${MIN_WITHDRAW} ETB ነው። የላኩት: ${amount} ETB`,
           mainKeyboard()
         );
-
-        if (ADMIN_CHAT_ID) {
-          bot.telegram
-            .sendMessage(
-              ADMIN_CHAT_ID,
-              `❌ <b>Deposit Rejected</b>\n\n` +
-                `👤 ${user.firstName || "User"} (${user.telegramId})\n` +
-                `💰 ${amount} ETB\n` +
-                `📎 Tx ID: <code>${parsed.transactionId}</code>\n` +
-                `📋 ምክንያት: ${result.reason}\n` +
-                `📝 ${result.message}`,
-              { parse_mode: "HTML" }
-            )
-            .catch(() => {});
-        }
-        return;
+      }
+      if (user.balance < amount) {
+        return ctx.reply(
+          `❌ ቀሪ ሂሳብ በቂ አይደለም።\n\n💰 ያልዎት: ${formatMoney(user.balance)} ETB`,
+          mainKeyboard()
+        );
       }
 
-      // Case B: Technical failure → pending for manual review
-      const reference = `DEP-${Date.now()}-${Math.floor(Math.random() * 999)}`;
+      // Save confirm step
+      setStep(userId, { type: "withdraw_confirm", amount });
 
-      try {
-        await Transaction.create({
-          user: user._id,
-          type: "deposit",
-          amount,
-          balanceAfter: user.balance,
-          reference,
-          status: "pending",
-          meta: {
-            smsFingerprint: parsed.fingerprint,
-            transactionId: parsed.transactionId,
-            smsPhone: parsed.phone || null,
-            smsRaw: parsed.raw.slice(0, 500),
-            source: "telebirr_sms",
-            requiresManualReview: true,
-            verificationReason: result.reason,
-            verificationMessage: result.message,
-          },
-        });
-      } catch (err) {
-        if (err.code === 11000) {
-          return ctx.reply(
-            "⚠️ ይህ ደረሰኝ በቅርብ ጊዜ ተመዝግቧል።",
-            mainKeyboard()
-          );
-        }
-        throw err;
-      }
-
-      pendingAction.delete(key);
-
-      await ctx.reply(
-        `⏳ <b>ማረጋገጫ አልተቻለም</b>\n\n` +
-          `📎 ID: <code>${parsed.transactionId}</code>\n` +
+      return ctx.reply(
+        `📋 <b>ማረጋገጫ</b>\n\n` +
           `💰 መጠን: <b>${amount} ETB</b>\n` +
-          `📋 ምክንያት: <i>${result.reason}</i>\n\n` +
-          `📋 ጥያቄዎ ለአስተዳዳሪ ተልኳል — በእጅ ይጸድቃል።\n` +
-          `🔖 Ref: <code>${reference}</code>\n\n` +
-          `⚠️ ገንዘቡ እስኪረጋገጥ ድረስ አልገባም።`,
-        { parse_mode: "HTML", ...mainKeyboard() }
+          `📱 ወደ: <code>${esc(user.phone)}</code>\n` +
+          `💳 ቀሪ በኋላ: <b>${formatMoney(user.balance - amount)} ETB</b>\n\n` +
+          `ትክክል ነው?`,
+        {
+          parse_mode: "HTML",
+          ...Markup.inlineKeyboard([
+            [
+              Markup.button.callback("✅ Confirm", "confirm_withdraw"),
+              Markup.button.callback("❌ Cancel", "cancel_action"),
+            ],
+          ]),
+        }
       );
-
-      if (ADMIN_CHAT_ID) {
-        bot.telegram
-          .sendMessage(
-            ADMIN_CHAT_ID,
-            `⚠️ <b>Manual Review Required</b>\n\n` +
-              `👤 ${user.firstName || "User"} (${user.telegramId})\n` +
-              `💰 ${amount} ETB\n` +
-              `📎 Tx ID: <code>${parsed.transactionId}</code>\n` +
-              `🔍 ምክንያት: <i>${result.reason}</i>\n` +
-              `📎 Ref: <code>${reference}</code>`,
-            { parse_mode: "HTML" }
-          )
-          .catch(() => {});
-      }
-      return;
     }
 
-    // ───────────────────────────────────────────────
-    // ✅ VERIFICATION PASSED
-    // ───────────────────────────────────────────────
-    receiptData = result.data;
-    amount = result.data.amount;
-    console.log(
-      `[verify] ✅ ${parsed.transactionId} VERIFIED via ${result.via} — ${amount} ETB`
-    );
-
-    // ═══════════════════════════════════════════════════
-    // ✅ ADD TO BALANCE
-    // ═══════════════════════════════════════════════════
-    const reference = `DEP-${Date.now()}-${Math.floor(Math.random() * 999)}`;
-
-    const canAutoApprove =
-      AUTO_APPROVE_DEPOSITS && amount <= MAX_AUTO_DEPOSIT_AMOUNT;
-
-    if (canAutoApprove) {
-      const updatedUser = await User.findByIdAndUpdate(
-        user._id,
-        {
-          $inc: {
-            balance: amount,
-            totalDeposits: amount,
-          },
-        },
-        { new: true }
+    // ─── Withdraw confirm (waiting for button) ───
+    if (step.type === "withdraw_confirm") {
+      return ctx.reply(
+        "☝️ እባክዎ ከላይ ያለውን ✅ Confirm ወይም ❌ Cancel ቁልፍ ይጠቀሙ።",
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback("✅ Confirm", "confirm_withdraw"),
+            Markup.button.callback("❌ Cancel", "cancel_action"),
+          ],
+        ])
       );
-
-      try {
-        await Transaction.create({
-          user: user._id,
-          type: "deposit",
-          amount,
-          balanceAfter: updatedUser.balance,
-          reference,
-          status: "completed",
-          meta: {
-            smsFingerprint: parsed.fingerprint,
-            transactionId: parsed.transactionId,
-            smsPhone: parsed.phone || null,
-            smsRaw: parsed.raw.slice(0, 500),
-            source: "telebirr_sms",
-            autoApproved: true,
-            verifiedVia: receiptData ? "online" : "sms",
-          },
-        });
-      } catch (err) {
-        // Rollback
-        if (err.code === 11000) {
-          await User.findByIdAndUpdate(user._id, {
-            $inc: { balance: -amount, totalDeposits: -amount },
-          });
-          return ctx.reply(
-            "⚠️ ይህ ደረሰኝ በቅርብ ጊዜ ተመዝግቧል።",
-            mainKeyboard()
-          );
-        }
-        throw err;
-      }
-
-      pendingAction.delete(key);
-
-      // ✅ SUCCESS MESSAGE
-      await ctx.reply(
-        `✅ <b>ማስገባት ተሳክቷል!</b>\n\n` +
-          `💰 መጠን: <b>+${amount} ETB</b>\n` +
-          `💳 አዲስ ቀሪ ሂሳብ: <b>${updatedUser.balance} ETB</b>\n` +
-          `🔖 Reference: <code>${reference}</code>\n` +
-          `📎 Telebirr ID: <code>${parsed.transactionId}</code>\n\n` +
-          `🎮 አሁን መጫወት ይችላሉ!`,
-        { parse_mode: "HTML", ...mainKeyboard() }
-      );
-
-      // Notify admin
-      if (ADMIN_CHAT_ID) {
-        bot.telegram
-          .sendMessage(
-            ADMIN_CHAT_ID,
-            `✅ <b>Auto-Approved Deposit</b>\n\n` +
-              `👤 ${user.firstName || "User"} (${user.telegramId})\n` +
-              `💰 <b>${amount} ETB</b>\n` +
-              `📎 Tx ID: <code>${parsed.transactionId}</code>\n` +
-              `🔍 Verified via: ${receiptData ? "online" : "sms"}\n` +
-              `📎 Ref: <code>${reference}</code>`,
-            { parse_mode: "HTML" }
-          )
-          .catch(() => {});
-      }
-    } else {
-      // Amount exceeds auto-limit → pending
-      try {
-        await Transaction.create({
-          user: user._id,
-          type: "deposit",
-          amount,
-          balanceAfter: user.balance,
-          reference,
-          status: "pending",
-          meta: {
-            smsFingerprint: parsed.fingerprint,
-            transactionId: parsed.transactionId,
-            smsPhone: parsed.phone || null,
-            smsRaw: parsed.raw.slice(0, 500),
-            source: "telebirr_sms",
-            exceedsAutoLimit: amount > MAX_AUTO_DEPOSIT_AMOUNT,
-          },
-        });
-      } catch (err) {
-        if (err.code === 11000) {
-          return ctx.reply(
-            "⚠️ ይህ SMS በቅርብ ጊዜ ተመዝግቧል።",
-            mainKeyboard()
-          );
-        }
-        throw err;
-      }
-
-      pendingAction.delete(key);
-
-      await ctx.reply(
-        `⏳ <b>ማረጋገጫ አልፏል — በእጅ ማጽደቅ ያስፈልጋል</b>\n\n` +
-          `💰 መጠን: <b>${amount} ETB</b>\n` +
-          `🔖 Ref: <code>${reference}</code>\n` +
-          `ℹ️ ከ ${MAX_AUTO_DEPOSIT_AMOUNT} ETB ይበልጣል\n\n` +
-          `⏳ አስተዳዳሪ ካረጋገጠ በኋላ ገንዘቡ ወደ ዋሌትዎ ይገባል።`,
-        { parse_mode: "HTML", ...mainKeyboard() }
-      );
-
-      if (ADMIN_CHAT_ID) {
-        bot.telegram
-          .sendMessage(
-            ADMIN_CHAT_ID,
-            `🆕 <b>Deposit Request (>Limit)</b>\n\n` +
-              `👤 ${user.firstName || "User"} (${user.telegramId})\n` +
-              `💰 <b>${amount} ETB</b>\n` +
-              `📎 Tx ID: <code>${parsed.transactionId}</code>\n` +
-              `📎 Ref: <code>${reference}</code>`,
-            { parse_mode: "HTML" }
-          )
-          .catch(() => {});
-      }
     }
   } catch (err) {
     console.error("[text handler] error:", err.message);
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// 💵 DEPOSIT — SMS Verification & Auto-Approve
+// ═══════════════════════════════════════════════════════
+async function handleDepositSms(ctx, parsed) {
+  const userId = String(ctx.from.id);
+  const user = await getOrCreateUser(ctx);
+  if (!user) return;
+
+  let amount = parsed.amount;
+
+  // Min amount
+  if (amount < MIN_DEPOSIT) {
+    return ctx.reply(
+      `❌ አነስተኛ ማስገባት ${MIN_DEPOSIT} ETB ነው። የላኩት: ${amount} ETB`,
+      mainKeyboard()
+    );
+  }
+
+  // ═══════════════════════════════════════════════════
+  // DUPLICATE CHECK #1 — SMS fingerprint
+  // ═══════════════════════════════════════════════════
+  const existingBySMS = await Transaction.findOne({
+    "meta.smsFingerprint": parsed.fingerprint,
+  }).lean();
+
+  if (existingBySMS) {
+    const dateStr = new Date(existingBySMS.createdAt).toLocaleString(
+      "en-US",
+      {
+        timeZone: "Africa/Addis_Ababa",
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }
+    );
+    return ctx.reply(
+      `⚠️ <b>ይህ SMS ከዚህ በፊት ተልኳል!</b>\n\n` +
+        `📅 ${dateStr}\n` +
+        `💰 ${existingBySMS.amount} ETB\n` +
+        `📋 ${existingBySMS.status.toUpperCase()}\n\n` +
+        `❌ ተመሳሳይ SMS ሁለት ጊዜ መላክ አይቻልም።`,
+      { parse_mode: "HTML", ...mainKeyboard() }
+    );
+  }
+
+  // ═══════════════════════════════════════════════════
+  // DUPLICATE CHECK #2 — TxID
+  // ═══════════════════════════════════════════════════
+  if (parsed.transactionId) {
+    const existingByTxId = await Transaction.findOne({
+      "meta.transactionId": parsed.transactionId,
+    }).lean();
+
+    if (existingByTxId) {
+      return ctx.reply(
+        `⚠️ <b>ይህ የግብይት ቁጥር ከዚህ በፊት ተልኳል!</b>\n\n` +
+          `🔖 <code>${parsed.transactionId}</code>\n` +
+          `💰 ${existingByTxId.amount} ETB\n` +
+          `📋 ${existingByTxId.status.toUpperCase()}\n\n` +
+          `❌ አንድ ግብይት ሁለት ጊዜ መመዝገብ አይቻልም።`,
+        { parse_mode: "HTML", ...mainKeyboard() }
+      );
+    }
+  }
+
+  // ═══════════════════════════════════════════════════
+  // 🌐 ONLINE RECEIPT VERIFICATION
+  // ═══════════════════════════════════════════════════
+  let receiptData = null;
+
+  // No TxID → manual review
+  if (!parsed.transactionId) {
+    const reference = `DEP-${Date.now()}-${Math.floor(Math.random() * 999)}`;
+    try {
+      await Transaction.create({
+        user: user._id,
+        type: "deposit",
+        amount,
+        balanceAfter: user.balance,
+        reference,
+        status: "pending",
+        meta: {
+          smsFingerprint: parsed.fingerprint,
+          transactionId: null,
+          smsPhone: parsed.phone || null,
+          smsRaw: parsed.raw.slice(0, 500),
+          source: "telebirr_sms",
+          requiresManualReview: true,
+          verificationReason: "no_transaction_id",
+        },
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        return ctx.reply(
+          "⚠️ ይህ SMS በቅርብ ጊዜ ተመዝግቧል።",
+          mainKeyboard()
+        );
+      }
+      throw err;
+    }
+
+    clearStep(userId);
+
+    await ctx.reply(
+      `⏳ <b>ማረጋገጫ አልተቻለም</b>\n\n` +
+        `📎 Transaction ID አልተገኘም\n` +
+        `💰 መጠን: <b>${amount} ETB</b>\n\n` +
+        `📋 ጥያቄዎ ለአስተዳዳሪ ተልኳል — በእጅ ይጸድቃል።\n` +
+        `🔖 Ref: <code>${reference}</code>`,
+      { parse_mode: "HTML", ...mainKeyboard() }
+    );
+
+    await notifyAdmin(
+      `⚠️ <b>Manual Review (No TxID)</b>\n\n` +
+        `👤 ${esc(user.firstName || "User")} (${user.telegramId})\n` +
+        `💰 ${amount} ETB\n` +
+        `📎 Ref: <code>${reference}</code>`
+    );
+    return;
+  }
+
+  // TxID exists → online verification
+  const checkMsg = await ctx
+    .reply(
+      `🔍 <b>ደረሰኙን በማረጋገጥ ላይ...</b>\n` +
+        `📎 ID: <code>${parsed.transactionId}</code>`,
+      { parse_mode: "HTML" }
+    )
+    .catch(() => null);
+
+  const result = await verifyTelebirrReceipt({
+    transactionId: parsed.transactionId,
+    expectedAmount: amount,
+    expectedRecipientPhone: DEPOSIT_PHONE,
+    expectedSenderPhone: user.phone || null,
+    maxAgeHours: MAX_SMS_AGE_HOURS,
+  });
+
+  if (checkMsg) {
+    ctx.telegram
+      .deleteMessage(ctx.chat.id, checkMsg.message_id)
+      .catch(() => {});
+  }
+
+  // ─── ❌ FAILED ───
+  if (!result.ok) {
+    const explicitRejections = [
+      "amount_mismatch",
+      "wrong_recipient",
+      "wrong_sender",
+      "not_completed",
+      "invoice_mismatch",
+      "stale",
+      "invalid_id",
+    ];
+
+    if (explicitRejections.includes(result.reason)) {
+      clearStep(userId);
+
+      await ctx.reply(
+        `${result.message}\n\n` +
+          `❌ ገንዘቡ ወደ አካውንትዎ አልገባም።\n` +
+          `📞 ችግር ካለ ${SUPPORT_CONTACT} ያግኙን።`,
+        mainKeyboard()
+      );
+
+      await notifyAdmin(
+        `❌ <b>Deposit Rejected</b>\n\n` +
+          `👤 ${esc(user.firstName || "User")} (${user.telegramId})\n` +
+          `💰 ${amount} ETB\n` +
+          `📎 Tx ID: <code>${parsed.transactionId}</code>\n` +
+          `📋 ምክንያት: ${result.reason}`
+      );
+      return;
+    }
+
+    // Technical failure → manual review
+    const reference = `DEP-${Date.now()}-${Math.floor(Math.random() * 999)}`;
+    try {
+      await Transaction.create({
+        user: user._id,
+        type: "deposit",
+        amount,
+        balanceAfter: user.balance,
+        reference,
+        status: "pending",
+        meta: {
+          smsFingerprint: parsed.fingerprint,
+          transactionId: parsed.transactionId,
+          smsPhone: parsed.phone || null,
+          smsRaw: parsed.raw.slice(0, 500),
+          source: "telebirr_sms",
+          requiresManualReview: true,
+          verificationReason: result.reason,
+        },
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        return ctx.reply("⚠️ ይህ ደረሰኝ በቅርብ ጊዜ ተመዝግቧል።", mainKeyboard());
+      }
+      throw err;
+    }
+
+    clearStep(userId);
+
+    await ctx.reply(
+      `⏳ <b>ማረጋገጫ አልተቻለም</b>\n\n` +
+        `📎 ID: <code>${parsed.transactionId}</code>\n` +
+        `💰 መጠን: <b>${amount} ETB</b>\n` +
+        `📋 ምክንያት: <i>${result.reason}</i>\n\n` +
+        `📋 ጥያቄዎ ለአስተዳዳሪ ተልኳል — በእጅ ይጸድቃል።\n` +
+        `🔖 Ref: <code>${reference}</code>`,
+      { parse_mode: "HTML", ...mainKeyboard() }
+    );
+
+    await notifyAdmin(
+      `⚠️ <b>Manual Review Required</b>\n\n` +
+        `👤 ${esc(user.firstName || "User")} (${user.telegramId})\n` +
+        `💰 ${amount} ETB\n` +
+        `📎 Tx ID: <code>${parsed.transactionId}</code>\n` +
+        `🔍 ምክንያት: <i>${result.reason}</i>\n` +
+        `📎 Ref: <code>${reference}</code>`
+    );
+    return;
+  }
+
+  // ─── ✅ PASSED ───
+  receiptData = result.data;
+  amount = result.data.amount;
+  console.log(
+    `[verify] ✅ ${parsed.transactionId} VERIFIED via ${result.via} — ${amount} ETB`
+  );
+
+  const reference = `DEP-${Date.now()}-${Math.floor(Math.random() * 999)}`;
+  const canAutoApprove =
+    AUTO_APPROVE_DEPOSITS && amount <= MAX_AUTO_DEPOSIT_AMOUNT;
+
+  if (canAutoApprove) {
+    const updatedUser = await User.findByIdAndUpdate(
+      user._id,
+      { $inc: { balance: amount, totalDeposits: amount } },
+      { new: true }
+    );
+
+    try {
+      await Transaction.create({
+        user: user._id,
+        type: "deposit",
+        amount,
+        balanceAfter: updatedUser.balance,
+        reference,
+        status: "completed",
+        meta: {
+          smsFingerprint: parsed.fingerprint,
+          transactionId: parsed.transactionId,
+          smsPhone: parsed.phone || null,
+          smsRaw: parsed.raw.slice(0, 500),
+          source: "telebirr_sms",
+          autoApproved: true,
+          verifiedVia: receiptData ? "online" : "sms",
+        },
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        // Rollback
+        await User.findByIdAndUpdate(user._id, {
+          $inc: { balance: -amount, totalDeposits: -amount },
+        });
+        return ctx.reply("⚠️ ይህ ደረሰኝ በቅርብ ጊዜ ተመዝግቧል።", mainKeyboard());
+      }
+      throw err;
+    }
+
+    clearStep(userId);
+
+    await ctx.reply(
+      `✅ <b>ማስገባት ተሳክቷል!</b>\n\n` +
+        `💰 መጠን: <b>+${amount} ETB</b>\n` +
+        `💳 አዲስ ቀሪ: <b>${formatMoney(updatedUser.balance)} ETB</b>\n` +
+        `🔖 Ref: <code>${reference}</code>\n` +
+        `📎 Telebirr ID: <code>${parsed.transactionId}</code>\n\n` +
+        `🎮 አሁን መጫወት ይችላሉ!`,
+      { parse_mode: "HTML", ...mainKeyboard() }
+    );
+
+    await notifyAdmin(
+      `✅ <b>Auto-Approved Deposit</b>\n\n` +
+        `👤 ${esc(user.firstName || "User")} (${user.telegramId})\n` +
+        `💰 <b>${amount} ETB</b>\n` +
+        `📎 Tx ID: <code>${parsed.transactionId}</code>\n` +
+        `🔍 Verified via: ${receiptData ? "online" : "sms"}\n` +
+        `📎 Ref: <code>${reference}</code>`
+    );
+  } else {
+    // Exceeds auto-limit → pending
+    try {
+      await Transaction.create({
+        user: user._id,
+        type: "deposit",
+        amount,
+        balanceAfter: user.balance,
+        reference,
+        status: "pending",
+        meta: {
+          smsFingerprint: parsed.fingerprint,
+          transactionId: parsed.transactionId,
+          smsPhone: parsed.phone || null,
+          smsRaw: parsed.raw.slice(0, 500),
+          source: "telebirr_sms",
+          exceedsAutoLimit: amount > MAX_AUTO_DEPOSIT_AMOUNT,
+        },
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        return ctx.reply("⚠️ ይህ SMS በቅርብ ጊዜ ተመዝግቧል።", mainKeyboard());
+      }
+      throw err;
+    }
+
+    clearStep(userId);
+
+    await ctx.reply(
+      `⏳ <b>ማረጋገጫ አልፏል — በእጅ ማጽደቅ ያስፈልጋል</b>\n\n` +
+        `💰 መጠን: <b>${amount} ETB</b>\n` +
+        `🔖 Ref: <code>${reference}</code>\n` +
+        `ℹ️ ከ ${MAX_AUTO_DEPOSIT_AMOUNT} ETB ይበልጣል\n\n` +
+        `⏳ አስተዳዳሪ ካረጋገጠ በኋላ ገንዘቡ ወደ ዋሌትዎ ይገባል።`,
+      { parse_mode: "HTML", ...mainKeyboard() }
+    );
+
+    await notifyAdmin(
+      `🆕 <b>Deposit Request (>Limit)</b>\n\n` +
+        `👤 ${esc(user.firstName || "User")} (${user.telegramId})\n` +
+        `💰 <b>${amount} ETB</b>\n` +
+        `📎 Tx ID: <code>${parsed.transactionId}</code>\n` +
+        `📎 Ref: <code>${reference}</code>`
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// ERROR
+// ═══════════════════════════════════════════════════════
 bot.catch((err, ctx) => {
   console.error(`[bot] error for ${ctx?.updateType}:`, err?.message || err);
 });
 
-// ---------------------------------------------------------------------
-// Main — Webhook Mode
-// ---------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════
+// MAIN — Webhook
+// ═══════════════════════════════════════════════════════
 async function main(app) {
   try {
     await bot.telegram.setMyCommands([
@@ -1010,6 +1395,8 @@ async function main(app) {
 
   const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
   app.use(bot.webhookCallback(webhookPath));
+
+  console.log("[bot] Fetan bingo bot registered (webhook mode)");
 }
 
 function startBot(app) {
