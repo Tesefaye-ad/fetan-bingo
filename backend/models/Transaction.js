@@ -36,45 +36,36 @@ const TransactionSchema = new mongoose.Schema(
 );
 
 // ═══════════════════════════════════════════════════════
-// 👈 INDEXES — ተደጋጋሚ SMS እና Transaction ID ለመለየት
-// ═══════════════════════════════════════════════════════
-// • smsFingerprint  — አንድ SMS ሁለት ጊዜ እንዳይመዘገብ (UNIQUE)
-// • transactionId   — አንድ Telebirr Tx ID ሁለት ጊዜ እንዳይመዘገብ
+// UNIQUE INDEXES — ድርብ ክፍያ የመጨረሻ ዘብ
 // ═══════════════════════════════════════════════════════
 
-// 👈 ተመሳሳይ SMS ሁለት ጊዜ — SPARSE + UNIQUE
-// (Sparse = መስኩ የሌለው transaction አይቆጠርም)
+// Telebirr Transaction ID — አንድ ጊዜ ብቻ
+TransactionSchema.index(
+  { "meta.transactionId": 1 },
+  {
+    unique: true,
+    name: "uniq_tx_id",
+    partialFilterExpression: { "meta.transactionId": { $type: "string" } },
+  }
+);
+
+// SMS fingerprint — አንድ ጊዜ ብቻ
 TransactionSchema.index(
   { "meta.smsFingerprint": 1 },
   {
     unique: true,
-    sparse: true,
     name: "uniq_sms_fingerprint",
-    partialFilterExpression: {
-      "meta.smsFingerprint": { $type: "string" },
-    },
+    partialFilterExpression: { "meta.smsFingerprint": { $type: "string" } },
   }
 );
 
-// 👈 ተመሳሳይ Telebirr Transaction ID — SPARSE
-TransactionSchema.index(
-  { "meta.transactionId": 1 },
-  {
-    sparse: true,
-    name: "idx_tx_id",
-    partialFilterExpression: {
-      "meta.transactionId": { $type: "string" },
-    },
-  }
-);
-
-// 👈 ተጠቃሚ + ጊዜ — ለታሪክ ገጽ (History page) ፈጣን query
+// User + Time (ለታሪክ ገጽ)
 TransactionSchema.index(
   { user: 1, createdAt: -1 },
   { name: "idx_user_created" }
 );
 
-// 👈 Status + Type — ለ Admin panel ፈጣን query
+// Type + Status + Time (ለ Admin panel)
 TransactionSchema.index(
   { type: 1, status: 1, createdAt: -1 },
   { name: "idx_type_status_created" }

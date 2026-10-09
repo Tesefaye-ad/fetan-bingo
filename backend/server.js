@@ -7,9 +7,11 @@ const { Server } = require("socket.io");
 
 const authRoutes = require("./routes/auth");
 const walletRoutes = require("./routes/wallet");
+const telebirrDeposit = require("./routes/telebirrDeposit");
 const gameRoutes = require("./routes/game");
 const adminRoutes = require("./routes/admin");
 const { initGameSocket } = require("./socket/gameSocket");
+const depositRoutes = require("./routes/deposit");
 
 // ═══════════════════════════════════════════════════════
 // DATABASE CONNECTION
@@ -94,8 +96,10 @@ app.get("/health", (req, res) => res.json({ ok: true, ts: Date.now() }));
 app.use("/api/auth", authRoutes);
 app.use("/api/user", authRoutes.userRouter); // 👈 አዲስ — በጣም ወሳኝ!
 app.use("/api/wallet", walletRoutes);
+app.use("/api/wallet", telebirrDeposit);
 app.use("/api/game", gameRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/wallet", depositRoutes);
 
 app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
 app.use((err, req, res, next) => {
