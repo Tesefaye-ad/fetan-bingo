@@ -977,7 +977,7 @@ export default function LiveGame({
     @keyframes pulseRing1 {
       0%   { transform: scale(1);    opacity: 0.8; }
       100% { transform: scale(1.9);  opacity: 0; }
-    }
+
     @keyframes pulseRing2 {
       0%   { transform: scale(1);    opacity: 0.7; }
       100% { transform: scale(2.2);  opacity: 0; }
