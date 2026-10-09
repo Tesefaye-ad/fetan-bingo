@@ -508,12 +508,10 @@ function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey, flashN
         width: 64,
         height: 64,
         margin: "0 auto",
-        overflow: "visible", // 👈 ወሳኝ - rings ከውጭ እንዲታዩ
+        overflow: "visible",
       }}
     >
-      {/* ═══════════════════════════════════════════ */}
-      {/* 🌊 RING 1 — ውስጣዊ፣ ፈጣን */}
-      {/* ═══════════════════════════════════════════ */}
+      {/* 🌊 RING 1 */}
       <div
         style={{
           position: "absolute",
@@ -526,9 +524,7 @@ function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey, flashN
         }}
       />
 
-      {/* ═══════════════════════════════════════════ */}
-      {/* 🌊 RING 2 — መካከለኛ፣ 0.3s delay */}
-      {/* ═══════════════════════════════════════════ */}
+      {/* 🌊 RING 2 */}
       <div
         style={{
           position: "absolute",
@@ -541,9 +537,7 @@ function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey, flashN
         }}
       />
 
-      {/* ═══════════════════════════════════════════ */}
-      {/* 🌊 RING 3 — ውጫዊ፣ 0.6s delay */}
-      {/* ═══════════════════════════════════════════ */}
+      {/* 🌊 RING 3 */}
       <div
         style={{
           position: "absolute",
@@ -556,9 +550,7 @@ function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey, flashN
         }}
       />
 
-      {/* ═══════════════════════════════════════════ */}
       {/* 🔄 Rotating Dashed Ring */}
-      {/* ═══════════════════════════════════════════ */}
       <div
         style={{
           position: "absolute",
@@ -570,9 +562,7 @@ function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey, flashN
         }}
       />
 
-      {/* ═══════════════════════════════════════════ */}
-      {/* 💡 Outer Glow Aura */}
-      {/* ═══════════════════════════════════════════ */}
+      {/* 💡 Outer Glow Aura — ቀስ ብሎ የሚብራ */}
       <div
         style={{
           position: "absolute",
@@ -582,15 +572,13 @@ function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey, flashN
                        ${lastInfo.color}33 0%, 
                        ${lastInfo.color}11 40%, 
                        transparent 70%)`,
-          animation: "blink 1.5s ease-in-out infinite",
+          animation: "blink 3.5s ease-in-out infinite",
           pointerEvents: "none",
           zIndex: 1,
         }}
       />
 
-      {/* ═══════════════════════════════════════════ */}
-      {/* ✨ MAIN CIRCLE */}
-      {/* ═══════════════════════════════════════════ */}
+      {/* ✨ MAIN CIRCLE — ቀስ ብሎ የሚብራ */}
       <div
         key={numberAnimKey}
         style={{
@@ -611,7 +599,7 @@ function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey, flashN
           border: `3px solid ${lastInfo.color}`,
           animation: `
             numberBigPop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1),
-            blink 1.5s ease-in-out infinite,
+            blink 3.5s ease-in-out infinite,
             numberFloat 2s ease-in-out infinite
           `,
           zIndex: 5,
@@ -641,7 +629,7 @@ function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey, flashN
           }}
         />
 
-        {/* ✨ Sparkle dot */}
+        {/* ✨ Sparkle dot — ቀስ ብሎ የሚብራ */}
         <div
           style={{
             position: "absolute",
@@ -652,7 +640,7 @@ function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey, flashN
             borderRadius: "50%",
             background: "#fff",
             boxShadow: `0 0 6px #fff, 0 0 12px ${lastInfo.color}`,
-            animation: "blink 0.8s ease-in-out infinite",
+            animation: "blink 2.5s ease-in-out infinite",
             pointerEvents: "none",
             zIndex: 11,
           }}
@@ -950,7 +938,7 @@ export default function LiveGame({
   const cardCount = cards.length || 1;
 
   // ═══════════════════════════════════════════════════════
-  // 🎬 ANIMATION STYLES — 3 Pulse Rings + Shimmer + Blink
+  // 🎬 ANIMATION STYLES
   // ═══════════════════════════════════════════════════════
   const animationStyles = `
     @keyframes popIn {
@@ -985,11 +973,7 @@ export default function LiveGame({
       50% { transform: scale(1.2); opacity: 0.15; }
     }
 
-    /* ═══════════════════════════════════════════════════ */
-    /* ✨ አዲስ የተጨመሩ animations                        */
-    /* ═══════════════════════════════════════════════════ */
-
-    /* 🌊 3 Pulse Rings — ወደ ውጭ የሚሰፋ */
+    /* 🌊 3 Pulse Rings */
     @keyframes pulseRing1 {
       0%   { transform: scale(1);    opacity: 0.8; }
       100% { transform: scale(1.9);  opacity: 0; }
@@ -1003,21 +987,21 @@ export default function LiveGame({
       100% { transform: scale(2.5);  opacity: 0; }
     }
 
-    /* 💫 Shimmer — ብሩህ መብረቅ */
+    /* 💫 Shimmer */
     @keyframes shimmer {
       0%   { background-position: -200% center; }
       100% { background-position: 200% center; }
     }
 
-    /* ✨ Blink — የሚያብረቀርቅ */
+    /* ✨ Blink — ቀንሷል (ቀስ ብሎ የሚብራ) */
     @keyframes blink {
       0%, 100% { 
-        box-shadow: 0 0 20px currentColor, 0 0 40px currentColor, 
-                    inset 0 0 15px rgba(255,255,255,0.3);
+        box-shadow: 0 0 18px currentColor, 0 0 32px currentColor;
+        opacity: 0.92;
       }
       50% { 
-        box-shadow: 0 0 40px currentColor, 0 0 80px currentColor, 
-                    inset 0 0 25px rgba(255,255,255,0.5);
+        box-shadow: 0 0 22px currentColor, 0 0 38px currentColor;
+        opacity: 1;
       }
     }
 
@@ -1067,10 +1051,10 @@ export default function LiveGame({
           }}
         >
           <Stat icon="🎮" label="Game" value={roomCode} color="#f39c12" size={11} />
-          <Stat icon="👥" label="Players" value={playerCount} color="#3498db" size={14} />
-          <Stat icon="🎯" label="Stake" value={entryFee} color="#e91e63" size={14} />
-          <Stat icon="💰" label="Derash" value={prizePool} color="#2ecc71" size={14} />
-          <Stat icon="📢" label="Called" value={calledNumbers.length} color="#ffd43b" size={14} />
+          <Stat icon="👥" label="Players" value={playerCount} color="#f39c12" size={14} />
+          <Stat icon="🎯" label="Stake" value={entryFee} color="#f39c12" size={14} />
+          <Stat icon="💰" label="Derash" value={prizePool} color="#f39c12" size={14} />
+          <Stat icon="📢" label="Called" value={calledNumbers.length} color="#f39c12" size={14} />
         </div>
 
         {/* MAIN 2-COLUMN */}
