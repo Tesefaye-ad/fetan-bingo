@@ -3,7 +3,7 @@ const { Telegraf, Markup } = require("telegraf");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const axios = require("axios"); // 👈 ምስል ለማውረድ
+const axios = require("axios"); // 👈 የ profile ምስል ለማውረድ
 const { verifyTelebirrReceipt } = require("./services/telebirrVerify");
 
 // ═══════════════════════════════════════════════════════
@@ -22,13 +22,21 @@ const ADMIN_TELEGRAM_IDS = (process.env.ADMIN_TELEGRAM_IDS || "494653076")
   .filter(Boolean);
 
 // ═══════════════════════════════════════════════════════
-// BANNER SOURCE
+// 🎨 BANNER IMAGE
 // ═══════════════════════════════════════════════════════
+// 👇 እዚህ ጋር የእርስዎን ምስል ቀጥታ ሊንክ ያስገቡ (i.ibb.co URL)
+const BANNER_IMAGE_URL =
+  process.env.BOT_BANNER_URL ||
+  "https://i.ibb.co/TDbchXZ6/fb.jpg"; // 👈 ይህን ይቀይሩ
+
 const LOCAL_BANNER_PATH = path.join(__dirname, "assets", "banner.png");
 
 function getBannerSource() {
-  const url = process.env.BOT_BANNER_URL;
-  if (url) return url;
+  // 1️⃣ ቀዳሚ: URL ካለ
+  if (BANNER_IMAGE_URL && BANNER_IMAGE_URL.startsWith("http")) {
+    return BANNER_IMAGE_URL;
+  }
+  // 2️⃣ Local file fallback
   if (fs.existsSync(LOCAL_BANNER_PATH, fs.constants.F_OK)) {
     return { source: fs.createReadStream(LOCAL_BANNER_PATH) };
   }
@@ -47,10 +55,6 @@ const DEPOSIT_NAME = process.env.DEPOSIT_TELEBIRR_NAME || "Tesfaye Admasu";
 const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 20);
 const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 50);
 const BONUS_CONVERSION_RATE = Number(process.env.BONUS_CONVERSION_RATE || 1);
-
-// 👈 የ bot profile ምስል (ቀጥታ i.ibb.co URL ይሁን)
-const BOT_PROFILE_PHOTO_URL =
-  process.env.BOT_PROFILE_PHOTO_URL || "https://i.ibb.co/TDbchXZ6/fb.jpg";
 
 // ═══════════════════════════════════════════════════════
 // AUTO-DEPOSIT
@@ -434,7 +438,7 @@ bot.action("copy_code", async (ctx) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// 💵 DEPOSIT FLOW — ✅ የተስተካከለ!
+// 💵 DEPOSIT FLOW
 // ═══════════════════════════════════════════════════════
 const handleDeposit = async (ctx) => {
   try {
@@ -453,7 +457,8 @@ const handleDeposit = async (ctx) => {
       `<code>${DEPOSIT_PHONE}</code>\n` +
       `👤 <b>${esc(DEPOSIT_NAME)}</b>\n\n` +
       `2️⃣ የተላከበትን <b>ሙሉ SMS</b> ኮፒ አድርገው እዚህ ላይ Paste ያድርጉ\n\n` +
-      `⚠️ <i>አነስተኛ: ${MIN_DEPOSIT} ETB</i>\n`;
+      `⚠️ <i>አነስተኛ: ${MIN_DEPOSIT} ETB</i>\n` +
+      `⚡ <i>ራሱ ያረጋግጣል — አስተዳዳሪ አያስፈልግም!</i>`;
 
     await ctx.reply(text, {
       parse_mode: "HTML",
@@ -1349,7 +1354,7 @@ bot.catch((err, ctx) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// MAIN — Webhook
+// MAIN — Webhook + Profile Setup
 // ═══════════════════════════════════════════════════════
 async function main(app) {
   // ─── Bot Commands ───
@@ -1369,20 +1374,17 @@ async function main(app) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // 🎨 BOT PROFILE SETUP — Name, Description, Photo
+  // 🎨 BOT PROFILE SETUP
   // ═══════════════════════════════════════════════════════
   try {
-    // 1. Bot ስም
     await bot.telegram.setMyName({ name: "Fetan Bingo" });
     console.log("[bot] ✅ Name set: Fetan Bingo");
 
-    // 2. Short Description (በ profile ገጽ ላይ የሚታይ)
     await bot.telegram.setMyShortDescription({
       short_description: "🎱 Play Bingo, Win Prizes!",
     });
     console.log("[bot] ✅ Short description set");
 
-    // 3. Description (በ /start ገጽ ላይ የሚታይ)
     await bot.telegram.setMyDescription({
       description:
         "🎉 Welcome to Fetan Bingo!\n\n" +
@@ -1393,29 +1395,30 @@ async function main(app) {
     });
     console.log("[bot] ✅ Description set");
 
-    // 4. Profile Photo
-    try {
-      console.log(
-        `[bot] Downloading profile photo from: ${BOT_PROFILE_PHOTO_URL}`
-      );
-      const photoResponse = await axios.get(BOT_PROFILE_PHOTO_URL, {
-        responseType: "arraybuffer",
-        timeout: 15000,
-        maxContentLength: 5 * 1024 * 1024,
-      });
-      const photoBuffer = Buffer.from(photoResponse.data);
-      await bot.telegram.setMyProfilePhoto({ photo: photoBuffer });
-      console.log(
-        `[bot] ✅ Profile photo set (${Math.round(
-          photoBuffer.length / 1024
-        )} KB)`
-      );
-    } catch (photoErr) {
-      console.error(
-        "[bot] ⚠️ Profile photo failed:",
-        photoErr.message,
-        "— continuing without photo"
-      );
+    // Profile Photo
+    const profilePhotoUrl =
+      process.env.BOT_PROFILE_PHOTO_URL || BANNER_IMAGE_URL;
+    if (profilePhotoUrl && profilePhotoUrl.startsWith("http")) {
+      try {
+        console.log(`[bot] Downloading profile photo: ${profilePhotoUrl}`);
+        const photoResponse = await axios.get(profilePhotoUrl, {
+          responseType: "arraybuffer",
+          timeout: 15000,
+          maxContentLength: 5 * 1024 * 1024,
+        });
+        const photoBuffer = Buffer.from(photoResponse.data);
+        await bot.telegram.setMyProfilePhoto({ photo: photoBuffer });
+        console.log(
+          `[bot] ✅ Profile photo set (${Math.round(
+            photoBuffer.length / 1024
+          )} KB)`
+        );
+      } catch (photoErr) {
+        console.error(
+          "[bot] ⚠️ Profile photo failed:",
+          photoErr.message
+        );
+      }
     }
   } catch (err) {
     console.error("[bot] Profile setup error:", err.message);
