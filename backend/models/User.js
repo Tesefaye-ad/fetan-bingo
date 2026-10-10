@@ -29,10 +29,14 @@ const UserSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// 👈 የተስተካከለ — index ከ field ውስጥ ተወግዶ ከ Schema በኋላ
+UserSchema.index({ telegramId: 1 }, { name: "idx_telegram_id" });
+UserSchema.index({ isBanned: 1 }, { name: "idx_banned" });
+
 const User = mongoose.model("User", UserSchema);
 
 // ═══════════════════════════════════════════════════════
-// NOTIFICATION SCHEMA (ከ models/Notification.js የተዋሃደ)
+// NOTIFICATION SCHEMA
 // ═══════════════════════════════════════════════════════
 const NotificationSchema = new mongoose.Schema(
   {
@@ -50,7 +54,17 @@ const NotificationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// ለታሪክ ገጽ
 NotificationSchema.index({ user: 1, createdAt: -1 });
+
+// ═══════════════════════════════════════════════════════
+// 👈 TTL — አሮጌ notifications በራሳቸው ይጠፋሉ (30 ቀናት)
+// ═══════════════════════════════════════════════════════
+NotificationSchema.index(
+  { createdAt: 1 },
+  { expireAfterSeconds: 30 * 24 * 60 * 60, name: "ttl_notifications" }
+);
+
 const Notification = mongoose.model("Notification", NotificationSchema);
 
 module.exports = User;

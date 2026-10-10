@@ -71,4 +71,12 @@ TransactionSchema.index(
   { name: "idx_type_status_created" }
 );
 
+// ═══════════════════════════════════════════════════════
+// 👈 CLEANUP INDEX — ለ cleanup cron (2 ሳምንት አንድ ጊዜ)
+// ═══════════════════════════════════════════════════════
+TransactionSchema.index(
+  { status: 1, createdAt: 1 },
+  { name: "idx_status_created_cleanup" }
+);
+
 module.exports = mongoose.model("Transaction", TransactionSchema);

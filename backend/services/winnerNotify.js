@@ -3,19 +3,38 @@
 // ═══════════════════════════════════════════════════════
 const User = require("../models/User");
 const { buildWinnerPng } = require("../utils/winnerImage");
-const { getWinningCells } = require("../utils/bingoCard");
 
-const CAPTION_LIMIT = 1000; // Telegram photo caption ገደብ 1024
+const CAPTION_LIMIT = 900; // 👈 1000 → 900 (safety margin)
+const PNG_TIMEOUT_MS = 8000; // 👈 PNG ከ 8 ሰከንድ በላይ ከወሰደ → text-only
+const MAX_IMAGE_WINNERS = 3; // 👈 ምስል ላይ ብዙ አሸናፊ አይሳል
+const SEND_TIMEOUT_MS = 15000; // 👈 Telegram ምላሽ ገደብ
 
 function htmlEscape(s) {
-  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
-/** 0911223344 → 09****3344 (የተጫዋች ስልክ በግሩፕ ውስጥ ሙሉ አይታይም) */
+/** 0911223344 → 09****3344 */
 function maskPhone(phone) {
   const p = String(phone || "").replace(/\s+/g, "");
   if (p.length < 7) return "—";
   return `${p.slice(0, 2)}****${p.slice(-4)}`;
+}
+
+/** 👈 Promise timeout helper */
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label}_timeout`)),
+      ms
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() =>
+    clearTimeout(timer)
+  );
 }
 
 function buildCaption({ roomCode, prizePool, winPattern, winners, phones }) {
@@ -28,73 +47,126 @@ function buildCaption({ roomCode, prizePool, winPattern, winners, phones }) {
     `💰 ጠቅላላ ሽልማት: <b>${prizePool} ETB</b>\n` +
     `🎯 ፓተርን: <b>${htmlEscape(String(winPattern).toUpperCase())}</b>\n` +
     `🕐 ${htmlEscape(date)}\n`;
-  for (const w of winners) {
+
+  // 👈 ብዙ አሸናፊ ካለ → የመጀመሪያዎቹን ብቻ አሳይ
+  const maxLines = 8; // 👈 ለ caption ገደብ
+  const shown = Math.min(winners.length, maxLines);
+
+  for (let i = 0; i < shown; i++) {
+    const w = winners[i];
+    const cartelas = w.cartelas.map((c) => `#${c}`).join(", ");
     const line =
-      `\n🏅 <b>${htmlEscape(w.name)}</b> — ` +
-      `${w.cartelas.map((c) => `#${c}`).join(", ")} — <b>${w.prize} ETB</b>` +
-      ` — 📱 <code>${maskPhone(phones[w.telegramId])}</code>`;
-    if ((text + line).length > CAPTION_LIMIT) {
-      text += `\n… +${winners.length - winners.indexOf(w)} ተጨማሪ`;
-      break;
-    }
+      `\n🏅 <b>${htmlEscape(w.name)}</b> — ${cartelas} — ` +
+      `<b>${w.prize} ETB</b> — 📱 <code>${maskPhone(
+        phones[w.telegramId]
+      )}</code>`;
+
+    if ((text + line).length > CAPTION_LIMIT) break;
     text += line;
+  }
+
+  if (winners.length > shown) {
+    text += `\n… +${winners.length - shown} ተጨማሪ አሸናፊዎች`;
   }
   return text;
 }
 
 /**
- * የአሸናፊዎች ፓናል ምስል + መግለጫ ወደ ግሩፕ ይልካል. ስህተት ቢኖር ጨዋታውን አያስተጓጉልም.
+ * 👈 የአሸናፊዎች ፓናል ምስል + መግለጫ ወደ ግሩፕ ይልካል.
+ *    ጨዋታውን ፈጽሞ አያስተጓጉልም — ስህተት ቢኖር ይዘነጋል.
  */
 async function notifyWinnersGroup(round) {
   const groupChatId = process.env.WINNERS_GROUP_CHAT_ID;
   if (!groupChatId) {
     console.warn("[notify] WINNERS_GROUP_CHAT_ID is not set — skipped");
-    return;
+    return { ok: false, reason: "no_group_id" };
   }
+
+  // 👈 ጨዋታው ላይ እንዳይጋባ — fire-and-forget አድርገን እንጠራለን
   try {
     const { bot } = require("../bot");
-    if (!bot) return;
+    if (!bot) {
+      console.warn("[notify] bot not loaded — skipped");
+      return { ok: false, reason: "no_bot" };
+    }
 
-    const users = await User.find({
-      telegramId: { $in: round.winners.map((w) => w.telegramId) },
-    }).select("telegramId phone");
-    const phones = Object.fromEntries(users.map((u) => [u.telegramId, u.phone]));
+    // ─── 1. Phone lookup (አንድ ጥያቄ ብቻ) ───
+    const telegramIds = round.winners
+      .map((w) => w.telegramId)
+      .filter(Boolean);
 
+    let phones = {};
+    if (telegramIds.length > 0) {
+      try {
+        const users = await withTimeout(
+          User.find({ telegramId: { $in: telegramIds } })
+            .select("telegramId phone")
+            .lean(),
+          5000,
+          "user_lookup"
+        );
+        phones = Object.fromEntries(users.map((u) => [u.telegramId, u.phone]));
+      } catch (err) {
+        console.warn("[notify] user lookup failed:", err.message);
+      }
+    }
+
+    // ─── 2. Caption (ፈጣን) ───
     const caption = buildCaption({ ...round, phones });
 
+    // ─── 3. PNG (timeout ጋር — ቢዘገይ text-only) ───
     let png = null;
-    try {
-      png = await buildWinnerPng({
-        roomCode: round.roomCode,
-        entryFee: round.entryFee,
-        prizePool: round.prizePool,
-        winPattern: round.winPattern,
-        dateText: new Date().toLocaleString("en-US", {
-          timeZone: "Africa/Addis_Ababa",
-        }),
-        winners: round.winners,
-        cartelas: round.winningCartelas,
-      });
-    } catch (imgErr) {
-      console.error("[notify] image render failed:", imgErr.message);
+    const imageCartelas = round.winningCartelas.slice(0, MAX_IMAGE_WINNERS);
+    if (imageCartelas.length > 0) {
+      try {
+        png = await withTimeout(
+          buildWinnerPng({
+            roomCode: round.roomCode,
+            entryFee: round.entryFee,
+            prizePool: round.prizePool,
+            winPattern: round.winPattern,
+            dateText: new Date().toLocaleString("en-US", {
+              timeZone: "Africa/Addis_Ababa",
+            }),
+            winners: round.winners.slice(0, MAX_IMAGE_WINNERS),
+            cartelas: imageCartelas,
+          }),
+          PNG_TIMEOUT_MS,
+          "png_render"
+        );
+      } catch (imgErr) {
+        console.error("[notify] image render failed:", imgErr.message);
+      }
     }
 
+    // ─── 4. Send (timeout ጋር) ───
     if (png) {
-      await bot.telegram.sendPhoto(
-        groupChatId,
-        { source: png, filename: `${round.roomCode}-winners.png` },
-        { caption, parse_mode: "HTML" }
+      await withTimeout(
+        bot.telegram.sendPhoto(
+          groupChatId,
+          { source: png, filename: `${round.roomCode}-winners.png` },
+          { caption, parse_mode: "HTML" }
+        ),
+        SEND_TIMEOUT_MS,
+        "send_photo"
       );
     } else {
-      await bot.telegram.sendMessage(groupChatId, caption, {
-        parse_mode: "HTML",
-        disable_web_page_preview: true,
-      });
+      await withTimeout(
+        bot.telegram.sendMessage(groupChatId, caption, {
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+        }),
+        SEND_TIMEOUT_MS,
+        "send_message"
+      );
     }
+
     console.log(`[notify] ${round.roomCode} winners sent to group`);
+    return { ok: true };
   } catch (err) {
     console.error("[notify] failed:", err.message);
+    return { ok: false, reason: err.message };
   }
 }
 
-module.exports = { notifyWinnersGroup, maskPhone, getWinningCells };
+module.exports = { notifyWinnersGroup, maskPhone };

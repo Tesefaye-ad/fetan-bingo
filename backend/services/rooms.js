@@ -102,12 +102,23 @@ function waitingFields(roomCode, fee) {
   };
 }
 
-// ትልልቅ መስኮችን (allCards, የካርድ ፍርግርግ) የማያነብ — ለሁሉም መደበኛ ንባብ
-const LIGHT_SELECT = "-allCards -players.card -players.marked";
+// ═══════════════════════════════════════════════════════
+// 👈 LIGHT_SELECT — ትልቅ መስኮችን አያነብም
+//     • allCards (1250 cards — ~200KB)
+//     • players.card (5×5 grid per player)
+//     • players.marked (5×5 bool per player)
+//     • winningCartelas (ካርድ ፍርግርግ — ሲያሸንፍ ብቻ)
+// ═══════════════════════════════════════════════════════
+const LIGHT_SELECT =
+  "-allCards -players.card -players.marked -winningCartelas.card -winningCartelas.marked";
 
+// ═══════════════════════════════════════════════════════
+// ensureRoom — ክፍሉ ከሌለ ይፈጥራል (race-safe)
+// ═══════════════════════════════════════════════════════
 async function ensureRoom(roomCode, feeHint) {
-  const existing = await Game.findOne({ roomCode }).select(LIGHT_SELECT);
+  const existing = await Game.findOne({ roomCode }).select(LIGHT_SELECT).lean();
   if (existing) return existing;
+
   const fee = feeForRoom(roomCode, feeHint);
   try {
     await Game.create({
@@ -119,32 +130,42 @@ async function ensureRoom(roomCode, feeHint) {
   } catch (err) {
     if (err.code !== 11000) throw err; // ሌላ ሰው አስቀድሞ ፈጥሮታል
   }
-  return Game.findOne({ roomCode }).select(LIGHT_SELECT);
+  return Game.findOne({ roomCode }).select(LIGHT_SELECT).lean();
 }
 
 /** ሰርቨር ሲነሳ ብቻ — የ 1250 ካርዶች ስብስብ ሙሉ መሆኑን ያረጋግጣል */
 async function ensureRoomCards(roomCode) {
-  const g = await Game.findOne({ roomCode }).select("allCards");
+  const g = await Game.findOne({ roomCode }).select("allCards").lean();
   if (g && (!g.allCards || g.allCards.length < TOTAL_CARDS)) {
-    g.allCards = generate1250Cards();
-    await g.save();
+    await Game.updateOne(
+      { roomCode },
+      { $set: { allCards: generate1250Cards() } }
+    );
   }
 }
 
-/** ክፍሉን ወደ አዲስ "waiting" ዙር ይመልሳል */
+// ═══════════════════════════════════════════════════════
+// 👈 resetToWaiting — LIGHT_SELECT ይመልሳል
+//     (ከዚህ በፊት allCards ሙሉ ተመልሶ ~200KB በ socket ይላክ ነበር)
+// ═══════════════════════════════════════════════════════
 async function resetToWaiting(roomCode) {
-  const current = await Game.findOne({ roomCode }).select("entryFee");
+  const current = await Game.findOne({ roomCode }).select("entryFee").lean();
   const fee = current?.entryFee || feeForRoom(roomCode);
-  // 👈 ራስ-ሰር አዲስ ራንደም ፓተርን ይመርጣል (በ fee ደረጃ)
+
+  // 👈 LIGHT_SELECT + lean → socket emit ሲደረግ ቀላል ነው
   return Game.findOneAndUpdate(
     { roomCode },
     { $set: waitingFields(roomCode, fee) },
-    { new: true }
+    { new: true, projection: LIGHT_SELECT, lean: true }
   );
 }
 
 // ═══════════════════════════════════════════════════════
-// publicState — UNIQUE USER COUNT + TOTAL CARDS
+// 👈 publicState — የተስተካከለ
+//     ቀድሞ: playerCount እና totalCards በምርጫ ወቅት 0 ነበሩ (players ባዶ ስለሆነ)
+//     አሁን: reservedCards + players ሁለቱንም ይቆጥራል
+//     ተጨማሪ: takenCards አንድ ላይ ተጣምሯል (reservedCards field ጠፍቷል)
+//     ተጨማሪ: serverTime ISO string ጠፍቷል (serverNow number በቂ ነው)
 // ═══════════════════════════════════════════════════════
 function publicState(game) {
   const deadline =
@@ -153,37 +174,52 @@ function publicState(game) {
       : game.selectionEndsAt;
   const now = Date.now();
 
-  // 👈 የተለያዩ ተጠቃሚዎች ብዛት
+  // 👈 ከሁለቱም players + reservedCards ይቁጠራል
   const uniqueUserIds = new Set();
-  for (const p of game.players || []) {
-    const key = String(p.user || p.telegramId || "");
-    if (key) uniqueUserIds.add(key);
+  const takenCards = [];
+
+  // ጨዋታ ንቁ ሲሆን players ይኖራል
+  if (game.players?.length) {
+    for (const p of game.players) {
+      const key = String(p.user || p.telegramId || "");
+      if (key) uniqueUserIds.add(key);
+      if (p.cardId) takenCards.push(p.cardId);
+    }
   }
 
-  // 👈 ጠቅላላ ካርቴላዎች
-  const totalCards = (game.players || []).length;
+  // በምርጫ ወቅት reservedCards ይኖራል
+  if (game.reservedCards?.length) {
+    for (const r of game.reservedCards) {
+      const key = String(r.user || r.telegramId || "");
+      if (key) uniqueUserIds.add(key);
+      if (r.cardId) takenCards.push(r.cardId);
+    }
+  }
+
+  const remainingMs =
+    game.status === "waiting" && deadline
+      ? Math.max(0, new Date(deadline).getTime() - now)
+      : 0;
 
   return {
     roomCode: game.roomCode,
     status: game.status,
     entryFee: game.entryFee,
     prizePool: game.prizePool,
+    // 👈 አሁን ትክክል ነው
     playerCount: uniqueUserIds.size,
-    totalCards,
-    calledNumbers: game.calledNumbers,
+    totalCards: takenCards.length,
+    // 👈 takenCards አንድ ላይ (reservedCards + players)
+    takenCards,
+    calledNumbers: game.calledNumbers || [],
     maxNumber: game.maxNumber,
-    takenCards: (game.players || []).map((p) => p.cardId),
-    reservedCards: (game.reservedCards || []).map((r) => r.cardId),
     winPattern: game.winPattern || "any-row",
     isWeeklyGame: !!game.isWeeklyGame,
     selectionEndsAt: game.status === "waiting" && deadline ? deadline : null,
     scheduledStart: game.scheduledStart || null,
-    serverTime: new Date(now).toISOString(),
+    // 👈 serverNow number ብቻ (serverTime ISO string ጠፍቷል — bandwidth)
     serverNow: now,
-    remainingMs:
-      game.status === "waiting" && deadline
-        ? Math.max(0, new Date(deadline).getTime() - now)
-        : 0,
+    remainingMs,
   };
 }
 
