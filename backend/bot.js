@@ -445,7 +445,7 @@ const handleDeposit = async (ctx) => {
       `✨ ብር ማስገባት የሚችሉት አሁን በተቀመጠው የ Telebirr አካውንት ብቻ ነው::\n\n` +
       `<b>የሚቀጥሉት እርምጃዎች:</b>\n\n` +
       `1️⃣ ወደ ቴሌብር ቁጥር ይላኩ:\n` +
-      `<code>${DEPOSIT_PHONE}</code>\n` +
+      `<code><b>${DEPOSIT_PHONE}</b></code>\n` +
       `👤 <b>${esc(DEPOSIT_NAME)}</b>\n\n` +
       `2️⃣ የተላከበትን <b>ሙሉ SMS</b> ኮፒ አድርገው እዚህ ላይ Paste ያድርጉ\n\n` +
       `⚠️ <i>አነስተኛ: ${MIN_DEPOSIT} ETB</i>\n` 
@@ -511,7 +511,7 @@ const handleWithdraw = async (ctx) => {
         `💰 ያልዎት: <b>${formatMoney(user.balance)} ETB</b>\n` +
         `📌 አነስተኛ: <b>${MIN_WITHDRAW} ETB</b>\n` +
         `📱 ወደ: <code>${esc(user.phone)}</code>\n\n` +
-        `👇 ማውጣት የሚፈልጉትን መጠን ይላኩ (ለምሳሌ: <code>100</code>)`,
+        `👇 ማውጣት የሚፈልጉትን መጠን ይላኩ (ለምሳሌ: <code>1000</code>)`,
       {
         parse_mode: "HTML",
         ...Markup.inlineKeyboard([
@@ -588,7 +588,7 @@ bot.action("confirm_withdraw", async (ctx) => {
         `💰 መጠን: <b>${amount} ETB</b>\n` +
         `📱 ወደ: <code>${esc(updated.phone)}</code>\n` +
         `💳 ቀሪ ሂሳብ: <b>${formatMoney(updated.balance)} ETB</b>\n` +
-        `🔖 Ref: <code>${tx._id}</code>\n\n` +
+        
         `⏳ አስተዳዳሪ ካረጋገጠ በ24 ሰዓት ውስጥ ይከፈላል።`,
       { parse_mode: "HTML" }
     );
