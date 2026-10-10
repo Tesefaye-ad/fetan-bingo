@@ -3,7 +3,6 @@ const { Telegraf, Markup } = require("telegraf");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const axios = require("axios"); // 👈 የ profile ምስል ለማውረድ
 const { verifyTelebirrReceipt } = require("./services/telebirrVerify");
 
 // ═══════════════════════════════════════════════════════
@@ -1354,7 +1353,7 @@ bot.catch((err, ctx) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// MAIN — Webhook + Profile Setup
+// MAIN — Webhook
 // ═══════════════════════════════════════════════════════
 async function main(app) {
   // ─── Bot Commands ───
@@ -1371,57 +1370,6 @@ async function main(app) {
     ]);
   } catch (err) {
     console.error("Menu setup error:", err);
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // 🎨 BOT PROFILE SETUP
-  // ═══════════════════════════════════════════════════════
-  try {
-    await bot.telegram.setMyName({ name: "Fetan Bingo" });
-    console.log("[bot] ✅ Name set: Fetan Bingo");
-
-    await bot.telegram.setMyShortDescription({
-      short_description: "🎱 Play Bingo, Win Prizes!",
-    });
-    console.log("[bot] ✅ Short description set");
-
-    await bot.telegram.setMyDescription({
-      description:
-        "🎉 Welcome to Fetan Bingo!\n\n" +
-        "🎱 Play, win, and earn real money\n" +
-        "⚡ Auto deposit & instant withdrawals\n" +
-        "🎁 Bonus for new users\n\n" +
-        "Press Play 🎮 to start!",
-    });
-    console.log("[bot] ✅ Description set");
-
-    // Profile Photo
-    const profilePhotoUrl =
-      process.env.BOT_PROFILE_PHOTO_URL || BANNER_IMAGE_URL;
-    if (profilePhotoUrl && profilePhotoUrl.startsWith("http")) {
-      try {
-        console.log(`[bot] Downloading profile photo: ${profilePhotoUrl}`);
-        const photoResponse = await axios.get(profilePhotoUrl, {
-          responseType: "arraybuffer",
-          timeout: 15000,
-          maxContentLength: 5 * 1024 * 1024,
-        });
-        const photoBuffer = Buffer.from(photoResponse.data);
-        await bot.telegram.setMyProfilePhoto({ photo: photoBuffer });
-        console.log(
-          `[bot] ✅ Profile photo set (${Math.round(
-            photoBuffer.length / 1024
-          )} KB)`
-        );
-      } catch (photoErr) {
-        console.error(
-          "[bot] ⚠️ Profile photo failed:",
-          photoErr.message
-        );
-      }
-    }
-  } catch (err) {
-    console.error("[bot] Profile setup error:", err.message);
   }
 
   // ─── WebApp Menu Button ───
