@@ -3,6 +3,7 @@ const { Telegraf, Markup } = require("telegraf");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const axios = require("axios"); // 👈 ምስል ለማውረድ
 const { verifyTelebirrReceipt } = require("./services/telebirrVerify");
 
 // ═══════════════════════════════════════════════════════
@@ -21,7 +22,7 @@ const ADMIN_TELEGRAM_IDS = (process.env.ADMIN_TELEGRAM_IDS || "494653076")
   .filter(Boolean);
 
 // ═══════════════════════════════════════════════════════
-// BANNER
+// BANNER SOURCE
 // ═══════════════════════════════════════════════════════
 const LOCAL_BANNER_PATH = path.join(__dirname, "assets", "banner.png");
 
@@ -46,6 +47,10 @@ const DEPOSIT_NAME = process.env.DEPOSIT_TELEBIRR_NAME || "Tesfaye Admasu";
 const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 20);
 const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 50);
 const BONUS_CONVERSION_RATE = Number(process.env.BONUS_CONVERSION_RATE || 1);
+
+// 👈 የ bot profile ምስል (ቀጥታ i.ibb.co URL ይሁን)
+const BOT_PROFILE_PHOTO_URL =
+  process.env.BOT_PROFILE_PHOTO_URL || "https://i.ibb.co/TDbchXZ6/fb.jpg";
 
 // ═══════════════════════════════════════════════════════
 // AUTO-DEPOSIT
@@ -445,11 +450,10 @@ const handleDeposit = async (ctx) => {
       `✨ ብር ማስገባት የሚችሉት አሁን በተቀመጠው የ Telebirr አካውንት ብቻ ነው::\n\n` +
       `<b>የሚቀጥሉት እርምጃዎች:</b>\n\n` +
       `1️⃣ ወደ ቴሌብር ቁጥር ይላኩ:\n` +
-      `<code><b>${DEPOSIT_PHONE}</b></code>\n` +
+      `<code>${DEPOSIT_PHONE}</code>\n` +
       `👤 <b>${esc(DEPOSIT_NAME)}</b>\n\n` +
       `2️⃣ የተላከበትን <b>ሙሉ SMS</b> ኮፒ አድርገው እዚህ ላይ Paste ያድርጉ\n\n` +
-      `⚠️ <i>አነስተኛ: ${MIN_DEPOSIT} ETB</i>\n` 
-      ;
+      `⚠️ <i>አነስተኛ: ${MIN_DEPOSIT} ETB</i>\n`;
 
     await ctx.reply(text, {
       parse_mode: "HTML",
@@ -588,7 +592,7 @@ bot.action("confirm_withdraw", async (ctx) => {
         `💰 መጠን: <b>${amount} ETB</b>\n` +
         `📱 ወደ: <code>${esc(updated.phone)}</code>\n` +
         `💳 ቀሪ ሂሳብ: <b>${formatMoney(updated.balance)} ETB</b>\n` +
-        
+        `🔖 Ref: <code>${tx._id}</code>\n\n` +
         `⏳ አስተዳዳሪ ካረጋገጠ በ24 ሰዓት ውስጥ ይከፈላል።`,
       { parse_mode: "HTML" }
     );
@@ -1348,6 +1352,7 @@ bot.catch((err, ctx) => {
 // MAIN — Webhook
 // ═══════════════════════════════════════════════════════
 async function main(app) {
+  // ─── Bot Commands ───
   try {
     await bot.telegram.setMyCommands([
       { command: "start", description: "Start" },
@@ -1363,16 +1368,74 @@ async function main(app) {
     console.error("Menu setup error:", err);
   }
 
-  if (WEBAPP_URL) {
-    bot.telegram
-      .setChatMenuButton({
-        type: "web_app",
-        text: "Menu",
-        web_app: { url: WEBAPP_URL },
-      })
-      .catch(() => {});
+  // ═══════════════════════════════════════════════════════
+  // 🎨 BOT PROFILE SETUP — Name, Description, Photo
+  // ═══════════════════════════════════════════════════════
+  try {
+    // 1. Bot ስም
+    await bot.telegram.setMyName({ name: "Fetan Bingo" });
+    console.log("[bot] ✅ Name set: Fetan Bingo");
+
+    // 2. Short Description (በ profile ገጽ ላይ የሚታይ)
+    await bot.telegram.setMyShortDescription({
+      short_description: "🎱 Play Bingo, Win Prizes!",
+    });
+    console.log("[bot] ✅ Short description set");
+
+    // 3. Description (በ /start ገጽ ላይ የሚታይ)
+    await bot.telegram.setMyDescription({
+      description:
+        "🎉 Welcome to Fetan Bingo!\n\n" +
+        "🎱 Play, win, and earn real money\n" +
+        "⚡ Auto deposit & instant withdrawals\n" +
+        "🎁 Bonus for new users\n\n" +
+        "Press Play 🎮 to start!",
+    });
+    console.log("[bot] ✅ Description set");
+
+    // 4. Profile Photo
+    try {
+      console.log(
+        `[bot] Downloading profile photo from: ${BOT_PROFILE_PHOTO_URL}`
+      );
+      const photoResponse = await axios.get(BOT_PROFILE_PHOTO_URL, {
+        responseType: "arraybuffer",
+        timeout: 15000,
+        maxContentLength: 5 * 1024 * 1024,
+      });
+      const photoBuffer = Buffer.from(photoResponse.data);
+      await bot.telegram.setMyProfilePhoto({ photo: photoBuffer });
+      console.log(
+        `[bot] ✅ Profile photo set (${Math.round(
+          photoBuffer.length / 1024
+        )} KB)`
+      );
+    } catch (photoErr) {
+      console.error(
+        "[bot] ⚠️ Profile photo failed:",
+        photoErr.message,
+        "— continuing without photo"
+      );
+    }
+  } catch (err) {
+    console.error("[bot] Profile setup error:", err.message);
   }
 
+  // ─── WebApp Menu Button ───
+  if (WEBAPP_URL) {
+    try {
+      await bot.telegram.setChatMenuButton({
+        type: "web_app",
+        text: "Play Bingo",
+        web_app: { url: WEBAPP_URL },
+      });
+      console.log("[bot] ✅ Menu button set");
+    } catch (err) {
+      console.error("[bot] Menu button error:", err.message);
+    }
+  }
+
+  // ─── Webhook ───
   const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
   app.use(bot.webhookCallback(webhookPath));
 
