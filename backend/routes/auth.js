@@ -34,21 +34,49 @@ function getJwtSecret() {
   return secret;
 }
 
-function requireAuth(req, res, next) {
+// የታገዱ ተጠቃሚዎች — token ገና ስላልጨረሰ ብቻ እንዳይቀጥሉ (15 ሰከንድ cache)
+const banCache = new Map(); // userId -> { banned, exp }
+const BAN_CACHE_MS = 15000;
+
+async function isUserBanned(userId) {
+  const hit = banCache.get(userId);
+  if (hit && hit.exp > Date.now()) return hit.banned;
+  const u = await User.findById(userId).select("isBanned").lean();
+  const banned = !u || u.isBanned === true;
+  if (banCache.size > 5000) banCache.clear();
+  banCache.set(userId, { banned, exp: Date.now() + BAN_CACHE_MS });
+  return banned;
+}
+
+function clearBanCache(userId) {
+  if (userId) banCache.delete(String(userId));
+  else banCache.clear();
+}
+
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: "Missing auth token" });
+  let payload;
   try {
-    const payload = jwt.verify(token, getJwtSecret());
-    req.userId = payload.userId;
-    req.telegramId = payload.telegramId;
-    next();
+    payload = jwt.verify(token, getJwtSecret());
   } catch (err) {
     if (err.message?.includes("JWT_SECRET")) {
       return res.status(500).json({ error: "Server auth misconfigured" });
     }
     return res.status(401).json({ error: "Invalid or expired token" });
   }
+  try {
+    if (await isUserBanned(String(payload.userId))) {
+      return res.status(403).json({ error: "Account suspended" });
+    }
+  } catch (err) {
+    console.error("[auth] ban check failed:", err.message);
+    return res.status(500).json({ error: "Auth check failed" });
+  }
+  req.userId = payload.userId;
+  req.telegramId = payload.telegramId;
+  next();
 }
 
 function verifySocketToken(token) {
@@ -93,8 +121,9 @@ function verifyTelegramInitData(initData, botToken, maxAgeSeconds = 86400) {
       crypto.timingSafeEqual(Buffer.from(computedHash), Buffer.from(hash));
     if (!valid) return { valid: false, data: null };
 
+    // auth_date ግዴታ ነው — ያለዚያ የቆየ initData ለዘላለም ይሰራ ነበር
     const authDate = Number(urlParams.get("auth_date") || 0);
-    if (authDate && Date.now() / 1000 - authDate > maxAgeSeconds) {
+    if (!authDate || Date.now() / 1000 - authDate > maxAgeSeconds) {
       return { valid: false, data: null };
     }
 
@@ -136,15 +165,21 @@ router.post("/telegram", async (req, res) => {
 
     if (!user) {
       // 👈 አዲስ ተጠቃሚ — isAdmin ከ env ይወሰናል
-      user = await User.create({
-        telegramId,
-        username: username || `user_${id}`,
-        firstName: first_name || "User",
-        lastName: last_name || "",
-        photoUrl: photo_url || "",
-        balance: 0,
-        isAdmin: shouldBeAdmin, // 👈
-      });
+      try {
+        user = await User.create({
+          telegramId,
+          username: username || `user_${id}`,
+          firstName: first_name || "User",
+          lastName: last_name || "",
+          photoUrl: photo_url || "",
+          balance: 0,
+          isAdmin: shouldBeAdmin, // 👈
+        });
+      } catch (e) {
+        // ሁለት ጥያቄ በአንድ ጊዜ መጣ (bot + webapp) — ሌላኛው ፈጥሮታል
+        if (e.code !== 11000) throw e;
+        user = await User.findOne({ telegramId });
+      }
       if (shouldBeAdmin) {
         console.log(`[auth] ✅ New admin created: ${telegramId} (${username})`);
       }
@@ -340,6 +375,7 @@ userRouter.get("/notifications", async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 30, 100);
     const user = await User.findById(req.userId).select("createdAt");
+    if (!user) return res.status(404).json({ error: "User not found" });
     const notifications = await Notification.find({
       $or: [
         { user: req.userId },
@@ -379,4 +415,5 @@ userRouter.post("/notifications/read", async (req, res) => {
 module.exports = router;
 module.exports.requireAuth = requireAuth;
 module.exports.verifySocketToken = verifySocketToken;
+module.exports.clearBanCache = clearBanCache;
 module.exports.userRouter = userRouter;

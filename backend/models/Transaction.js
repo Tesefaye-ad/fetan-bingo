@@ -59,6 +59,16 @@ TransactionSchema.index(
   }
 );
 
+// አሸናፊ ክፍያ — አንድ ተጠቃሚ በአንድ ጨዋታ አንድ ጊዜ ብቻ (crash/resume ቢደረግም ድርብ ክፍያ የለም)
+TransactionSchema.index(
+  { game: 1, user: 1 },
+  {
+    unique: true,
+    name: "uniq_prize_per_game_user",
+    partialFilterExpression: { type: "prize" },
+  }
+);
+
 // User + Time (ለታሪክ ገጽ)
 TransactionSchema.index(
   { user: 1, createdAt: -1 },

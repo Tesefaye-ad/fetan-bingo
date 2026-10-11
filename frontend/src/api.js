@@ -314,14 +314,5 @@ export async function adminSaveConfig(ticketPrice, winnerPercent) {
   return data;
 }
 
-export async function adminSetDrawNumber(number) {
-  const { data } = await api.post("/api/admin/draw/set", { number });
-  return data;
-}
-
-export async function adminClearDrawNumber() {
-  const { data } = await api.post("/api/admin/draw/clear");
-  return data;
-}
 
 export default api;

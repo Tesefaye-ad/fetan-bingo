@@ -18,10 +18,20 @@ function config() {
     merchantName: process.env.DEPOSIT_TELEBIRR_NAME || "",
     minDeposit: Number(process.env.MIN_DEPOSIT || 20),
     maxDeposit: Number(process.env.MAX_DEPOSIT || 0),
-    maxAgeHours: Number(process.env.RECEIPT_MAX_AGE_HOURS || 24),
+    maxAgeHours: Number(
+      process.env.RECEIPT_MAX_AGE_HOURS || process.env.MAX_SMS_AGE_HOURS || 24
+    ),
+    // AUTO_APPROVE_DEPOSITS=false ከሆነ ሁሉም በአድሚን ይጸድቃሉ፤ ከገደብ በላይ ደግሞ በእጅ
+    autoApprove:
+      String(process.env.AUTO_APPROVE_DEPOSITS ?? "true").toLowerCase() !==
+      "false",
+    maxAutoAmount: Number(process.env.MAX_AUTO_DEPOSIT_AMOUNT || 5000),
     requireSenderMatch:
       String(process.env.REQUIRE_SENDER_MATCH).toLowerCase() === "true",
     maxFailsPer10Min: Number(process.env.MAX_FAILED_DEPOSITS_10MIN || 5),
+    // MANUAL_REVIEW_ON_FETCH_FAIL=false ካልተባለ በስተቀር በእጅ ማረጋገጫ ይነቃል
+    manualOnFetchFail:
+      String(process.env.MANUAL_REVIEW_ON_FETCH_FAIL).toLowerCase() !== "false",
   };
 }
 
@@ -327,7 +337,7 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
   });
 
   if (!receipt.ok) {
-    if (receipt.manualReview && cfg.manualOnFetchFail !== false) {
+    if (receipt.manualReview && cfg.manualOnFetchFail) {
       const q = await queueManualReview({
         user,
         sms,
@@ -350,6 +360,29 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
     }
     await logRejection(user, sms, receipt.reason);
     return rejected(receipt.reason, receipt.message);
+  }
+
+  // ─── 4.5) ከራስ-ሰር ገደብ በላይ ወይም auto-approve ከጠፋ → አድሚን ያጽድቃል ───
+  if (!cfg.autoApprove || (cfg.maxAutoAmount > 0 && sms.amount > cfg.maxAutoAmount)) {
+    const q = await queueManualReview({
+      user,
+      sms,
+      amount: sms.amount,
+      pending,
+      reason: cfg.autoApprove ? "exceeds_auto_limit" : "auto_approve_disabled",
+    });
+    if (q === "duplicate") return rejected("duplicate", DUP_MSG, 409);
+    if (q) {
+      return {
+        ok: false,
+        status: "manual_review",
+        reason: "exceeds_auto_limit",
+        message:
+          "⏳ ደረሰኙ ተረጋግጧል፣ ነገር ግን መጠኑ ከራስ-ሰር ገደብ ይበልጣል። አስተዳዳሪ ካረጋገጠ በኋላ ብሩ ይገባል።",
+        reference: q.reference,
+        httpStatus: 202,
+      };
+    }
   }
 
   // ─── 5) ✅ Credit ───

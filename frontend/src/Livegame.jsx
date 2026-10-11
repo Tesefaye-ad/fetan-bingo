@@ -443,7 +443,13 @@ function UserCard({ card, marked, cardId, lastNumber, cardCount = 1 }) {
 // ═══════════════════════════════════════════════════════
 // CURRENT NUMBER — Beautiful Animated Display
 // ═══════════════════════════════════════════════════════
-function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey, flashNumber }) {
+function CurrentNumber({
+  lastInfo,
+  lastLetter,
+  lastNumber,
+  numberAnimKey,
+  flashNumber,
+}) {
   if (!lastInfo) {
     return (
       <div
@@ -690,6 +696,8 @@ export default function LiveGame({
   const soundOnRef = useRef(true);
   const cardsReceivedRef = useRef(false);
   const retryTimerRef = useRef(null);
+  // ✅ FIX: onConnectOnce handler ለ cleanup
+  const onConnectOnceRef = useRef(null);
 
   const [cards, setCards] = useState([]);
   const [calledNumbers, setCalledNumbers] = useState([]);
@@ -714,6 +722,18 @@ export default function LiveGame({
     soundOnRef.current = soundOn;
     sound.enabled = soundOn;
   }, [soundOn]);
+
+  // ✅ FIX: AudioContext ን በተጠቃሚ ጠቅታ ላይ warm up ያደርጋል
+  // (spectator ሆኖ ከገባ ድምጽ እንዲሰራ)
+  useEffect(() => {
+    const warm = () => sound.init();
+    window.addEventListener("click", warm, { once: true });
+    window.addEventListener("touchstart", warm, { once: true });
+    return () => {
+      window.removeEventListener("click", warm);
+      window.removeEventListener("touchstart", warm);
+    };
+  }, []);
 
   useEffect(() => {
     const socket = getSocket();
@@ -903,8 +923,14 @@ export default function LiveGame({
     if (!joinedRef.current) {
       joinedRef.current = true;
       cardsReceivedRef.current = false;
-      if (socket.connected) emitJoin("initial");
-      else socket.once("connect", () => emitJoin("onconnect"));
+      if (socket.connected) {
+        emitJoin("initial");
+      } else {
+        // ✅ FIX: named handler ስለሆነ cleanup ይቻላል
+        const onConnectOnce = () => emitJoin("onconnect");
+        onConnectOnceRef.current = onConnectOnce;
+        socket.once("connect", onConnectOnce);
+      }
       retryTimerRef.current = setTimeout(() => emitJoin("retry-1.5s"), 1500);
       setTimeout(() => emitJoin("retry-3s"), 3000);
       setTimeout(() => emitJoin("retry-5s"), 5000);
@@ -919,6 +945,11 @@ export default function LiveGame({
       joinedRef.current = false;
       cardsReceivedRef.current = false;
       socket.off("connect", onConnect);
+      // ✅ FIX: once handler ን አጽዳ
+      if (onConnectOnceRef.current) {
+        socket.off("connect", onConnectOnceRef.current);
+        onConnectOnceRef.current = null;
+      }
       socket.off("state_restore", onStateRestore);
       socket.off("spectator_mode", onSpectatorMode);
       socket.off("your_cards", onYourCards);
@@ -939,6 +970,7 @@ export default function LiveGame({
 
   // ═══════════════════════════════════════════════════════
   // 🎬 ANIMATION STYLES
+  // ✅ FIX: pulseRing1 የጠፋው } ተመልሷል
   // ═══════════════════════════════════════════════════════
   const animationStyles = `
     @keyframes popIn {
@@ -973,11 +1005,11 @@ export default function LiveGame({
       50% { transform: scale(1.2); opacity: 0.15; }
     }
 
-    /* 🌊 3 Pulse Rings */
+    /* 🌊 3 Pulse Rings — ✅ FIX: የጠፋው } ተመልሷል */
     @keyframes pulseRing1 {
       0%   { transform: scale(1);    opacity: 0.8; }
       100% { transform: scale(1.9);  opacity: 0; }
-
+    }
     @keyframes pulseRing2 {
       0%   { transform: scale(1);    opacity: 0.7; }
       100% { transform: scale(2.2);  opacity: 0; }
@@ -995,11 +1027,11 @@ export default function LiveGame({
 
     /* ✨ Blink — ቀንሷል (ቀስ ብሎ የሚብራ) */
     @keyframes blink {
-      0%, 100% { 
+      0%, 100% {
         box-shadow: 0 0 18px currentColor, 0 0 32px currentColor;
         opacity: 0.92;
       }
-      50% { 
+      50% {
         box-shadow: 0 0 22px currentColor, 0 0 38px currentColor;
         opacity: 1;
       }
@@ -1017,6 +1049,17 @@ export default function LiveGame({
       50%      { transform: translateY(-2px) scale(1.02); }
     }
   `;
+
+  // ✅ FIX: Winner በ telegramId ይፈልጋል (በ name ሳይሆን)
+  // ─ ሁለት ተጫዋቾች ተመሳሳይ ስም ቢኖራቸውም ትክክለኛውን ሽልማት ያሳያል
+  const findWinnerByCartela = (wc) => {
+    if (!bingoPopup?.winners) return null;
+    return bingoPopup.winners.find(
+      (w) =>
+        (w.telegramId && wc.telegramId && w.telegramId === wc.telegramId) ||
+        (Array.isArray(w.cartelas) && w.cartelas.includes(wc.cardId))
+    );
+  };
 
   return (
     <>
@@ -1532,12 +1575,8 @@ export default function LiveGame({
                   </div>
 
                   {bingoPopup.winningCartelas.slice(0, 2).map((wc, idx) => {
-                    const owner = (bingoPopup.winners || []).find(
-                      (w) =>
-                        w.name === wc.name ||
-                        (Array.isArray(w.cartelas) &&
-                          w.cartelas.includes(wc.cardId))
-                    );
+                    // ✅ FIX: በ telegramId ይፈልጋል (በ name ሳይሆን)
+                    const owner = findWinnerByCartela(wc);
                     const prizeAmount = owner?.prize ?? null;
 
                     return (

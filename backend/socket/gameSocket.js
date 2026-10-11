@@ -20,10 +20,10 @@ const { notifyWinnersGroup } = require("../services/winnerNotify");
 const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 1500);
 const FIRST_CALL_DELAY_MS = Number(process.env.FIRST_CALL_DELAY_MS || 1500);
 const WINNER_DISPLAY_MS = 6000;
-const RECONCILE_MS = 500; // 👈 250 → 500 (CPU ቅነሳ)
+const RECONCILE_MS = 500;
 const ARM_WINDOW_MS = 1500;
 const PRIZE_SHARE = Number(process.env.PRIZE_SHARE || 0.8);
-const MAX_ACTIVE_USERS = 20000; // 👈 ማህደረ ትውስታ መከላከያ
+const MAX_ACTIVE_USERS = 20000;
 
 // ───────────────────────── Runtime state ─────────────────────────
 const runtimes = new Map();
@@ -270,7 +270,13 @@ function initGameSocket(io) {
 
         const prizePool =
           Math.floor(game.entryFee * PRIZE_SHARE) * players.length;
-        const pattern = rooms.pickRandomPattern(game.entryFee);
+
+        // ═══════════════════════════════════════════════════
+        // ✅ FIX: በምርጫ ወቅት የታየውን winPattern ይጠብቃል
+        //         (ቀድሞ አዲስ ይመረጥ ነበር → ተጫዋቾች ይምታታሉ)
+        // ═══════════════════════════════════════════════════
+        const pattern =
+          game.winPattern || rooms.pickRandomPattern(game.entryFee);
 
         await Game.updateOne(
           { _id: game._id },
@@ -413,6 +419,23 @@ function initGameSocket(io) {
       for (const userId of userIds) {
         const mine = winners.filter((w) => w.player.userId === userId);
         const prize = prizePerCartela * mine.length;
+        // 1) መዝገቡን መጀመሪያ ፍጠር (unique index: game+user) — ድርብ ክፍያ ከተሞከረ ይከለክላል
+        let prizeTx;
+        try {
+          prizeTx = await Transaction.create({
+            user: userId,
+            type: "prize",
+            amount: prize,
+            balanceAfter: 0,
+            game: rt.gameId,
+            status: "completed",
+            meta: { cartelas: mine.map((w) => w.player.cardId) },
+          });
+        } catch (e) {
+          if (e.code === 11000) continue; // ቀድሞ ተከፍሏል
+          throw e;
+        }
+        // 2) ከዚያ ብሩን ጨምር
         const updated = await User.findByIdAndUpdate(
           userId,
           {
@@ -424,14 +447,17 @@ function initGameSocket(io) {
           },
           { new: true }
         );
-        if (!updated) continue;
-        await Transaction.create({
-          user: updated._id,
-          type: "prize",
-          amount: prize,
-          balanceAfter: updated.balance,
-          game: rt.gameId,
-        });
+        if (!updated) {
+          await Transaction.updateOne(
+            { _id: prizeTx._id },
+            { $set: { status: "failed" } }
+          );
+          continue;
+        }
+        await Transaction.updateOne(
+          { _id: prizeTx._id },
+          { $set: { balanceAfter: updated.balance } }
+        );
         emitToUser(userId, "balance_update", { balance: updated.balance });
         panel.push({
           userId,
@@ -544,7 +570,15 @@ function initGameSocket(io) {
       await withRoomLock(roomCode, async () => {
         const game = await Game.findOne({ roomCode, status: "active" });
         if (!game) return;
-        if (game.winningCartelas?.length || game.players.length === 0) {
+        const alreadyPaid = await Transaction.exists({
+          game: game._id,
+          type: "prize",
+        });
+        if (
+          alreadyPaid ||
+          game.winningCartelas?.length ||
+          game.players.length === 0
+        ) {
           const fresh = await rooms.resetToWaiting(roomCode);
           if (fresh)
             io.to(roomCode).emit("room_state", rooms.publicState(fresh));
@@ -655,7 +689,6 @@ function initGameSocket(io) {
   setInterval(() => {
     const now = Date.now();
 
-    // ሞተው የቀሩ runtimes
     for (const [roomCode, rt] of runtimes.entries()) {
       if (rt.done && now - (rt.result?.shownAt || now) > 30000) {
         clearTimeout(rt.timer);
@@ -665,7 +698,6 @@ function initGameSocket(io) {
       }
     }
 
-    // ሞተው የቀሩ startTimers (rare)
     for (const [roomCode, t] of startTimers.entries()) {
       if (t._idleStart && now - t._idleStart > 60000) {
         clearTimeout(t);
@@ -673,12 +705,10 @@ function initGameSocket(io) {
       }
     }
 
-    // ሞተው የቀሩ starting promises
     if (starting.size > 100) {
       console.warn(`[memory] starting map too large: ${starting.size}`);
     }
 
-    // Log memory footprint
     const mem = process.memoryUsage();
     console.log(
       `[memory] rss=${Math.round(mem.rss / 1048576)}MB ` +
@@ -703,6 +733,18 @@ function initGameSocket(io) {
   io.on("connection", (socket) => {
     // 👈 O(1) index መዝግብ
     addUserSocket(socket.userId, socket);
+
+    // spam መከላከያ: በሰከንድ ቢበዛ 8 select/deselect
+    let bucket = 8;
+    let lastRefill = Date.now();
+    socket.allow = () => {
+      const now = Date.now();
+      bucket = Math.min(8, bucket + ((now - lastRefill) / 1000) * 8);
+      lastRefill = now;
+      if (bucket < 1) return false;
+      bucket -= 1;
+      return true;
+    };
 
     // 👈 activeUserIds ገደብ
     if (activeUserIds.size < MAX_ACTIVE_USERS) {
@@ -732,6 +774,7 @@ function initGameSocket(io) {
     // ─────────── ካርቴላ መምረጥ ───────────
     socket.on("select_card", async ({ roomCode, cardId } = {}) => {
       try {
+        if (!socket.allow()) return;
         roomCode = rooms.normalizeRoomCode(roomCode);
         cardId = parseCardId(cardId);
         if (!roomCode || !cardId) return;
@@ -809,6 +852,7 @@ function initGameSocket(io) {
     // ─────────── ካርቴላ መመለስ ───────────
     socket.on("deselect_card", async ({ roomCode, cardId } = {}) => {
       try {
+        if (!socket.allow()) return;
         roomCode = rooms.normalizeRoomCode(roomCode);
         cardId = parseCardId(cardId);
         if (!roomCode || !cardId) return;
@@ -914,7 +958,6 @@ function initGameSocket(io) {
     // 👈 O(1) disconnect
     socket.on("disconnect", () => {
       removeUserSocket(socket.userId, socket);
-      // ሌላ socket ካለው Map ውስጥ ይኖራል፣ ከሌለ activeUserIds ይወገዳል
       if (!userSockets.has(socket.userId)) {
         activeUserIds.delete(socket.userId);
       }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Wallet from "./Wallet.jsx";
 import LiveGame from "./Livegame.jsx";
 import CartelaSelection from "./Cartelaselection.jsx";
@@ -66,7 +66,10 @@ function Login({ onLoggedIn }) {
     async function handleLogin() {
       try {
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Login timeout")), LOGIN_TIMEOUT_MS)
+          setTimeout(
+            () => reject(new Error("Login timeout")),
+            LOGIN_TIMEOUT_MS
+          )
         );
         const user = await Promise.race([
           loginWithTelegram(initData),
@@ -101,7 +104,7 @@ function Login({ onLoggedIn }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, initData, onLoggedIn]);
+  }, [ready, initData, telegramUser?.id]);
 
   return null;
 }
@@ -394,7 +397,6 @@ function HistoryPage() {
         minHeight: "100vh",
       }}
     >
-      {/* Header */}
       <h2
         style={{
           color: "#f39c12",
@@ -412,7 +414,6 @@ function HistoryPage() {
         📜 HISTORY
       </h2>
 
-      {/* Sub-tabs */}
       <div
         style={{
           display: "grid",
@@ -467,7 +468,6 @@ function HistoryPage() {
         </div>
       )}
 
-      {/* ═══ TRANSACTIONS ═══ */}
       {!loading && tab === "transactions" && (
         <>
           {transactions.length === 0 ? (
@@ -592,7 +592,6 @@ function HistoryPage() {
         </>
       )}
 
-      {/* ═══ GAMES ═══ */}
       {!loading && tab === "games" && (
         <>
           {games.length === 0 ? (
@@ -631,7 +630,11 @@ function HistoryPage() {
                   }}
                 >
                   <div
-                    style={{ fontWeight: "bold", fontSize: 13, color: "#fff" }}
+                    style={{
+                      fontWeight: "bold",
+                      fontSize: 13,
+                      color: "#fff",
+                    }}
                   >
                     {g.roomCode} {g.won && "🏆"}
                   </div>
@@ -1063,7 +1066,6 @@ function App() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [gameStatus, setGameStatus] = useState("waiting");
 
-  // 👈 isAdmin — ሁለት ምንጮች (DB + fallback ID list)
   const isAdmin =
     user?.isAdmin === true ||
     (user?.telegramId && ADMIN_IDS.includes(String(user.telegramId)));
@@ -1076,18 +1078,30 @@ function App() {
   ];
   if (isAdmin) tabs.push({ id: "Admin", label: "Admin", icon: "⚙️" });
 
-  // 👈 Login ከተሳካ በኋላ user ን ከ DB እንደገና አንብብ (isAdmin እንዲዘመን)
+  // ✅ FIX #1: onLoggedIn memoized → infinite login loop ተስተካክሏል
+  const handleLoggedIn = useCallback((u) => {
+    if (!u) return;
+    setUser(u);
+    setBalance(u.balance || 0);
+  }, []);
+
+  // ✅ FIX #2: getMe አሁን በትክክል ይሰራል — user ሲገኝ ብቻ አንድ ጊዜ
   useEffect(() => {
-    if (!user) return;
+    if (!user?.telegramId) return;
+    let cancelled = false;
+
     getMe()
       .then((fresh) => {
-        if (fresh) {
-          setUser((prev) => ({ ...prev, ...fresh }));
-          if (fresh.balance !== undefined) setBalance(fresh.balance);
-        }
+        if (cancelled || !fresh) return;
+        setUser((prev) => ({ ...prev, ...fresh }));
+        if (fresh.balance !== undefined) setBalance(fresh.balance);
       })
       .catch((err) => console.warn("[App] getMe failed:", err?.message));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.telegramId]);
 
   useEffect(() => {
     if (!user) return;
@@ -1102,15 +1116,7 @@ function App() {
   }, [user]);
 
   if (!user) {
-    return (
-      <Login
-        onLoggedIn={(u) => {
-          if (!u) return;
-          setUser(u);
-          setBalance(u.balance || 0);
-        }}
-      />
-    );
+    return <Login onLoggedIn={handleLoggedIn} />;
   }
 
   const handlePlayStake = async (fee, code) => {

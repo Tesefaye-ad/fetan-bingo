@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════
-// DEPOSITS — SMS ትንተና, አድሚን ማሳወቂያ, approve / reject (ለ bot እና ለ admin panel የሚጋራ)
+// DEPOSITS — SMS ትንተና, አድሚን ማሳወቂያ, approve / reject
 // ═══════════════════════════════════════════════════════
 const crypto = require("crypto");
 const User = require("../models/User");
@@ -8,8 +8,6 @@ const { Notification } = require("../models/User");
 
 const SMS_MAX_CHARS = 1500;
 
-/** ADMIN_CHAT_ID="123,456" → ["123","456"] */
-// ADMIN_CHAT_ID ካልተሞላ ቀድሞ በ App.jsx ውስጥ ተጽፎ የነበረው የባለቤቱ ID እንደ መጠባበቂያ ይሠራል
 const FALLBACK_ADMIN_IDS = ["494653076"];
 
 function adminChatIds() {
@@ -28,10 +26,6 @@ function normalizeSms(text) {
   return String(text || "").replace(/\s+/g, " ").trim();
 }
 
-/**
- * ከ Telebirr SMS የብር መጠን እና የግብይት ቁጥር ለማውጣት ይሞክራል.
- * ማሳሰቢያ: ይህ ግምት ብቻ ነው — የመጨረሻውን ማረጋገጫ አድሚኑ ያደርጋል.
- */
 function parseSms(text) {
   const raw = normalizeSms(text);
   let amount = null;
@@ -65,21 +59,28 @@ function parseSms(text) {
   return { raw, amount, txnId, smsHash };
 }
 
-/** ጽሑፉ የክፍያ SMS ይመስላል? (ተጠቃሚው "Deposit" ሳይጫን ቢልከውም እንዲያልፍ) */
 function looksLikeDepositSms(text) {
   const raw = normalizeSms(text);
   if (raw.length < 20) return false;
   const p = parseSms(raw);
   return (
     !!p.amount &&
-    /telebirr|transaction|received|transfer|ተቀብለዋል|ተልኳል|ተላልፏል|ግብይት|ብር|ETB/i.test(raw)
+    /telebirr|transaction|received|transfer|ተቀብለዋል|ተልኳል|ተላልፏል|ግብይት|ብር|ETB/i.test(
+      raw
+    )
   );
 }
 
-/** ይህ SMS / የግብይት ቁጥር ቀድሞ (pending ወይም completed) ገብቷል? */
+// 👈 FIX: depositVerifier fields (transactionId / smsFingerprint) + legacy fields
 async function findDuplicateDeposit({ txnId, smsHash }, excludeId) {
-  const or = [{ "meta.smsHash": smsHash }];
-  if (txnId) or.push({ "meta.txnId": txnId });
+  const or = [
+    { "meta.smsFingerprint": smsHash },
+    { "meta.smsHash": smsHash }, // legacy
+  ];
+  if (txnId) {
+    or.push({ "meta.transactionId": txnId });
+    or.push({ "meta.txnId": txnId }); // legacy
+  }
   const q = {
     type: "deposit",
     status: { $in: ["pending", "completed"] },
@@ -89,7 +90,6 @@ async function findDuplicateDeposit({ txnId, smsHash }, excludeId) {
   return Transaction.findOne(q).select("_id status amount user").lean();
 }
 
-// ───────────────────────── Telegram helpers ─────────────────────────
 function getBot() {
   try {
     return require("../bot").bot || null;
@@ -108,7 +108,9 @@ async function notifyUserTelegram(telegramId, text) {
   }
 }
 
-/** አዲስ ዲፖዚት (ከ SMS ጋር) ለአድሚን ከ ✅ / ❌ ቁልፎች ጋር ይላካል */
+// ═══════════════════════════════════════════════════════
+// 👈 FIX: notifyAdminsOfDeposit — የ depositVerifier fields ይጠቀማል
+// ═══════════════════════════════════════════════════════
 async function notifyAdminsOfDeposit(tx, user, extra = {}) {
   const bot = getBot();
   const ids = adminChatIds();
@@ -118,18 +120,30 @@ async function notifyAdminsOfDeposit(tx, user, extra = {}) {
   }
   const lines = [
     "🆕 አዲስ Deposit (ማረጋገጫ ይጠብቃል)",
-    `👤 ${user.firstName || ""} ${user.username ? "@" + user.username : ""} (ID: ${user.telegramId})`,
+    `👤 ${user.firstName || ""} ${
+      user.username ? "@" + user.username : ""
+    } (ID: ${user.telegramId})`,
     `💰 መጠን: ${tx.amount} ETB`,
   ];
   if (extra.typedAmount && extra.typedAmount !== tx.amount) {
     lines.push(`⚠️ ተጠቃሚው የጻፈው መጠን ይለያል: ${extra.typedAmount} ETB`);
   }
-  if (tx.meta?.txnId) lines.push(`🧾 Txn ID: ${tx.meta.txnId}`);
+
+  // 👈 FIX: ሁለቱንም የ field ስሞች ይፈትሻል
+  const txnId = tx.meta?.transactionId || tx.meta?.txnId;
+  if (txnId) lines.push(`🧾 Txn ID: ${txnId}`);
+
   lines.push(`🔖 Ref: ${tx.reference || tx._id}`);
-  if (tx.meta?.sms) {
-    lines.push("", "📩 SMS:", String(tx.meta.sms).slice(0, SMS_MAX_CHARS));
+
+  const smsRaw = tx.meta?.smsRaw || tx.meta?.sms;
+  if (smsRaw) {
+    lines.push("", "📩 SMS:", String(smsRaw).slice(0, SMS_MAX_CHARS));
   }
-  lines.push("", "ብሩ በ Telebirr አካውንትዎ መግባቱን ያረጋግጡ፣ ከዚያ ይወስኑ 👇");
+
+  lines.push(
+    "",
+    "ብሩ በ Telebirr አካውንትዎ መግባቱን ያረጋግጡ፣ ከዚያ ይወስኑ 👇"
+  );
 
   const keyboard = {
     inline_keyboard: [
@@ -154,18 +168,21 @@ async function notifyAdminsOfDeposit(tx, user, extra = {}) {
   return sent > 0;
 }
 
-// ───────────────────────── Approve / Reject ─────────────────────────
-// ሁለት አድሚኖች (ወይም ሁለት ጊዜ ጠቅታ) በአንድ ጊዜ ቢጫኑ ብሩ ሁለት ጊዜ እንዳይገባ —
-// መጀመሪያ status ን በ atomic ስራ pending → completed/failed እናደርጋለን.
+// ═══════════════════════════════════════════════════════
+// APPROVE / REJECT — atomic
+// ═══════════════════════════════════════════════════════
 async function approveTransaction(id) {
   const existing = await Transaction.findById(id);
   if (!existing) return { ok: false, code: 404, error: "Not found" };
   if (existing.status !== "pending")
     return { ok: false, code: 400, error: "Already processed" };
 
-  if (existing.type === "deposit" && existing.meta?.smsHash) {
+  // 👈 FIX: ሁለቱንም field ስሞች ይፈትሻል
+  const smsHash = existing.meta?.smsFingerprint || existing.meta?.smsHash;
+  const txnId = existing.meta?.transactionId || existing.meta?.txnId;
+  if (existing.type === "deposit" && smsHash) {
     const dup = await findDuplicateDeposit(
-      { txnId: existing.meta.txnId, smsHash: existing.meta.smsHash },
+      { txnId, smsHash },
       existing._id
     );
     if (dup && dup.status === "completed") {
@@ -199,7 +216,10 @@ async function approveTransaction(id) {
     );
   }
   if (!user) {
-    await Transaction.updateOne({ _id: tx._id }, { $set: { status: "pending" } });
+    await Transaction.updateOne(
+      { _id: tx._id },
+      { $set: { status: "pending" } }
+    );
     return { ok: false, code: 404, error: "User not found" };
   }
   if (tx.type === "deposit") {
@@ -234,7 +254,12 @@ async function rejectTransaction(id, reason) {
   const why = reason || "Rejected";
   const tx = await Transaction.findOneAndUpdate(
     { _id: id, status: "pending" },
-    { $set: { status: "failed", meta: { ...(existing.meta || {}), rejectReason: why } } },
+    {
+      $set: {
+        status: "failed",
+        meta: { ...(existing.meta || {}), rejectReason: why },
+      },
+    },
     { new: true }
   );
   if (!tx) return { ok: false, code: 400, error: "Already processed" };

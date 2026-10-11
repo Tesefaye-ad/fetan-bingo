@@ -91,6 +91,10 @@ async function connectDB() {
 const app = express();
 const server = http.createServer(app);
 
+// Render / Vercel proxy ጀርባ ስለሆነ — ያለዚህ ሁሉም ተጠቃሚ አንድ IP ይመስላል
+// (rate limiter ሁሉንም በአንድ ላይ ይገድባል)
+app.set("trust proxy", 1);
+
 const allowedOrigins = process.env.CLIENT_URL
   ? process.env.CLIENT_URL.split(",").map((o) => o.trim())
   : "*";

@@ -22,6 +22,7 @@ const UserSchema = new mongoose.Schema(
     totalWithdrawals: { type: Number, default: 0 },
     referredBy: { type: String },
     referralCount: { type: Number, default: 0 },
+    referralRewarded: { type: Boolean, default: false },
     achievements: { type: [String], default: [] },
     lastActiveAt: { type: Date, default: Date.now },
     notificationReadAt: { type: Date, default: Date.now },
@@ -30,7 +31,6 @@ const UserSchema = new mongoose.Schema(
 );
 
 // 👈 የተስተካከለ — index ከ field ውስጥ ተወግዶ ከ Schema በኋላ
-UserSchema.index({ telegramId: 1 }, { name: "idx_telegram_id" });
 UserSchema.index({ isBanned: 1 }, { name: "idx_banned" });
 
 const User = mongoose.model("User", UserSchema);

@@ -38,8 +38,13 @@ async function cleanup() {
       status: "completed",
       createdAt: { $lt: new Date(now - RETENTION.transactionsCompleted) },
     });
+    // ⚠️ pending withdrawal ፈጽሞ አይጠፋም — ብሩ ከተጠቃሚው ቀድሞ ተቀንሷል፤
+    //    መዝገቡ ቢጠፋ ተጠቃሚው ብሩን ያጣል (ማንም ሊመልስለት አይችልም)
     const r2 = await Transaction.deleteMany({
-      status: { $in: ["failed", "pending"] },
+      $or: [
+        { status: "failed" },
+        { status: "pending", type: { $ne: "withdrawal" } },
+      ],
       createdAt: { $lt: new Date(now - RETENTION.transactionsFailed) },
     });
     result.transactions = r1.deletedCount + r2.deletedCount;

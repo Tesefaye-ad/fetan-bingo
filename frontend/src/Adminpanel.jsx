@@ -10,8 +10,6 @@ import {
   adminAdjustBalance,
   adminGetConfig,
   adminSaveConfig,
-  adminSetDrawNumber,
-  adminClearDrawNumber,
 } from "./api";
 
 // ═══════════════════════════════════════════════════════
@@ -160,7 +158,6 @@ export default function AdminPanel() {
           { id: "txns", label: "💵 Tnxs" },
           { id: "stats", label: "📊 Stats" },
           { id: "users", label: "Users" },
-          { id: "draw", label: "Draw" },
         ].map((t) => (
           <TabBtn
             key={t.id}
@@ -201,7 +198,6 @@ export default function AdminPanel() {
       )}
       {activeTab === "stats" && <StatsTab stats={stats} />}
       {activeTab === "users" && <UsersTab showToast={showToast} />}
-      {activeTab === "draw" && <DrawTab showToast={showToast} />}
       {activeTab === "config" && <ConfigTab showToast={showToast} />}
       {activeTab === "broadcast" && <BroadcastTab showToast={showToast} />}
     </div>
@@ -907,136 +903,6 @@ function UserCard({ user, onEdit, onBan }) {
           {user.isBanned ? "✓ Unban" : "✕ Ban"}
         </button>
       </div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════
-// DRAW TAB
-// ═══════════════════════════════════════════════════════
-function DrawTab({ showToast }) {
-  const [num, setNum] = useState("");
-  const [current, setCurrent] = useState(null);
-
-  useEffect(() => {
-    adminGetConfig()
-      .then((c) => setCurrent(c.forcedWinNumber))
-      .catch(() => {});
-  }, []);
-
-  const save = async () => {
-    if (!num) return showToast("Enter a number", "error");
-    try {
-      await adminSetDrawNumber(Number(num));
-      setCurrent(Number(num));
-      showToast("✅ Saved", "success");
-      setNum("");
-    } catch (e) {
-      showToast(e?.response?.data?.error || "Failed", "error");
-    }
-  };
-
-  const clear = async () => {
-    try {
-      await adminClearDrawNumber();
-      setCurrent(null);
-      showToast("Cleared", "success");
-    } catch (e) {
-      showToast("Failed", "error");
-    }
-  };
-
-  return (
-    <div
-      style={{
-        background: C.card,
-        border: `1px solid ${C.orange}66`,
-        borderRadius: 14,
-        padding: 18,
-        boxShadow: `0 0 25px ${C.orange}22`,
-      }}
-    >
-      <div
-        style={{
-          color: "#ffd43b",
-          fontSize: 16,
-          fontWeight: "900",
-          marginBottom: 14,
-        }}
-      >
-        🎯 የቁጥር ማውጫ መቆጣጠሪያ
-      </div>
-
-      {current && (
-        <div
-          style={{
-            background: `${C.green}22`,
-            border: `1px solid ${C.green}`,
-            borderRadius: 10,
-            padding: 12,
-            marginBottom: 12,
-            textAlign: "center",
-            fontSize: 13,
-            color: C.green,
-            fontWeight: "bold",
-          }}
-        >
-          🎯 Current forced: #{current}
-          <button
-            onClick={clear}
-            style={{
-              marginLeft: 12,
-              background: C.red,
-              color: "#fff",
-              border: "none",
-              borderRadius: 6,
-              padding: "4px 10px",
-              fontSize: 11,
-              fontWeight: "bold",
-              cursor: "pointer",
-            }}
-          >
-            Clear
-          </button>
-        </div>
-      )}
-
-      <input
-        type="number"
-        value={num}
-        onChange={(e) => setNum(e.target.value)}
-        placeholder="የማሸነፊያ ቁጥር አስገባ (1-1250)"
-        style={{
-          width: "100%",
-          background: "#000",
-          border: `1px solid ${C.border}`,
-          borderRadius: 10,
-          padding: 14,
-          color: "#fff",
-          fontSize: 14,
-          boxSizing: "border-box",
-          marginBottom: 12,
-          outline: "none",
-        }}
-      />
-
-      <button
-        onClick={save}
-        style={{
-          width: "100%",
-          background: `linear-gradient(135deg, ${C.orange}, ${C.orangeDark})`,
-          color: "#000",
-          border: "none",
-          borderRadius: 10,
-          padding: 14,
-          fontSize: 14,
-          fontWeight: "900",
-          cursor: "pointer",
-          boxShadow: `0 0 20px ${C.orange}66`,
-        }}
-      >
-        ✓ መደብ አስቀምጥ
-      </button>
     </div>
   );
 }

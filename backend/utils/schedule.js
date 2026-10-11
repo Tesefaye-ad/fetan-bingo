@@ -11,7 +11,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // ═══════════════════════════════════════════════════════
 // 19 = ኢትዮጵያ ሰዓት 1:00 ማታ (= ፈረንጆች 7:00 PM) ✅
 // 7  = ኢትዮጵያ ሰዓት 1:00 ቀን (= ፈረንጆች 7:00 AM)
-const START_HOUR = 19;
+// WEEKLY_START_HOUR env ካለ ይጠቀማል፣ ከሌለ 19
+const _h = Number(process.env.WEEKLY_START_HOUR);
+const START_HOUR = Number.isInteger(_h) && _h >= 0 && _h <= 23 ? _h : 19;
 
 const START_MINUTE_BY_FEE = { 50: 0, 100: 5 };
 

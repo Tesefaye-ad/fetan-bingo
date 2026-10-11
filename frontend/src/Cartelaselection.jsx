@@ -1,19 +1,65 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { getRoom, getSocket } from "./api";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  memo,
+} from "react";
+import { getRoom, getSocket, getBalance } from "./api";
 import { formatCountdown, serverNow } from "./serverClock";
 
 const TOTAL_CARDS = 1250;
 const WEEKLY_ROOMS = ["ROOM50", "ROOM100"];
-const SYNC_RETRIES = 8;
+const SYNC_RETRIES = 6;
+
+// ═══════════════════════════════════════════════════════
+// ✅ FIX: Number button — memoized (1250 buttons ላይ ወሳኝ)
+//   በሁሉም 200ms tick ላይ አይታተምም
+// ═══════════════════════════════════════════════════════
+const NumberButton = memo(function NumberButton({
+  n,
+  isSelected,
+  isTaken,
+  onSelect,
+}) {
+  return (
+    <button
+      onClick={() => onSelect(n)}
+      disabled={isTaken}
+      style={{
+        padding: "9px 0",
+        borderRadius: 6,
+        border: isSelected
+          ? "2px solid #2ecc71"
+          : isTaken
+          ? "2px solid #e74c3c"
+          : "1px solid #2a2a40",
+        background: isTaken
+          ? "linear-gradient(135deg, #e74c3c, #a93226)"
+          : isSelected
+          ? "linear-gradient(135deg, #2ecc71, #27ae60)"
+          : "linear-gradient(135deg, #1b2233, #151b2b)",
+        color: "#fff",
+        fontWeight: "bold",
+        fontSize: 10,
+        cursor: isTaken ? "not-allowed" : "pointer",
+        opacity: isTaken ? 0.9 : 1,
+        boxShadow: isSelected
+          ? "0 0 10px rgba(46,204,113,0.6)"
+          : isTaken
+          ? "0 0 12px rgba(231,76,60,0.9), inset 0 0 8px rgba(231,76,60,0.3)"
+          : "none",
+        transition: "all 0.2s ease",
+      }}
+    >
+      {n}
+    </button>
+  );
+});
 
 // ═══════════════════════════════════════════════════════
 // የካርቴላ መምረጫ ገጽ
-//  • ሰዓቱ ከሰርቨር absolute ሰዓት (selectionEndsAt) ይሰላል → ለሁሉም ተመሳሳይ
-//  • ሰዓቱ ሲያልቅ ጨዋታውን የሚጀምረው ሰርቨር ነው (game_started)
-//  • ካርቴላ ያልመረጠ ሰው ተመልካች ሆኖ ወደ ላይቭ ጌም ይገባል
-//  • ጨዋታው አስቀድሞ ላይቭ ከሆነ ወዲያውኑ ወደ ላይቭ ጌም ይሄዳል
-//  • ገደብ የለም — ብር ብቻ ወሰን ነው
-//  • አንድ ካርቴላ አንድ ተጠቃሚ ብቻ → ቀይ + መጫን አይቻልም
 // ═══════════════════════════════════════════════════════
 export default function CartelaSelection({
   roomCode,
@@ -35,8 +81,19 @@ export default function CartelaSelection({
   const wentLiveRef = useRef(false);
   const selectedRef = useRef([]);
   const noticeTimerRef = useRef(null);
+  const pollStopRef = useRef(false);
   const mountedRef = useRef(true);
   selectedRef.current = selectedCards;
+
+  // ✅ FIX: Ref ዎች ለ handleSelect ስለዚህ callback ሳይቀየር ሁልጊዜ ወቅታዊ ውሂብ ያገኛል
+  const takenRef = useRef([]);
+  const balanceRef = useRef(balance);
+  useEffect(() => {
+    takenRef.current = takenCards;
+  }, [takenCards]);
+  useEffect(() => {
+    balanceRef.current = currentBalance;
+  }, [currentBalance]);
 
   // ───────────── Mount / Unmount ─────────────
   useEffect(() => {
@@ -44,6 +101,7 @@ export default function CartelaSelection({
     return () => {
       mountedRef.current = false;
       clearTimeout(noticeTimerRef.current);
+      pollStopRef.current = true;
     };
   }, []);
 
@@ -69,13 +127,10 @@ export default function CartelaSelection({
     (s) => {
       if (!s || (s.roomCode && s.roomCode !== roomCode)) return;
 
-      // ጨዋታው አስቀድሞ ላይቭ ከሆነ → ወዲያውኑ ተሸጋገር
       if (s.status === "active") return goLive();
 
-      if (Array.isArray(s.takenCards) || Array.isArray(s.reservedCards)) {
-        setTakenCards([
-          ...new Set([...(s.takenCards || []), ...(s.reservedCards || [])]),
-        ]);
+      if (Array.isArray(s.takenCards)) {
+        setTakenCards(s.takenCards);
       }
 
       if (s.status === "waiting" && s.selectionEndsAt) {
@@ -89,23 +144,25 @@ export default function CartelaSelection({
   // ───────────── ክፍል ሲቀየር ዳግም አስጀምር ─────────────
   useEffect(() => {
     wentLiveRef.current = false;
+    pollStopRef.current = false;
     setSelectedCards([]);
     setTakenCards([]);
     setDeadlineMs(null);
     setRemainingSec(null);
   }, [roomCode]);
 
-  // ───────────── የመጀመሪያ ማመሳሰል (REST) ─────────────
+  // ───────────── የመጀመሪያ ማመሳሰል (REST) + ባላንስ ─────────────
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
       for (let attempt = 0; attempt < SYNC_RETRIES && !cancelled; attempt++) {
         try {
-          const data = await getRoom(roomCode, attempt === 0 ? 2500 : 2000);
+          const data = await getRoom(roomCode, attempt === 0 ? 3000 : 2000);
           if (!cancelled) applyRoomState(data);
           return;
         } catch {
-          await new Promise((r) => setTimeout(r, 300));
+          await new Promise((r) => setTimeout(r, 400));
         }
       }
       if (!cancelled) flash("ግንኙነት የለም — እንደገና እየሞከረ ነው");
@@ -113,17 +170,13 @@ export default function CartelaSelection({
 
     (async () => {
       try {
-        const token = localStorage.getItem("bingo_token");
-        const base =
-          process.env.REACT_APP_API_URL ||
-          "https://fetan-bingo-he4x.onrender.com";
-        const r = await fetch(`${base}/api/wallet/balance`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        const d = await r.json();
-        if (!cancelled && d.balance !== undefined) setCurrentBalance(d.balance);
+        const d = await getBalance();
+        if (!cancelled && d?.balance !== undefined) {
+          setCurrentBalance(d.balance);
+        }
       } catch {}
     })();
+
     return () => {
       cancelled = true;
     };
@@ -140,13 +193,11 @@ export default function CartelaSelection({
       if (!d.roomCode || d.roomCode === roomCode) goLive();
     };
 
-    // ሌላ ተጠቃሚ ካርቴላ ሲመርጥ → ቀይ (ስም አይላክም)
     const onSel = ({ cardId }) => {
       if (typeof cardId !== "number") return;
-      setTakenCards((p) => [...new Set([...p, cardId])]);
+      setTakenCards((p) => (p.includes(cardId) ? p : [...p, cardId]));
     };
 
-    // ተጠቃሚው ካርቴላ ሲመልስ → ነጻ
     const onDesel = ({ cardId }) => {
       if (typeof cardId !== "number") return;
       setTakenCards((p) => p.filter((x) => x !== cardId));
@@ -157,7 +208,11 @@ export default function CartelaSelection({
     const onMine = ({ roomCode: rc, cardIds }) => {
       if (rc === roomCode && Array.isArray(cardIds)) {
         setSelectedCards(cardIds);
-        setTakenCards((p) => [...new Set([...p, ...cardIds])]);
+        setTakenCards((p) => {
+          const set = new Set(p);
+          for (const id of cardIds) set.add(id);
+          return [...set];
+        });
       }
     };
 
@@ -197,64 +252,71 @@ export default function CartelaSelection({
       setRemainingSec(Math.max(0, Math.ceil(ms / 1000)));
     };
     tick();
-    const id = setInterval(tick, 100);
+    const id = setInterval(tick, 200);
     return () => clearInterval(id);
   }, [deadlineMs]);
 
-  // ───────────── ሰዓቱ 0 ሲደርስ ─────────────
+  // ───────────── ሰዓቱ 0 ሲደርስ → ሰርቨርን ጠይቅ ─────────────
   useEffect(() => {
     if (remainingSec !== 0 || wentLiveRef.current) return;
-    let stop = false;
+    pollStopRef.current = false;
+
     const poll = async () => {
-      for (let i = 0; i < 20 && !stop && !wentLiveRef.current; i++) {
+      for (let i = 0; i < 20; i++) {
+        if (pollStopRef.current || wentLiveRef.current) return;
         try {
-          applyRoomState(await getRoom(roomCode, 1500));
+          const data = await getRoom(roomCode, 1500);
+          applyRoomState(data);
         } catch {}
-        await new Promise((r) => setTimeout(r, 400));
+        await new Promise((r) => setTimeout(r, 500));
       }
     };
-    const first = setTimeout(poll, 600);
+
+    const first = setTimeout(poll, 800);
     return () => {
-      stop = true;
+      pollStopRef.current = true;
       clearTimeout(first);
     };
   }, [remainingSec, roomCode, applyRoomState]);
 
   // ═══════════════════════════════════════════════════
-  // ካርቴላ መምረጥ / መመለስ
+  // ✅ FIX: handleSelect — useCallback ከ refs ጋር
+  //    selectedRef/takenRef/balanceRef ስለሚጠቀም በሁሉም render ላይ
+  //    አይቀየርም → 1250 buttons አይ re-render ይሆኑም
   // ═══════════════════════════════════════════════════
-  const handleSelect = (id) => {
-    if (wentLiveRef.current || remainingSec === 0) return;
+  const handleSelect = useCallback(
+    (id) => {
+      if (wentLiveRef.current) return;
+      // remainingSec 0 ማለት ሰዓቱ አልቋል (ref ስለሌለው ከ state ን እናንብብ)
+      const selected = selectedRef.current;
+      const taken = takenRef.current;
 
-    const isMine = selectedCards.includes(id);
-    const isTakenByOther = takenCards.includes(id) && !isMine;
+      const isMine = selected.includes(id);
+      const isTakenByOther = taken.includes(id) && !isMine;
 
-    // 🔴 በሌላ ተጠቃሚ ከተያዘ → flash ብቻ
-    if (isTakenByOther) {
-      flash("🔒 ካርቴላው ተይዟል");
-      return;
-    }
+      if (isTakenByOther) return;
 
-    // ራሱ የመረጠውን መመለስ
-    if (isMine) {
-      getSocket().emit("deselect_card", { roomCode, cardId: id });
-      setSelectedCards((p) => p.filter((x) => x !== id));
-      return;
-    }
+      if (isMine) {
+        getSocket().emit("deselect_card", { roomCode, cardId: id });
+        setSelectedCards((p) => p.filter((x) => x !== id));
+        return;
+      }
 
-    // የብር ማረጋገጫ
-    if (currentBalance < stake) {
-      return flash(`❌ ቀሪ ሂሳብ በቂ አይደለም — ${stake} ETB ያስፈልጋል`);
-    }
+      if (balanceRef.current < stake) {
+        return flash(`❌ ቀሪ ሂሳብ በቂ አይደለም — ${stake} ETB ያስፈልጋል`);
+      }
 
-    getSocket().emit("select_card", { roomCode, cardId: id });
-    setSelectedCards((p) => [...p, id]);
-  };
+      getSocket().emit("select_card", { roomCode, cardId: id });
+      setSelectedCards((p) => [...p, id]);
+    },
+    [roomCode, stake, flash]
+  );
 
   // ───────────── Back ─────────────
   const handleCancel = () => {
+    pollStopRef.current = true;
+    const s = getSocket();
     if (!wentLiveRef.current) {
-      const s = getSocket();
       for (const id of selectedRef.current) {
         s.emit("deselect_card", { roomCode, cardId: id });
       }
@@ -263,12 +325,21 @@ export default function CartelaSelection({
         onCancel?.();
       }, 150);
     } else {
-      getSocket().emit("leave_room");
+      s.emit("leave_room");
       onCancel?.();
     }
   };
 
-  const numbers = Array.from({ length: TOTAL_CARDS }, (_, i) => i + 1);
+  // ✅ FIX: numbers በ useMemo — በሁሉም render ላይ አይፈጠርም
+  const numbers = useMemo(
+    () => Array.from({ length: TOTAL_CARDS }, (_, i) => i + 1),
+    []
+  );
+
+  // ✅ FIX: Sets በ useMemo — በተመሳሳይ render ላይ አንድ ጊዜ ብቻ ይፈጠራሉ
+  const selectedSet = useMemo(() => new Set(selectedCards), [selectedCards]);
+  const takenSet = useMemo(() => new Set(takenCards), [takenCards]);
+
   const total = selectedCards.length * stake;
   const maxAffordable = Math.floor(currentBalance / stake);
 
@@ -402,7 +473,7 @@ export default function CartelaSelection({
       </div>
 
       {/* ═══════════════════════════════════════════════ */}
-      {/* Numbers grid — taken ካርቴላዎች ቀይ */}
+      {/* Numbers grid — ✅ FIX: NumberButton memoized */}
       {/* ═══════════════════════════════════════════════ */}
       <div
         style={{
@@ -419,42 +490,17 @@ export default function CartelaSelection({
         }}
       >
         {numbers.map((n) => {
-          const isTaken =
-            takenCards.includes(n) && !selectedCards.includes(n);
-          const isSelected = selectedCards.includes(n);
+          const isSelected = selectedSet.has(n);
+          const isTaken = !isSelected && takenSet.has(n);
 
           return (
-            <button
+            <NumberButton
               key={n}
-              onClick={() => handleSelect(n)}
-              style={{
-                padding: "9px 0",
-                borderRadius: 6,
-                border: isSelected
-                  ? "2px solid #2ecc71"
-                  : isTaken
-                  ? "2px solid #c0392b"
-                  : "1px solid #2a2a40",
-                background: isTaken
-                  ? "linear-gradient(135deg, #c0392b, #8e1f1f)"
-                  : isSelected
-                  ? "linear-gradient(135deg, #2ecc71, #27ae60)"
-                  : "linear-gradient(135deg, #1b2233, #151b2b)",
-                color: "#fff",
-                fontWeight: "bold",
-                fontSize: 10,
-                cursor: isTaken ? "not-allowed" : "pointer",
-                opacity: isTaken ? 0.7 : 1,
-                boxShadow: isSelected
-                  ? "0 0 10px rgba(46,204,113,0.6)"
-                  : isTaken
-                  ? "0 0 6px rgba(192,57,43,0.5)"
-                  : "none",
-                transition: "all 0.2s ease",
-              }}
-            >
-              {n}
-            </button>
+              n={n}
+              isSelected={isSelected}
+              isTaken={isTaken}
+              onSelect={handleSelect}
+            />
           );
         })}
       </div>
@@ -462,9 +508,6 @@ export default function CartelaSelection({
   );
 }
 
-// ═══════════════════════════════════════════════════════
-// INFO CELL
-// ═══════════════════════════════════════════════════════
 function InfoCell({ icon, label, value, color = "#fff", size = 14 }) {
   return (
     <div style={{ textAlign: "center" }}>
