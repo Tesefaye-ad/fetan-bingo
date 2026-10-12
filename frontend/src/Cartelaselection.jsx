@@ -14,8 +14,7 @@ const WEEKLY_ROOMS = ["ROOM50", "ROOM100"];
 const SYNC_RETRIES = 6;
 
 // ═══════════════════════════════════════════════════════
-// ✅ FIX: Number button — memoized (1250 buttons ላይ ወሳኝ)
-//   በሁሉም 200ms tick ላይ አይታተምም
+// ✅ Number button — memoized (1250 buttons ላይ ወሳኝ)
 // ═══════════════════════════════════════════════════════
 const NumberButton = memo(function NumberButton({
   n,
@@ -85,7 +84,7 @@ export default function CartelaSelection({
   const mountedRef = useRef(true);
   selectedRef.current = selectedCards;
 
-  // ✅ FIX: Ref ዎች ለ handleSelect ስለዚህ callback ሳይቀየር ሁልጊዜ ወቅታዊ ውሂብ ያገኛል
+  // Refs ለ handleSelect
   const takenRef = useRef([]);
   const balanceRef = useRef(balance);
   useEffect(() => {
@@ -280,14 +279,11 @@ export default function CartelaSelection({
   }, [remainingSec, roomCode, applyRoomState]);
 
   // ═══════════════════════════════════════════════════
-  // ✅ FIX: handleSelect — useCallback ከ refs ጋር
-  //    selectedRef/takenRef/balanceRef ስለሚጠቀም በሁሉም render ላይ
-  //    አይቀየርም → 1250 buttons አይ re-render ይሆኑም
+  // handleSelect — useCallback ከ refs ጋር
   // ═══════════════════════════════════════════════════
   const handleSelect = useCallback(
     (id) => {
       if (wentLiveRef.current) return;
-      // remainingSec 0 ማለት ሰዓቱ አልቋል (ref ስለሌለው ከ state ን እናንብብ)
       const selected = selectedRef.current;
       const taken = takenRef.current;
 
@@ -330,13 +326,13 @@ export default function CartelaSelection({
     }
   };
 
-  // ✅ FIX: numbers በ useMemo — በሁሉም render ላይ አይፈጠርም
+  // numbers በ useMemo
   const numbers = useMemo(
     () => Array.from({ length: TOTAL_CARDS }, (_, i) => i + 1),
     []
   );
 
-  // ✅ FIX: Sets በ useMemo — በተመሳሳይ render ላይ አንድ ጊዜ ብቻ ይፈጠራሉ
+  // Sets በ useMemo
   const selectedSet = useMemo(() => new Set(selectedCards), [selectedCards]);
   const takenSet = useMemo(() => new Set(takenCards), [takenCards]);
 
@@ -395,18 +391,21 @@ export default function CartelaSelection({
         >
           CHOOSE CARTELA
         </div>
-        <div
-          style={{
-            color: "#888",
-            fontSize: 10,
-            fontWeight: "bold",
-            letterSpacing: 2,
-            marginTop: 2,
-          }}
-        >
-          {remainingSec === null && " • syncing…"}
-          {notice && <span style={{ color: "#e74c3c" }}> • {notice}</span>}
-        </div>
+
+        {/* ✅ FIX: "syncing…" ተወግዷል — notice ብቻ ይታያል */}
+        {notice && (
+          <div
+            style={{
+              color: "#e74c3c",
+              fontSize: 10,
+              fontWeight: "bold",
+              letterSpacing: 2,
+              marginTop: 2,
+            }}
+          >
+            {notice}
+          </div>
+        )}
       </div>
 
       {/* Info cells */}
@@ -472,9 +471,7 @@ export default function CartelaSelection({
         </span>
       </div>
 
-      {/* ═══════════════════════════════════════════════ */}
-      {/* Numbers grid — ✅ FIX: NumberButton memoized */}
-      {/* ═══════════════════════════════════════════════ */}
+      {/* Numbers grid */}
       <div
         style={{
           flex: 1,

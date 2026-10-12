@@ -884,6 +884,7 @@ bot.catch((err, ctx) => {
 // MAIN — Webhook
 // ═══════════════════════════════════════════════════════
 async function main(app) {
+  // ─── Bot Commands ───
   try {
     await bot.telegram.setMyCommands([
       { command: "start", description: "Start" },
@@ -895,10 +896,42 @@ async function main(app) {
       { command: "invite", description: "Invite" },
       { command: "instruction", description: "Instruction" },
     ]);
+    console.log("[bot] ✅ Commands set");
   } catch (err) {
     console.error("Menu setup error:", err);
   }
 
+  // ═══════════════════════════════════════════════════════
+  // ✅ FIX #1: Description በትክክል ማስተካከል
+  // JSON.stringify ሳይጠቀም — plain string ብቻ
+  // (ቀድሞ {"description":"..."} ሆኖ ይታይ ነበር)
+  // ═══════════════════════════════════════════════════════
+  try {
+    await bot.telegram.setMyDescription(
+      "🎉 እንኳን ወደ Fetan Bingo በደህና መጡ!\n\n" +
+        "🎰 ይጫወቱ፣ ያሸንፉ እና እውነተኛ ገንዘብ ያግኙ\n" +
+        "⚡ ፈጣን ዲፖዚት እና ቅጽበታዊ ወጪ\n" +
+        "🎁 ለአዲስ ተጠቃሚዎች ቦነስ\n\n" +
+        "🎮 ለመጀመር Play ን ይጫኑ!"
+    );
+    console.log("[bot] ✅ Description set");
+  } catch (err) {
+    console.error("[bot] setMyDescription failed:", err.message);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // ✅ FIX #2: Short Description (ከ Start Bot በታች የሚታየው)
+  // ═══════════════════════════════════════════════════════
+  try {
+    await bot.telegram.setMyShortDescription(
+      "🎰 Fetan Bingo — ይጫወቱ እና ያሸንፉ!"
+    );
+    console.log("[bot] ✅ Short description set");
+  } catch (err) {
+    console.error("[bot] setMyShortDescription failed:", err.message);
+  }
+
+  // ─── WebApp Menu Button ───
   if (WEBAPP_URL) {
     try {
       await bot.telegram.setChatMenuButton({
@@ -912,6 +945,7 @@ async function main(app) {
     }
   }
 
+  // ─── Webhook ───
   const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
   app.use(bot.webhookCallback(webhookPath));
 
