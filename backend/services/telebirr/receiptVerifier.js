@@ -120,72 +120,100 @@ async function fetchReceiptHtml(txnId) {
 }
 
 // ─── HTML መተንተን ───
-function parseReceiptHtml(html) {
-  const $ = cheerio.load(html);
-  const cells = [];
+// የኢትዮ ቴሌኮም ደረሰኝ አወቃቀር:
+//   • አንዳንድ መስኮች:  [መለያ] [እሴት]            (ለምሳሌ Payer Name → TESFAYE ...)
+//   • የክፍያ ዝርዝር:   [Invoice No][Payment date][Settled Amount]  ← መለያዎች በአንድ ረድፍ
+//                      [DJC3OYJK2T][12-10-2026 ...][100 Birr]       ← እሴቶች በቀጣዩ ረድፍ
+// ስለዚህ "ከመለያው ቀጥሎ ያለው ሕዋስ" ዘዴ አይሰራም። በምትኩ ተከታታይ መለያዎችን እና
+// ተከታታይ እሴቶችን በቡድን ለይተን ከመጨረሻው ጀምረን እናዛምዳቸዋለን።
 
+// መለያ = "አማርኛ/English" (የኢትዮጵያ ፊደል + "/" ይዟል)። እሴቶች (ስም፣ ቁጥር፣ ቀን፣ መጠን) አይዙም።
+const LABEL_RE = /[\u1200-\u137F][^/]*\//;
+const isLabel = (t) => LABEL_RE.test(t);
+
+// የእያንዳንዱ <td> የራሱ ጽሑፍ (የውስጥ table/td ጽሑፍ ሳይጨምር)
+function extractCells($) {
+  const cells = [];
   $("td").each((_, el) => {
-    const t = $(el).text().replace(/\s+/g, " ").trim();
+    const $copy = $(el).clone();
+    $copy.find("table, td").remove();
+    const t = $copy.text().replace(/\s+/g, " ").trim();
     if (t) cells.push(t);
   });
+  return cells;
+}
 
-  const valueAfter = (...labels) => {
-    for (let i = 0; i < cells.length - 1; i++) {
-      const cell = cells[i].toLowerCase();
-      if (labels.some((l) => cell.includes(l.toLowerCase()))) {
-        const next = cells[i + 1];
-        if (next) return next;
-      }
+function pairCells(cells) {
+  const pairs = [];
+  let i = 0;
+  while (i < cells.length) {
+    const labels = [];
+    while (i < cells.length && isLabel(cells[i])) labels.push(cells[i++]);
+    const values = [];
+    while (i < cells.length && !isLabel(cells[i])) values.push(cells[i++]);
+    const offset = labels.length - values.length;
+    values.forEach((v, j) => {
+      if (offset + j >= 0) pairs.push({ label: labels[offset + j], value: v });
+    });
+  }
+  return pairs;
+}
+
+function parseCells(cells) {
+  const pairs = pairCells(cells);
+
+  const valueOf = (...labels) => {
+    for (const p of pairs) {
+      const l = p.label.toLowerCase();
+      if (labels.some((x) => l.includes(x.toLowerCase()))) return p.value;
     }
     return null;
   };
 
   const data = {
-    payerName: valueAfter("Payer Name", "የከፋይ ስም"),
-    payerPhone: valueAfter("Payer telebirr no", "የከፋይ ቴሌብር"),
-    recipientName: valueAfter("Credited Party name", "ተቀባይ ስም"),
-    recipientPhone: valueAfter(
-      "Credited party account no",
-      "የተቀባይ አካውንት"
-    ),
-    status: valueAfter("Transaction status", "የግብይት ሁኔታ"),
-    invoiceNo: valueAfter("Invoice No", "ደረሰኝ ቁጥር"),
-    paymentDate: valueAfter("Payment date", "የክፍያ ቀን"),
-    settledAmount: valueAfter("Settled Amount", "የተከፈለ መጠን"),
-    totalPaidAmount: valueAfter("Total Paid Amount", "ጠቅላላ የተከፈለ"),
-    serviceFee: valueAfter("Service fee"),
+    payerName: valueOf("Payer Name", "የከፋይ ስም"),
+    payerPhone: valueOf("Payer telebirr no", "የከፋይ ቴሌብር"),
+    recipientName: valueOf("Credited Party name", "የገንዘብ ተቀባይ ስም"),
+    recipientPhone: valueOf("Credited party account no", "የገንዘብ ተቀባይ ቴሌብር"),
+    status: valueOf("transaction status", "የክፍያው ሁኔታ"),
+    invoiceNo: valueOf("Invoice No", "የክፍያ ቁጥር"),
+    paymentDate: valueOf("Payment date", "የክፍያ ቀን"),
+    settledAmount: valueOf("Settled Amount", "የተከፈለው መጠን"),
+    totalPaidAmount: valueOf("Total Paid Amount", "ጠቅላላ የተከፈለ"),
+    serviceFee: valueOf("Service fee/", "Service fee"),
   };
 
-  // Amount parsing: "1,250.50 Birr" → 1250.5
+  // "1,250.50 Birr" → 1250.5
   data.amount = null;
   if (data.settledAmount) {
-    const m = /(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?/.exec(
-      data.settledAmount
-    );
+    const m = /(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?/.exec(data.settledAmount);
     if (m) {
-      data.amount = Number(
-        m[1].replace(/,/g, "") + (m[2] ? "." + m[2] : "")
-      );
+      data.amount = Number(m[1].replace(/,/g, "") + (m[2] ? "." + m[2] : ""));
     }
   }
 
-  // Date parsing: "08-10-2026 08:31:50" → UTC+3
+  // "12-10-2026 05:10:19" (ቀን-ወር-ዓመት) → UTC+3
   data.paymentDateMs = null;
   if (data.paymentDate) {
     const m = /(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/.exec(
       data.paymentDate
     );
     if (m) {
-      const [, d, mo, y, h, mi, s] = m;
+      const [, d, mo, y, h, mi, sec] = m;
       const p = (n) => String(n).padStart(2, "0");
       const ms = new Date(
-        `${y}-${p(mo)}-${p(d)}T${p(h)}:${mi}:${s}+03:00`
+        `${y}-${p(mo)}-${p(d)}T${p(h)}:${mi}:${sec}+03:00`
       ).getTime();
       if (!Number.isNaN(ms)) data.paymentDateMs = ms;
     }
   }
 
   return data;
+}
+
+function parseReceiptHtml(html) {
+  const $ = cheerio.load(html);
+  return parseCells(extractCells($));
 }
 
 // ─── Matchers ───
@@ -333,6 +361,8 @@ module.exports = {
   verifyReceipt,
   fetchReceiptHtml,
   parseReceiptHtml,
+  parseCells,
+  pairCells,
   buildReceiptUrl,
   phoneMatches,
   nameMatches,

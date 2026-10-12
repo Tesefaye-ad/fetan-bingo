@@ -29,21 +29,22 @@ function config() {
     requireSenderMatch:
       String(process.env.REQUIRE_SENDER_MATCH).toLowerCase() === "true",
     maxFailsPer10Min: Number(process.env.MAX_FAILED_DEPOSITS_10MIN || 5),
-    // MANUAL_REVIEW_ON_FETCH_FAIL=false ካልተባለ በስተቀር በእጅ ማረጋገጫ ይነቃል
+    // ነባሪ: ደረሰኙ በኦንላይን ካልተረጋገጠ ውድቅ ይሆናል።
+    // MANUAL_REVIEW_ON_FETCH_FAIL=true ከተባለ ብቻ ወደ አድሚን በእጅ ማረጋገጫ ይላካል።
     manualOnFetchFail:
-      String(process.env.MANUAL_REVIEW_ON_FETCH_FAIL).toLowerCase() !== "false",
+      String(process.env.MANUAL_REVIEW_ON_FETCH_FAIL).toLowerCase() === "true",
   };
 }
 
 const SMS_ERROR_MESSAGES = {
   fake_receipt_link: "የደረሰኝ ሊንኩ ከኢትዮ ቴሌኮም አይደለም",
-  txn_id_conflict: "በ SMS ውስጥ ያሉት የግብይት ቁጥሮች አይመሳሰሉም",
-  txn_id_missing: "የግብይት ቁጥር (Transaction ID) አልተገኘም። ሙሉውን SMS ይለጥፉ",
-  amount_missing: "የብር መጠን አልተገኘም። ሙሉውን SMS ይለጥፉ",
+  txn_id_conflict: "SMS ትክክል አይደለም",
+  txn_id_missing: "ሙሉውን SMS ይለጥፉ",
+  amount_missing: " ሙሉውን SMS ይለጥፉ",
 };
 
 const DUP_MSG =
-  "ይህ ግብይት ከዚህ በፊት ጥቅም ላይ ውሏል። አንድ ቁጥር ለአንድ ጊዜ ብቻ ይሰራል";
+  "";
 
 function rejected(reason, message, httpStatus = 422) {
   return {
@@ -266,6 +267,12 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
       SMS_ERROR_MESSAGES[first] || "SMS ማንበብ አልተቻለም"
     );
   }
+  if (!sms.receiptUrl) {
+    return rejected(
+      "receipt_link_missing",
+      "የደረሰኝ ሊንኩ የለም — ሙሉውን SMS (ከ https://transactioninfo.ethiotelecom.et/... ሊንክ ጋር) ይለጥፉ"
+    );
+  }
   if (sms.direction === "received") {
     return rejected(
       "wrong_direction",
@@ -352,11 +359,20 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
           status: "manual_review",
           reason: receipt.reason,
           message:
-            "⏳ ደረሰኙን በራስ-ሰር ማረጋገጥ አልተቻለም። ጥያቄዎ ለአስተዳዳሪ ተልኳል — ከተረጋገጠ በኋላ ብሩ ይገባል።",
+            "ጥያቄዎ ለአስተዳዳሪ ተልኳል — ከተረጋገጠ በኋላ ብሩ ይገባል።",
           reference: q.reference,
           httpStatus: 202,
         };
       }
+    }
+    // ኢትዮ ቴሌኮም አልመለሰም / ገጹ አልተነበበም: ክፍያው እውነት መሆኑ አልተረጋገጠም → ውድቅ።
+    // የተጠቃሚው ጥፋት ስላልሆነ መዝገብ አይያዝም፤ ተመሳሳዩን SMS ቆይቶ እንደገና መላክ ይችላል።
+    if (receipt.manualReview) {
+      return rejected(
+        receipt.reason,
+        "ደረሰኙን በኦንላይን ማረጋገጥ አልተቻለም (ክፍያው አልተመዘገበም)። ትንሽ ቆይተው ተመሳሳዩን SMS እንደገና ይላኩ",
+        503
+      );
     }
     await logRejection(user, sms, receipt.reason);
     return rejected(receipt.reason, receipt.message);
@@ -378,7 +394,7 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
         status: "manual_review",
         reason: "exceeds_auto_limit",
         message:
-          "⏳ ደረሰኙ ተረጋግጧል፣ ነገር ግን መጠኑ ከራስ-ሰር ገደብ ይበልጣል። አስተዳዳሪ ካረጋገጠ በኋላ ብሩ ይገባል።",
+          " አስተዳዳሪ ካረጋገጠ በኋላ ብሩ ይገባል።",
         reference: q.reference,
         httpStatus: 202,
       };
@@ -395,6 +411,7 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
       receipt,
       pending,
     });
+  
   } catch (err) {
     if (err && err.code === 11000) {
       await logRejection(user, sms, "duplicate");

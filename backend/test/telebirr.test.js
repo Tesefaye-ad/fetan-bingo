@@ -90,19 +90,32 @@ const sms = (o = {}) =>
   `The service fee is ETB 0.00 and 15% VAT ETB 0.00 on the service fee. Your current E-Money Account ` +
   `balance is ETB 250.50. https://transactioninfo.ethiotelecom.et/receipt/${o.id || "DJ85JP3L6V"} Thank you`;
 
+// ትክክለኛውን የኢትዮ ቴሌኮም ደረሰኝ አወቃቀር ይመስላል:
+//  • መለያዎች "አማርኛ/English" ናቸው
+//  • Invoice No / Payment date / Settled Amount መለያዎች በአንድ ረድፍ፣ እሴቶቹ በቀጣዩ ረድፍ
+//  • የ "transaction status" <td> አልተዘጋም (እንደ እውነተኛው ገጽ)
 const receiptHtml = (o = {}) => {
-  const rows = [
-    ["Payer Name", "Abebe K***"], ["Payer telebirr no.", "2519****1234"],
-    ["Credited Party name", o.name || "Fetan Bingo"],
-    ["Credited party account no", o.to || "2519****0583"],
-    ["Transaction status", o.status || "Completed"],
-    ["Invoice No.", o.id || "DJ85JP3L6V"],
-    ["Payment date", o.date || "08-10-2026 08:31:50"],
-    ["Settled Amount", `${o.amount || "100.00"} Birr`],
-    ["Service fee", "0.00 Birr"], ["Total Paid Amount", `${o.amount || "100.00"} Birr`],
-  ];
-  return `<html><body><!-- ${"x".repeat(600)} --><table>${rows
-    .map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join("")}</table></body></html>`;
+  const amt = `${o.amount || "100.00"} Birr`;
+  const kv = (l, v) => `<tr><td>${l}</td><td>${v}</td></tr>`;
+  return `<html><body><!-- ${"x".repeat(600)} -->
+  <table><tr><td><table><tr><td>Ethio telecom Share Company</td></tr><tr><td>TIN No.</td><td>0000030603</td></tr></table></td></tr>
+  <tr><td>የቴሌብር ክፍያ መረጃ/telebirr Transaction information</td></tr>
+  <tr><td><table>
+    ${kv("የከፋይ ስም/Payer Name", "Abebe K***")}
+    ${kv("የከፋይ ቴሌብር ቁ./Payer telebirr no.", "2519****1234")}
+    ${kv("የከፋይ ቲን ቁ./ Payer TIN No", "")}
+    ${kv("የከፋይ ተ.እ.ታ.ቁ./VAT Reg. No", "")}
+    ${kv("የገንዘብ ተቀባይ ስም/Credited Party name", o.name || "Fetan Bingo")}
+    ${kv("የገንዘብ ተቀባይ ቴሌብር ቁ./Credited party account no", o.to || "2519****0583")}
+    <tr><td>የክፍያው ሁኔታ/transaction status
+        <td>${o.status || "Completed"}</td></tr>
+  </table></td></tr>
+  <tr><td><table>
+    <tr><td>የክፍያ ዝርዝር/ Invoice details</td><td>የክፍያ ቁጥር/Invoice No.</td><td>የክፍያ ቀን/Payment date</td><td>የተከፈለው መጠን/Settled Amount</td></tr>
+    <tr><td></td><td>${o.id || "DJ85JP3L6V"}</td><td>${o.date || "08-10-2026 08:31:50"}</td><td>${amt}</td></tr>
+    ${kv("የአገልግሎት ክፍያ/Service fee", "0.00 Birr")}
+    ${kv("ጠቅላላ የተከፈለ/Total Paid Amount", amt)}
+  </table></td></tr></table></body></html>`;
 };
 const mockAxios = (impl) => { axios.get = impl; };
 const okReceipt = (o) => mockAxios(async () => ({ status: 200, data: receiptHtml(o) }));
@@ -236,13 +249,40 @@ test("workflow: ❌ ሃሰተኛ ደረሰኝ (404) እና የተሳሳተ ተ�
   assert.equal((await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "WR11WR22WR" }) })).reason, "wrong_recipient");
   assert.equal(u.balance, 0);
 });
-test("workflow: ⏳ ደረሰኝ ማምጣት ቢከሽፍ → በእጅ ማረጋገጫ፣ ዋሌት አይነካም", async () => {
+test("workflow: ⏳ ደረሰኝ ማምጣት ቢከሽፍ (ነባሪ) → ውድቅ፣ ዋሌት አይነካም፣ ቁጥሩ አይቃጠልም", async () => {
   mockAxios(async () => { throw new Error("ECONNRESET"); });
   const u = freshUser();
   const r = await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "MN11MN22MN" }) });
-  assert.equal(r.status, "manual_review");
+  assert.equal(r.status, "rejected");
+  assert.equal(r.reason, "fetch_failed");
   assert.equal(u.balance, 0);
-  assert.equal(db.txs.find((t) => t.meta.transactionId === "MN11MN22MN").status, "pending");
+  assert.equal(db.txs.some((t) => t.meta && t.meta.transactionId === "MN11MN22MN"), false);
+  // ኢንተርኔቱ ሲመለስ ተመሳሳዩ SMS ይጸድቃል
+  okReceipt({ id: "MN11MN22MN" });
+  const r2 = await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "MN11MN22MN" }) });
+  assert.equal(r2.status, "approved");
+});
+test("workflow: ⏳ MANUAL_REVIEW_ON_FETCH_FAIL=true → በእጅ ማረጋገጫ", async () => {
+  process.env.MANUAL_REVIEW_ON_FETCH_FAIL = "true";
+  try {
+    mockAxios(async () => { throw new Error("ECONNRESET"); });
+    const u = freshUser();
+    const r = await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "MR11MR22MR" }) });
+    assert.equal(r.status, "manual_review");
+    assert.equal(u.balance, 0);
+    assert.equal(db.txs.find((t) => t.meta.transactionId === "MR11MR22MR").status, "pending");
+  } finally {
+    delete process.env.MANUAL_REVIEW_ON_FETCH_FAIL;
+  }
+});
+test("workflow: ❌ ያለ ደረሰኝ ሊንክ የተለጠፈ SMS → ውድቅ", async () => {
+  okReceipt({ id: "NL11NL22NL" });
+  const u = freshUser();
+  const noLink = sms({ id: "NL11NL22NL" }).replace(/https?:\/\/\S+/, "");
+  const r = await verifyAndCreditDeposit({ userId: u._id, smsText: noLink });
+  assert.equal(r.status, "rejected");
+  assert.equal(r.reason, "receipt_link_missing");
+  assert.equal(u.balance, 0);
 });
 test("workflow: 🚫 ብዙ ያልተሳኩ ሙከራዎች → rate limit", async () => {
   mockAxios(async () => ({ status: 404, data: "" }));
