@@ -9,6 +9,13 @@ const Transaction = require("../../models/Transaction");
 const { Notification } = require("../../models/User");
 const { parseTelebirrSms } = require("./smsParser");
 const { verifyReceipt } = require("./receiptVerifier");
+const {
+  findMerchantSms,
+  waitForMerchantSms,
+  matchMerchantSms,
+  markClaimed,
+  approvePendingFor,
+} = require("./merchantSms");
 
 const cents = (n) => Math.round(Number(n) * 100);
 
@@ -35,6 +42,12 @@ function config() {
       String(process.env.MANUAL_REVIEW_ON_FETCH_FAIL).toLowerCase() !== "false",
     // ነባሪ: ሲስተሙ በራሱ ያላጸደቀው ማንኛውም ክፍያ (ሃሰተኛ ደረሰኝ፣ አለመመሳሰል፣ ማምጣት መከሽፍ) ወደ አድሚን ይሄዳል።
     // MANUAL_REVIEW_ON_REJECT=false ከተባለ ደረሰኙ ሲያልፍ ብቻ ነው የሚጸድቀው፤ አለመመሳሰል ወዲያው ውድቅ ይሆናል።
+    // የመርቻንት ስልክ SMS ማረጋገጫ (MERCHANT_SMS_TOKEN ሲኖር ይነቃል)
+    merchantSmsEnabled: (process.env.MERCHANT_SMS_TOKEN || "").length >= 24,
+    merchantSmsWaitSec: Number(process.env.MERCHANT_SMS_WAIT_SECONDS ?? 15),
+    // RECEIPT_CHECK_ENABLED=false → የኢትዮ ቴሌኮም ድረ-ገጽ ጭራሽ አይጠራም (Render ላይ ለሚዘገይ ጥሩ)
+    receiptCheckEnabled:
+      String(process.env.RECEIPT_CHECK_ENABLED ?? "true").toLowerCase() !== "false",
     manualOnReject:
       String(process.env.MANUAL_REVIEW_ON_REJECT).toLowerCase() !== "false",
   };
@@ -244,6 +257,43 @@ async function queueManualReview({ user, sms, amount, pending, reason, receipt }
   }
 }
 
+// ─── ክፍያው መድረሱን ማረጋገጥ: (1) የመርቻንት SMS → (2) የኢትዮ ቴሌኮም ደረሰኝ ───
+async function verifyPayment({ sms, expectedAmount, user, cfg }) {
+  if (cfg.merchantSmsEnabled) {
+    let rec = await findMerchantSms(sms.txnId);
+    if (!rec && cfg.merchantSmsWaitSec > 0) {
+      rec = await waitForMerchantSms(sms.txnId, cfg.merchantSmsWaitSec);
+    }
+    if (rec) {
+      const m = matchMerchantSms(rec, {
+        expectedAmount,
+        userSmsMs: sms.timestamp && sms.timestamp.ms,
+        maxAgeHours: cfg.maxAgeHours,
+      });
+      return m.ok
+        ? { ok: true, via: "merchant_sms", data: m.data }
+        : { ok: false, reason: m.reason, message: m.message };
+    }
+    if (!cfg.receiptCheckEnabled) {
+      return {
+        ok: false,
+        reason: "awaiting_merchant_sms",
+        message: "ክፍያው ወደ መርቻንት ስልክ ገና አልደረሰም",
+        manualReview: true,
+        detail: "no_merchant_sms",
+      };
+    }
+  }
+  return verifyReceipt({
+    txnId: sms.txnId,
+    expectedAmount,
+    smsTimestampMs: sms.timestamp && sms.timestamp.ms,
+    merchant: { phone: cfg.merchantPhone, name: cfg.merchantName },
+    payerPhone: cfg.requireSenderMatch ? user.phone : null,
+    maxAgeHours: cfg.maxAgeHours,
+  });
+}
+
 // ═══════════════════════════════════════════════════════
 // ዋና ተግባር
 // ═══════════════════════════════════════════════════════
@@ -291,7 +341,7 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
   if (!sms.receiptUrl) {
     return rejected(
       "receipt_link_missing",
-      "ሙሉውን SMS ይለጥፉ"
+      "የደረሰኝ ሊንኩ የለም — ሙሉውን SMS (ከ https://transactioninfo.ethiotelecom.et/... ሊንክ ጋር) ይለጥፉ"
     );
   }
   if (sms.direction === "received") {
@@ -355,14 +405,7 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
   }
 
   // ─── 4) Online ደረሰኝ ማረጋገጫ ───
-  const receipt = await verifyReceipt({
-    txnId: sms.txnId,
-    expectedAmount,
-    smsTimestampMs: sms.timestamp && sms.timestamp.ms,
-    merchant: { phone: cfg.merchantPhone, name: cfg.merchantName },
-    payerPhone: cfg.requireSenderMatch ? user.phone : null,
-    maxAgeHours: cfg.maxAgeHours,
-  });
+  const receipt = await verifyPayment({ sms, expectedAmount, user, cfg });
 
   if (!receipt.ok) {
     console.error(
@@ -383,13 +426,37 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
       });
       if (q === "duplicate") return rejected("duplicate", DUP_MSG, 409);
       if (q) {
+        // SMS በዚህ መካከል ከደረሰ (ውድድር) → አሁኑኑ ይጸድቃል
+        if (cfg.merchantSmsEnabled) {
+          try {
+            const rec = await findMerchantSms(sms.txnId);
+            const r = rec ? await approvePendingFor(rec) : null;
+            if (r && r.ok) {
+              return {
+                ok: true,
+                status: "approved",
+                message: `✅ ክፍያው ተሳክቷል! ${sms.amount} ብር ወደ ዋሌትዎ ገብቷል።`,
+                amount: sms.amount,
+                transactionId: sms.txnId,
+                reference: q.reference,
+                balance: r.user && r.user.balance,
+                httpStatus: 200,
+              };
+            }
+          } catch (e) {
+            console.error("[deposit] merchant-sms recheck failed:", e.message);
+          }
+        }
         return {
           ok: false,
           status: "manual_review",
           reason: receipt.reason,
-          message: receipt.manualReview
-            ? "⏳ ደረሰኙን ማረጋገጥ አልተቻለም — ጥያቄዎ ለአስተዳዳሪ ተልኳል። አስተዳዳሪው ካጸደቀ በኋላ ብሩ ይገባል።"
-            : "⚠️ ጥያቄዎ ለአስተዳዳሪ ተልኳል። አስተዳዳሪው ካጣራ በኋላ ብሩ ይገባል።",
+          message:
+            receipt.reason === "awaiting_merchant_sms"
+              ? "⏳ ክፍያዎ ገና አልደረሰንም። ሲደርስ በራስ ሰር ይጸድቃል፤ ካልሆነ አስተዳዳሪ ያጣራል።"
+              : receipt.manualReview
+              ? "⏳ ደረሰኙን በኦንላይን ማረጋገጥ አልተቻለም — ጥያቄዎ ለአስተዳዳሪ ተልኳል። አስተዳዳሪው ካጸደቀ በኋላ ብሩ ይገባል።"
+              : "⚠️ ሲስተሙ ክፍያውን በራሱ ማጽደቅ አልቻለም — ጥያቄዎ ለአስተዳዳሪ ተልኳል። አስተዳዳሪው ካጣራ በኋላ ብሩ ይገባል።",
           reference: q.reference,
           httpStatus: 202,
         };
@@ -400,7 +467,7 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
     if (receipt.manualReview) {
       return rejected(
         receipt.reason,
-        "ደረሰኙን ማረጋገጥ አልተቻለም። ትንሽ ቆይተው ተመሳሳዩን SMS እንደገና ይላኩ",
+        "ደረሰኙን በኦንላይን ማረጋገጥ አልተቻለም (ክፍያው አልተመዘገበም)። ትንሽ ቆይተው ተመሳሳዩን SMS እንደገና ይላኩ",
         503
       );
     }
@@ -425,7 +492,7 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
         status: "manual_review",
         reason: "exceeds_auto_limit",
         message:
-          "✅ ደረሰኙ ተረጋግጧል —  ብሩ ወደ ዋሌትዎ ይገባል።",
+          "✅ ደረሰኙ በኢትዮ ቴሌኮም ተረጋግጧል — ጥያቄዎ ለአስተዳዳሪ ተልኳል። አስተዳዳሪው ካጸደቀ በኋላ ብሩ ወደ ዋሌትዎ ይገባል።",
         reference: q.reference,
         httpStatus: 202,
       };
@@ -460,6 +527,10 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
         "⚠️ ስህተት ተፈጥሯል። ገንዘብዎ አልተቀነሰም — እባክዎ እንደገና ይሞክሩ ወይም Support ያግኙ።",
       httpStatus: 500,
     };
+  }
+
+  if (receipt.via === "merchant_sms") {
+    await markClaimed(sms.txnId, user._id);
   }
 
   // ─── Notification (fire-and-forget) ───

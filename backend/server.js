@@ -14,6 +14,7 @@ const depositRoutes = require("./routes/deposit");
 const gameRoutes = require("./routes/game");
 const adminRoutes = require("./routes/admin");
 const { initGameSocket } = require("./socket/gameSocket");
+const merchantSmsRoutes = require("./routes/merchantSmsRoute");
 
 // ═══════════════════════════════════════════════════════
 // RATE LIMITERS (ለ DoS/Spam መከላከያ)
@@ -153,6 +154,7 @@ app.use("/api", globalLimiter);
 app.use("/api/auth/telegram", authLimiter);
 app.use("/api/wallet/deposit", depositLimiter);
 app.use("/api/wallet/withdraw", withdrawLimiter);
+app.use("/api/merchant-sms", merchantSmsRoutes);
 
 // ═══════════════════════════════════════════════════════
 // ROUTES — MOUNT

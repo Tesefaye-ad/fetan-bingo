@@ -66,8 +66,10 @@ function extractAmount(raw) {
 }
 
 // ─── 2) Transaction ID ───
+// እንግሊዝኛ: "Your transaction number is DJ85JP3L6V"
+// አማርኛ:   "የሂሳብ እንቅስቃሴ ቁጥርዎ DJD9QRJ18X ነዉ" / "የግብይት ቁጥር ..." / "የክፍያ ቁጥር ..."
 const TXN_LABEL_RE =
-  /(?:transaction\s*(?:number|no\.?|id)|የግብይት\s*(?:ቁጥር|መለያ)|ግብይት\s*ቁጥር)\s*(?:is|:|፡|-)?\s*([A-Za-z0-9]{8,14})\b/i;
+  /(?:transaction\s*(?:number|no\.?|id)|(?:የሂሳብ\s*እንቅስቃሴ|የግብይት|የክፍያ|ግብይት)\s*(?:ቁጥር|መለያ)(?:ዎን?)?)\s*(?:is|:|፡|-)?\s*([A-Za-z0-9]{8,14})\b/i;
 
 function looksLikeTxnId(s) {
   return (

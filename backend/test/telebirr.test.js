@@ -25,7 +25,7 @@ const thenable = (value) => {
   return q;
 };
 let seq = 0;
-const db = { users: [], txs: [] };
+const db = { users: [], txs: [], msms: [] };
 const FakeUser = {
   findById: async (id) => db.users.find((u) => String(u._id) === String(id)) || null,
   findOneAndUpdate: async (f, upd) => {
@@ -66,16 +66,33 @@ const FakeTx = {
     return {};
   },
 };
+const FakeMerchantSms = {
+  create: async (d) => {
+    if (db.msms.some((m) => m.txnId === d.txnId)) {
+      throw Object.assign(new Error("E11000 duplicate key"), { code: 11000 });
+    }
+    const m = { _id: `ms${++seq}`, createdAt: new Date(), claimedBy: null, ...d };
+    db.msms.push(m);
+    return m;
+  },
+  findOne: (f) => thenable(db.msms.find((m) => m.txnId === f.txnId) || null),
+  updateOne: async (f, upd) => {
+    const m = db.msms.find((x) => x.txnId === f.txnId && !x.claimedBy);
+    if (m) Object.assign(m, upd.$set);
+    return {};
+  },
+};
 // ⚠️ እውነተኛው bot.js እንዳይጫን (እውነተኛ Telegram መልዕክት እንዳይልክ) በሐሰተኛ እንተካዋለን
 const sentMessages = [];
 const FakeBot = { bot: { telegram: { sendMessage: async (id, text) => { sentMessages.push({ id, text }); } } } };
-for (const [rel, exp] of [["../models/User", FakeUser], ["../models/Transaction", FakeTx], ["../bot", FakeBot]]) {
+for (const [rel, exp] of [["../models/User", FakeUser], ["../models/Transaction", FakeTx], ["../models/MerchantSms", FakeMerchantSms], ["../bot", FakeBot]]) {
   const file = require.resolve(path.join(__dirname, rel));
   require.cache[file] = { id: file, filename: file, loaded: true, exports: exp };
 }
 mongoose.startSession = async () => ({ withTransaction: (fn) => fn(), endSession: async () => {} });
 const { verifyAndCreditDeposit } = require("../services/telebirr/depositVerifier");
 const { parseTelebirrSms } = require("../services/telebirr/smsParser");
+const merchantSms = require("../services/telebirr/merchantSms");
 const { verifyReceipt, nameMatches, phoneMatches } = require("../services/telebirr/receiptVerifier");
 
 // ───────────── Fixtures ─────────────
@@ -183,6 +200,187 @@ test("receipt: 404 → ሃሰተኛ፤ ኔትወርክ ስህተት → በእ�
   assert.equal(r.reason, "fetch_failed");
   assert.equal(r.manualReview, true);
 });
+
+// ─── Relay (Render → ኢትዮጵያ ውስጥ ያለ relay → ኢትዮ ቴሌኮም) ───
+const withRelayEnv = async (fn) => {
+  process.env.RECEIPT_RELAY_URL = "https://relay.example.com/";
+  process.env.RECEIPT_RELAY_TOKEN = "t".repeat(32);
+  try { await fn(); } finally {
+    delete process.env.RECEIPT_RELAY_URL;
+    delete process.env.RECEIPT_RELAY_TOKEN;
+  }
+};
+test("relay: ትክክለኛ ደረሰኝ በ relay በኩል ይመጣል (ቶከን ይላካል፣ ቀጥታ ወደ ኢትዮ ቴሌኮም አይሄድም)", () => withRelayEnv(async () => {
+  const seen = [];
+  mockAxios(async (url, cfg) => {
+    seen.push({ url, token: cfg.headers["x-relay-token"] });
+    return { status: 200, data: receiptHtml({ id: "RL11RL22RL" }) };
+  });
+  const r = await verifyReceipt({ txnId: "RL11RL22RL", expectedAmount: 100, merchant: base.merchant, now: NOW });
+  assert.equal(r.ok, true);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].url, "https://relay.example.com/receipt/RL11RL22RL");
+  assert.equal(seen[0].token, "t".repeat(32));
+}));
+test("relay: 404 'receipt_not_found' → ሃሰተኛ ደረሰኝ", () => withRelayEnv(async () => {
+  mockAxios(async () => ({ status: 404, data: "receipt_not_found" }));
+  const r = await verifyReceipt({ txnId: "RL33RL44RL", expectedAmount: 100, merchant: base.merchant, now: NOW });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "receipt_not_found");
+}));
+test("relay: relay ባይሠራ (502/ኔትወርክ) → fetch_failed (በእጅ ማረጋገጫ)", () => withRelayEnv(async () => {
+  mockAxios(async () => { throw new Error("ECONNREFUSED"); });
+  const r = await verifyReceipt({ txnId: "RL55RL66RL", expectedAmount: 100, merchant: base.merchant, now: NOW });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "fetch_failed");
+  assert.equal(r.manualReview, true);
+}));
+test("relay: ያለ https ቶከን አይላክም", async () => {
+  process.env.RECEIPT_RELAY_URL = "http://relay.example.com";
+  process.env.RECEIPT_RELAY_TOKEN = "t".repeat(32);
+  let called = false;
+  try {
+    mockAxios(async () => { called = true; return { status: 200, data: "" }; });
+    const r = await verifyReceipt({ txnId: "RL77RL88RL", expectedAmount: 100, merchant: base.merchant, now: NOW });
+    assert.equal(r.reason, "fetch_failed");
+    assert.equal(called, false);
+  } finally {
+    delete process.env.RECEIPT_RELAY_URL;
+    delete process.env.RECEIPT_RELAY_TOKEN;
+  }
+});
+
+
+// ───────────── የመርቻንት ስልክ SMS ማረጋገጫ ─────────────
+const receivedSms = (o = {}) =>
+  `Dear Fetan You have received ETB ${o.amount || "100.00"} from ABEBE KEBEDE (2519****1234) on ` +
+  `${o.date || "08/10/2026 08:31:50"}. Your transaction number is ${o.id || "DJ85JP3L6V"}. ` +
+  `Your current E-Money Account balance is ETB 900.00. Thank you for using telebirr`;
+const withMerchantEnv = async (extra, fn) => {
+  const keys = { MERCHANT_SMS_TOKEN: "m".repeat(32), MERCHANT_SMS_WAIT_SECONDS: "0", ...extra };
+  for (const [k, v] of Object.entries(keys)) process.env[k] = v;
+  const fakeApprove = async (id) => {
+    const tx = db.txs.find((t) => t._id === id);
+    if (!tx || tx.status !== "pending") return { ok: false };
+    tx.status = "completed";
+    const u = db.users.find((x) => String(x._id) === String(tx.user));
+    u.balance += tx.amount;
+    return { ok: true, transaction: tx, user: u };
+  };
+  merchantSms.setApprover(fakeApprove);
+  try { await fn(); } finally {
+    for (const k of Object.keys(keys)) delete process.env[k];
+    merchantSms.setApprover(null);
+  }
+};
+
+test("merchant-sms: የተቀበልነው SMS ይቀመጣል፤ 'የላኩበት' SMS እና ድርብ ይያዛሉ", async () => {
+  const r1 = await merchantSms.ingestMerchantSms({ text: receivedSms({ id: "IN11IN22IN" }), from: "127" });
+  assert.equal(r1.ok, true);
+  assert.equal(r1.amount, 100);
+  const rec = db.msms.find((m) => m.txnId === "IN11IN22IN");
+  assert.equal(rec.senderPhone, "2519****1234");
+  const r2 = await merchantSms.ingestMerchantSms({ text: receivedSms({ id: "IN11IN22IN" }) });
+  assert.equal(r2.duplicate, true);
+  assert.equal(db.msms.filter((m) => m.txnId === "IN11IN22IN").length, 1);
+  const r3 = await merchantSms.ingestMerchantSms({ text: sms({ id: "IN33IN44IN" }) }); // transferred
+  assert.equal(r3.ok, false);
+  assert.equal(r3.reason, "not_a_received_sms");
+  assert.equal((await merchantSms.ingestMerchantSms({ text: "hello" })).ok, false);
+});
+
+test("merchant-sms: SMS ከደረሰ → ያለ ድረ-ገጽ ጥሪ ይጸድቃል", () => withMerchantEnv({}, async () => {
+  let calls = 0;
+  mockAxios(async () => { calls++; throw new Error("must not be called"); });
+  await merchantSms.ingestMerchantSms({ text: receivedSms({ id: "MS11MS22MS" }) });
+  const u = freshUser();
+  const r = await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "MS11MS22MS" }) });
+  assert.equal(r.status, "approved");
+  assert.equal(u.balance, 100);
+  assert.equal(calls, 0);
+  assert.equal(db.msms.find((m) => m.txnId === "MS11MS22MS").claimedBy, u._id);
+  const tx = db.txs.find((t) => t.meta && t.meta.transactionId === "MS11MS22MS");
+  assert.equal(tx.meta.receiptVia, "merchant_sms");
+  // ተመሳሳዩ SMS በሌላ ሰው → ድርብ
+  const u2 = freshUser();
+  const r2 = await verifyAndCreditDeposit({ userId: u2._id, smsText: sms({ id: "MS11MS22MS" }) });
+  assert.equal(r2.status, "rejected");
+  assert.equal(r2.reason, "duplicate");
+}));
+
+test("merchant-sms: መጠን ካልተመሳሰለ → አይጸድቅም፣ ወደ አድሚን", () => withMerchantEnv({}, async () => {
+  mockAxios(async () => { throw new Error("must not be called"); });
+  await merchantSms.ingestMerchantSms({ text: receivedSms({ id: "MM11MM22MM", amount: "50.00" }) });
+  const u = freshUser();
+  const r = await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "MM11MM22MM", amount: "100.00" }) });
+  assert.equal(r.status, "manual_review");
+  assert.equal(r.reason, "amount_mismatch");
+  assert.equal(u.balance, 0);
+}));
+
+test("merchant-sms: SMS ገና ካልደረሰ → ተይዞ ይጠብቃል፤ SMS ሲደርስ በራስ ሰር ይጸድቃል", () =>
+  withMerchantEnv({ RECEIPT_CHECK_ENABLED: "false" }, async () => {
+    let calls = 0;
+    mockAxios(async () => { calls++; throw new Error("must not be called"); });
+    const u = freshUser();
+    const r = await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "AW11AW22AW" }) });
+    assert.equal(r.status, "manual_review");
+    assert.equal(r.reason, "awaiting_merchant_sms");
+    assert.equal(u.balance, 0);
+    assert.equal(calls, 0);
+    // የመርቻንት SMS ዘግይቶ ደረሰ
+    const ing = await merchantSms.ingestMerchantSms({ text: receivedSms({ id: "AW11AW22AW" }) });
+    assert.equal(ing.autoApproved, true);
+    assert.equal(u.balance, 100);
+    assert.equal(db.txs.find((t) => t.meta && t.meta.transactionId === "AW11AW22AW").status, "completed");
+  }));
+
+test("merchant-sms: SMS ከደረሰ ግን መጠኑ ከተጠየቀው ቢለይ በራስ ሰር አይጸድቅም", () =>
+  withMerchantEnv({ RECEIPT_CHECK_ENABLED: "false" }, async () => {
+    const u = freshUser();
+    await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "AX11AX22AX", amount: "100.00" }) });
+    const ing = await merchantSms.ingestMerchantSms({ text: receivedSms({ id: "AX11AX22AX", amount: "20.00" }) });
+    assert.equal(ing.autoApproved, false);
+    assert.equal(u.balance, 0);
+  }));
+
+
+// ─── እውነተኛ የአማርኛ SMS (ተቀብለዋል) ───
+const AM_RECEIVED = `ውድ Tesfaye 
+ከ TESFAYE ADMASU(2519****9894) 50.00 ብር በ 13/10/2026 11:56:09 ተቀብለዋል፡፡ የሂሳብ እንቅስቃሴ ቁጥርዎ DJD9QRJ18X ነዉ፡፡ አሁን ያለዎት ቀሪ ሂሳብ 121.10 ብር ነዉ፡፡ 
+በቴሌብር ስለተገለገሉ እናመሰግናለን 
+ኢትዮ ቴሌኮም`;
+test("parser: እውነተኛ የአማርኛ 'ተቀብለዋል' SMS (ቀሪ ሂሳብ አይያዝም)", () => {
+  const r = parseTelebirrSms(AM_RECEIVED);
+  assert.equal(r.ok, true);
+  assert.equal(r.txnId, "DJD9QRJ18X");
+  assert.equal(r.amount, 50);
+  assert.equal(r.direction, "received");
+  assert.equal(r.timestamp.iso, "2026-10-13T11:56:09+03:00");
+});
+test("merchant-sms: የአማርኛ SMS ይቀመጣል፣ ላኪው ይለያል", async () => {
+  const r = await merchantSms.ingestMerchantSms({ text: AM_RECEIVED, from: "127" });
+  assert.equal(r.ok, true);
+  assert.equal(r.txnId, "DJD9QRJ18X");
+  const rec = db.msms.find((m) => m.txnId === "DJD9QRJ18X");
+  assert.equal(rec.amount, 50);
+  assert.equal(rec.senderName, "TESFAYE ADMASU");
+  assert.equal(rec.senderPhone, "2519****9894");
+});
+test("merchant-sms: በ Render ተይዞ የነበረው ክፍያ (DJD9QRJ18X) SMS ሲደርስ በራስ ሰር ይጸድቃል", () =>
+  withMerchantEnv({ RECEIPT_CHECK_ENABLED: "false" }, async () => {
+    mockAxios(async () => { throw new Error("must not be called"); });
+    db.msms = db.msms.filter((m) => m.txnId !== "DJD9QRJ18X");
+    const u = freshUser();
+    const userSms = `Dear TESFAYE You have transferred ETB 50.00 to Tesfaye Admasu (2519****0583) on 13/10/2026 11:56:09. Your transaction number is DJD9QRJ18X. The service fee is ETB 0.87 and 15% VAT on the service fee is ETB 0.13. Your current E-Money Account balance is ETB 621.99. To download your payment information please click this link: https://transactioninfo.ethiotelecom.et/receipt/DJD9QRJ18X.`;
+    const r = await verifyAndCreditDeposit({ userId: u._id, smsText: userSms });
+    assert.equal(r.status, "manual_review");
+    assert.equal(r.reason, "awaiting_merchant_sms");
+    const ing = await merchantSms.ingestMerchantSms({ text: AM_RECEIVED, from: "127" });
+    assert.equal(ing.autoApproved, true);
+    assert.equal(u.balance, 50);
+  }));
+
 test("phone/name matchers", () => {
   assert.ok(phoneMatches("2519****0583", "0920790583"));
   // masked ቁጥር የሚያሳየው መጀመሪያ እና መጨረሻ ብቻ ነው → ተመሳሳይ ጫፍ ያለው ሌላ ቁጥር ያልፋል።
