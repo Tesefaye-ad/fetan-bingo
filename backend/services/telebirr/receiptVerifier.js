@@ -10,7 +10,11 @@ const cheerio = require("cheerio");
 
 const RECEIPT_HOST = "transactioninfo.ethiotelecom.et";
 const RECEIPT_BASE = `https://${RECEIPT_HOST}/receipt/`;
-const TIMEOUT_MS = 15000;
+// ጣቢያው ቀርፋፋ ነው (አንዳንዴ 15+ ሰኮንድ) → በ .env ሊስተካከል ይችላል
+const TIMEOUT_MS = Number(process.env.RECEIPT_TIMEOUT_MS) || 25000;
+const RETRIES = /^\d+$/.test(String(process.env.RECEIPT_RETRIES ?? ""))
+  ? Number(process.env.RECEIPT_RETRIES)
+  : 2;
 const MAX_BYTES = 1024 * 1024;
 const MIN_HTML_LEN = 500;
 
@@ -52,7 +56,7 @@ function buildReceiptUrl(txnId) {
 }
 
 // ─── ደረሰኙን ማምጣት ───
-async function fetchDirect(url, retries = 2) {
+async function fetchDirect(url, retries = RETRIES) {
   let last = { ok: false, via: "direct", error: "unknown" };
 
   for (let attempt = 0; attempt <= retries; attempt++) {
