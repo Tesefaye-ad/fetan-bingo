@@ -911,7 +911,6 @@ async function main(app) {
       console.error("[bot] Menu button error:", err.message);
     }
   }
-
   const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
   app.use(bot.webhookCallback(webhookPath));
 
@@ -932,7 +931,6 @@ process.once("SIGINT", () => {
   } catch (err) {}
   process.exit(0);
 });
-
 process.once("SIGTERM", () => {
   try {
     bot.stop("SIGTERM");
