@@ -388,7 +388,7 @@ const handleDeposit = async (ctx) => {
     });
   } catch (err) {
     console.error("[handleDeposit] error:", err.message);
-    await ctx.reply("⚠️ ስህተት ተፈጥሯል። እንደገና ይሞክሩ።", mainKeyboard());
+    await ctx.reply("⚠️ ስህተት ተፈጥሯል  እንደገና ይሞክሩ።", mainKeyboard());
   }
 };
 
