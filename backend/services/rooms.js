@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════
-// ROOMS SERVICE — ለ REST እና ለ Socket የሚጋራ የክፍል አስተዳደር
+// ROOMS SERVICE — REST + Socket shared room management
 // ═══════════════════════════════════════════════════════
 const Game = require("../models/Game");
 const { generate1250Cards, TOTAL_CARDS } = require("../utils/bingoCard");
@@ -14,40 +14,30 @@ const MAX_NUMBER = 75;
 const DEFAULT_ROOMS = ["ROOM10", "ROOM20", "ROOM50", "ROOM100"];
 
 // ═══════════════════════════════════════════════════════
-// 👈 ቀላል እና ከባድ ፓተርኖች
+// 👈 NEW: cap cards per room to keep broadcast small
+//    800 × 3 rooms = 2400 concurrent per process safely
+//    For 4500 users, use more rooms or increase this value
 // ═══════════════════════════════════════════════════════
+const MAX_CARDS_PER_ROOM = Number(process.env.MAX_CARDS_PER_ROOM || 800);
 
-// 🟢 ቀላል ዝጎች — Play 10, 20
 const EASY_PATTERNS = ["any-row", "any-column"];
-
-// 🔴 ከባድ ዝጎች — Play 50, 100
 const HARD_PATTERNS = ["any-diagonal", "four-corners", "full-card"];
 
-// የእያንዳንዱ ፓተርን የመመረጥ ዕድል (ክብደት)
 const PATTERN_WEIGHTS = {
-  // 🟢 ቀላል
-  "any-row": 6, // 60%
-  "any-column": 4, // 40%
-  // 🔴 ከባድ
-  "any-diagonal": 4, // 40%
-  "four-corners": 4, // 40%
-  "full-card": 2, // 20%
+  "any-row": 6,
+  "any-column": 4,
+  "any-diagonal": 4,
+  "four-corners": 4,
+  "full-card": 2,
 };
 
-// ገደብ — ከዚህ በታች ቀላል፣ ከዚህ በላይ ከባድ
 const HARD_STAKE_THRESHOLD = Number(process.env.HARD_STAKE_THRESHOLD || 50);
 
-/**
- * 👈 በSTAKE ደረጃ የተመደበ ራንደም ፓተርን ይመርጣል
- * @param {number} fee — የጨዋታው ድርሻ (10, 20, 50, 100)
- * @returns {string} — የተመረጠው ፓተርን
- */
 function pickRandomPattern(fee) {
   const feeNum = Number(fee) || 10;
   const isHard = feeNum >= HARD_STAKE_THRESHOLD;
   const pool = isHard ? HARD_PATTERNS : EASY_PATTERNS;
 
-  // ክብደት ተጠቅሞ pool መፍጠር
   const weightPool = [];
   for (const p of pool) {
     const w = PATTERN_WEIGHTS[p] || 1;
@@ -57,22 +47,15 @@ function pickRandomPattern(fee) {
   return weightPool[Math.floor(Math.random() * weightPool.length)];
 }
 
-/**
- * 👈 የክፍሉን የማሸነፊያ ፓተርን ይወስናል
- * - ROOM10/ROOM20 → ቀላል
- * - ROOM50/ROOM100 → ከባድ
- */
 function patternForRoom(roomCode, fee) {
   return pickRandomPattern(fee);
 }
 
-/** የሚታወቁ ክፍሎች ብቻ ይፈቀዳሉ */
 function normalizeRoomCode(code) {
   const c = String(code || "").trim().toUpperCase();
   return DEFAULT_ROOMS.includes(c) ? c : null;
 }
 
-/** ROOM10 → 10, ROOM20 → 20, ROOM50 → 50, ROOM100 → 100 */
 function feeForRoom(roomCode, hint) {
   if (isWeeklyRoom(roomCode)) return getWeeklyFee(roomCode);
   const m = /^ROOM(\d+)$/.exec(roomCode);
@@ -80,7 +63,9 @@ function feeForRoom(roomCode, hint) {
   return Number(hint) || Number(process.env.ENTRY_FEE || 10);
 }
 
-/** ወደ "waiting" ለመመለስ የሚያስፈልጉ ሁሉም መስኮች */
+// ═══════════════════════════════════════════════════════
+// waitingFields — reset state for a new round
+// ═══════════════════════════════════════════════════════
 function waitingFields(roomCode, fee) {
   const weekly = isWeeklyRoom(roomCode);
   const pattern = patternForRoom(roomCode, fee);
@@ -88,7 +73,7 @@ function waitingFields(roomCode, fee) {
     status: "waiting",
     entryFee: fee,
     isWeeklyGame: weekly,
-    winPattern: pattern, // 👈 በየዙሩ ይቀያየራል
+    winPattern: pattern,
     calledNumbers: [],
     prizePool: 0,
     players: [],
@@ -97,24 +82,18 @@ function waitingFields(roomCode, fee) {
     winningCartelas: [],
     startedAt: null,
     finishedAt: null,
+    notifiedAt: null,
     scheduledStart: weekly ? getNextDailyStart(fee) : null,
     selectionEndsAt: weekly ? null : new Date(Date.now() + SELECTION_TIMER_MS),
   };
 }
 
 // ═══════════════════════════════════════════════════════
-// 👈 LIGHT_SELECT — ትልቅ መስኮችን አያነብም
-//     • allCards (1250 cards — ~200KB)
-//     • players.card (5×5 grid per player)
-//     • players.marked (5×5 bool per player)
-//     • winningCartelas (ካርድ ፍርግርግ — ሲያሸንፍ ብቻ)
+// LIGHT_SELECT — omit heavy fields
 // ═══════════════════════════════════════════════════════
 const LIGHT_SELECT =
   "-allCards -players.card -players.marked -winningCartelas.card -winningCartelas.marked";
 
-// ═══════════════════════════════════════════════════════
-// ensureRoom — ክፍሉ ከሌለ ይፈጥራል (race-safe)
-// ═══════════════════════════════════════════════════════
 async function ensureRoom(roomCode, feeHint) {
   const existing = await Game.findOne({ roomCode }).select(LIGHT_SELECT).lean();
   if (existing) return existing;
@@ -128,12 +107,11 @@ async function ensureRoom(roomCode, feeHint) {
       ...waitingFields(roomCode, fee),
     });
   } catch (err) {
-    if (err.code !== 11000) throw err; // ሌላ ሰው አስቀድሞ ፈጥሮታል
+    if (err.code !== 11000) throw err;
   }
   return Game.findOne({ roomCode }).select(LIGHT_SELECT).lean();
 }
 
-/** ሰርቨር ሲነሳ ብቻ — የ 1250 ካርዶች ስብስብ ሙሉ መሆኑን ያረጋግጣል */
 async function ensureRoomCards(roomCode) {
   const g = await Game.findOne({ roomCode }).select("allCards").lean();
   if (g && (!g.allCards || g.allCards.length < TOTAL_CARDS)) {
@@ -144,15 +122,10 @@ async function ensureRoomCards(roomCode) {
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// 👈 resetToWaiting — LIGHT_SELECT ይመልሳል
-//     (ከዚህ በፊት allCards ሙሉ ተመልሶ ~200KB በ socket ይላክ ነበር)
-// ═══════════════════════════════════════════════════════
 async function resetToWaiting(roomCode) {
   const current = await Game.findOne({ roomCode }).select("entryFee").lean();
   const fee = current?.entryFee || feeForRoom(roomCode);
 
-  // 👈 LIGHT_SELECT + lean → socket emit ሲደረግ ቀላል ነው
   return Game.findOneAndUpdate(
     { roomCode },
     { $set: waitingFields(roomCode, fee) },
@@ -160,13 +133,6 @@ async function resetToWaiting(roomCode) {
   );
 }
 
-// ═══════════════════════════════════════════════════════
-// 👈 publicState — የተስተካከለ
-//     ቀድሞ: playerCount እና totalCards በምርጫ ወቅት 0 ነበሩ (players ባዶ ስለሆነ)
-//     አሁን: reservedCards + players ሁለቱንም ይቆጥራል
-//     ተጨማሪ: takenCards አንድ ላይ ተጣምሯል (reservedCards field ጠፍቷል)
-//     ተጨማሪ: serverTime ISO string ጠፍቷል (serverNow number በቂ ነው)
-// ═══════════════════════════════════════════════════════
 function publicState(game) {
   const deadline =
     game.isWeeklyGame && game.scheduledStart
@@ -174,11 +140,9 @@ function publicState(game) {
       : game.selectionEndsAt;
   const now = Date.now();
 
-  // 👈 ከሁለቱም players + reservedCards ይቁጠራል
   const uniqueUserIds = new Set();
   const takenCards = [];
 
-  // ጨዋታ ንቁ ሲሆን players ይኖራል
   if (game.players?.length) {
     for (const p of game.players) {
       const key = String(p.user || p.telegramId || "");
@@ -187,7 +151,6 @@ function publicState(game) {
     }
   }
 
-  // በምርጫ ወቅት reservedCards ይኖራል
   if (game.reservedCards?.length) {
     for (const r of game.reservedCards) {
       const key = String(r.user || r.telegramId || "");
@@ -206,10 +169,8 @@ function publicState(game) {
     status: game.status,
     entryFee: game.entryFee,
     prizePool: game.prizePool,
-    // 👈 አሁን ትክክል ነው
     playerCount: uniqueUserIds.size,
     totalCards: takenCards.length,
-    // 👈 takenCards አንድ ላይ (reservedCards + players)
     takenCards,
     calledNumbers: game.calledNumbers || [],
     maxNumber: game.maxNumber,
@@ -217,7 +178,6 @@ function publicState(game) {
     isWeeklyGame: !!game.isWeeklyGame,
     selectionEndsAt: game.status === "waiting" && deadline ? deadline : null,
     scheduledStart: game.scheduledStart || null,
-    // 👈 serverNow number ብቻ (serverTime ISO string ጠፍቷል — bandwidth)
     serverNow: now,
     remainingMs,
   };
@@ -227,14 +187,13 @@ module.exports = {
   SELECTION_TIMER_MS,
   MAX_NUMBER,
   DEFAULT_ROOMS,
-  // 👈 ፓተርን ተዛማጅ exports
+  MAX_CARDS_PER_ROOM,   // 👈 NEW export
   EASY_PATTERNS,
   HARD_PATTERNS,
   PATTERN_WEIGHTS,
   HARD_STAKE_THRESHOLD,
   pickRandomPattern,
   patternForRoom,
-  // መደበኛ exports
   normalizeRoomCode,
   feeForRoom,
   waitingFields,

@@ -1,4 +1,68 @@
 require("dotenv").config();
+
+// ═══════════════════════════════════════════════════════
+// ENV VALIDATION — Fail fast on missing secrets
+// ═══════════════════════════════════════════════════════
+(function validateEnv() {
+  const errors = [];
+  const req = [
+    { name: "MONGO_URI", aliases: ["MONGODB_URI"] },
+    { name: "TELEGRAM_BOT_TOKEN", minLen: 20 },
+    { name: "JWT_SECRET", minLen: 32 },
+    { name: "ADMIN_TELEGRAM_IDS", minLen: 1 },
+    { name: "DEPOSIT_TELEBIRR_PHONE", minLen: 9 },
+  ];
+  const opt = [{ name: "MERCHANT_SMS_TOKEN", minLen: 24 }];
+
+  const pick = (r) =>
+    r.aliases
+      ? r.aliases.map((a) => process.env[a]).find(Boolean)
+      : process.env[r.name];
+
+  for (const r of req) {
+    const v = pick(r);
+    if (!v) {
+      errors.push(
+        `Missing: ${r.name}${r.aliases ? ` (or ${r.aliases.join(", ")})` : ""}`
+      );
+      continue;
+    }
+    if (r.minLen && String(v).length < r.minLen) {
+      errors.push(`${r.name} too short (min ${r.minLen})`);
+    }
+  }
+  for (const r of opt) {
+    const v = process.env[r.name];
+    if (v && String(v).length < r.minLen) {
+      errors.push(`${r.name} too short (min ${r.minLen})`);
+    }
+  }
+
+  if (errors.length) {
+    console.error("\n❌ ENV VALIDATION FAILED:");
+    for (const e of errors) console.error("  • " + e);
+    console.error("");
+    process.exit(1);
+  }
+
+  const mask = (v) =>
+    !v ? "(unset)" : String(v).length <= 8
+      ? "****"
+      : String(v).slice(0, 4) + "…" + String(v).slice(-4);
+
+  console.log("[env] ✅ Validation passed");
+  console.log(`[env] ADMIN_TELEGRAM_IDS = ${process.env.ADMIN_TELEGRAM_IDS}`);
+  console.log(`[env] JWT_SECRET = ${mask(process.env.JWT_SECRET)}`);
+  console.log(`[env] TELEGRAM_BOT_TOKEN = ${mask(process.env.TELEGRAM_BOT_TOKEN)}`);
+  if (process.env.MERCHANT_SMS_TOKEN) {
+    console.log(
+      `[env] MERCHANT_SMS_TOKEN = ${mask(process.env.MERCHANT_SMS_TOKEN)} (${process.env.MERCHANT_SMS_TOKEN.length} chars)`
+    );
+  } else {
+    console.warn("[env] ⚠️ MERCHANT_SMS_TOKEN not set — merchant SMS DISABLED");
+  }
+})();
+
 const express = require("express");
 const mongoose = require("mongoose");
 const http = require("http");
@@ -17,7 +81,7 @@ const { initGameSocket } = require("./socket/gameSocket");
 const merchantSmsRoutes = require("./routes/merchantSmsRoute");
 
 // ═══════════════════════════════════════════════════════
-// RATE LIMITERS (ለ DoS/Spam መከላከያ)
+// RATE LIMITERS
 // ═══════════════════════════════════════════════════════
 const {
   globalLimiter,
@@ -27,64 +91,9 @@ const {
 } = require("./middleware/rateLimit");
 
 // ═══════════════════════════════════════════════════════
-// DATABASE CONNECTION — የተስተካከለ (512MB Render)
+// DATABASE — single source of truth (config/db.js)
 // ═══════════════════════════════════════════════════════
-let isConnecting = false;
-let listenersAttached = false;
-
-function attachListeners() {
-  if (listenersAttached) return;
-  listenersAttached = true;
-
-  mongoose.connection.on("connected", () =>
-    console.log("[db] MongoDB connected")
-  );
-  mongoose.connection.on("error", (err) =>
-    console.error("[db] Error:", err.message)
-  );
-  mongoose.connection.on("disconnected", () => {
-    console.warn("[db] Disconnected. Retrying...");
-    isConnecting = false;
-    setTimeout(connectDB, 3000);
-  });
-}
-
-async function connectDB() {
-  if (mongoose.connection.readyState === 1) return;
-  if (isConnecting) return;
-
-  const mongoURI = process.env.MONGO_URI || process.env.MONGODB_URI;
-  if (!mongoURI) {
-    console.error("[db] MONGO_URI missing");
-    return;
-  }
-
-  isConnecting = true;
-  attachListeners();
-
-  try {
-    await mongoose.connect(mongoURI, {
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-      // 👈 የተስተካከለ ለ 512MB Render
-      maxPoolSize: 5,          // 10 → 5
-      minPoolSize: 1,          // 2  → 1
-      maxIdleTimeMS: 30000,
-      waitQueueTimeoutMS: 10000,
-      connectTimeoutMS: 10000,
-      heartbeatFrequencyMS: 10000,
-      // 👈 Network compression — bandwidth ይቆጥባል
-      compressors: ["zlib"],
-    });
-    console.log("[db] Connected (pool 5/1, zlib)");
-  } catch (err) {
-    console.error("[db] Failed:", err.message);
-    isConnecting = false;
-    setTimeout(connectDB, 3000);
-    return;
-  }
-  isConnecting = false;
-}
+const connectDB = require("./config/db");
 
 // ═══════════════════════════════════════════════════════
 // APP SETUP
@@ -92,8 +101,6 @@ async function connectDB() {
 const app = express();
 const server = http.createServer(app);
 
-// Render / Vercel proxy ጀርባ ስለሆነ — ያለዚህ ሁሉም ተጠቃሚ አንድ IP ይመስላል
-// (rate limiter ሁሉንም በአንድ ላይ ይገድባል)
 app.set("trust proxy", 1);
 
 const allowedOrigins = process.env.CLIENT_URL
@@ -101,15 +108,13 @@ const allowedOrigins = process.env.CLIENT_URL
   : "*";
 
 // ═══════════════════════════════════════════════════════
-// SOCKET.IO — ለ 6000+ ተጠቃሚ የተስተካከለ
+// SOCKET.IO — tuned for 6000+ users
 // ═══════════════════════════════════════════════════════
 const io = new Server(server, {
   cors: { origin: allowedOrigins, methods: ["GET", "POST"] },
-
-  // 👈 ዋና ማስተካከያዎች
-  serveClient: false,                // ~180KB/client ይቆጥባል
+  serveClient: false,
   perMessageDeflate: {
-    threshold: 1024,                 // > 1KB ብቻ compress
+    threshold: 1024,
     zlibDeflateOptions: { level: 6 },
     zlibInflateOptions: { chunkSize: 10 * 1024 },
     clientNoContextTakeover: true,
@@ -126,13 +131,12 @@ const io = new Server(server, {
 });
 
 app.use(cors({ origin: allowedOrigins }));
-app.use(express.json({ limit: "256kb" })); // 👈 1mb → 256kb
+app.use(express.json({ limit: "256kb" }));
 
 app.get("/", (req, res) =>
   res.json({ name: "Fetan Bingo API", status: "running" })
 );
 
-// 👈 የማህደረ ትውስታ መከታተያ
 app.get("/health", (req, res) => {
   const mem = process.memoryUsage();
   res.json({
@@ -148,7 +152,7 @@ app.get("/health", (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// RATE LIMITERS — ከ route mounting በፊት
+// RATE LIMITERS
 // ═══════════════════════════════════════════════════════
 app.use("/api", globalLimiter);
 app.use("/api/auth/telegram", authLimiter);
@@ -157,7 +161,7 @@ app.use("/api/wallet/withdraw", withdrawLimiter);
 app.use("/api/merchant-sms", merchantSmsRoutes);
 
 // ═══════════════════════════════════════════════════════
-// ROUTES — MOUNT
+// ROUTES
 // ═══════════════════════════════════════════════════════
 app.use("/api/auth", authRoutes);
 app.use("/api/user", authRoutes.userRouter);
@@ -191,9 +195,12 @@ server.listen(PORT, "0.0.0.0", () => {
 connectDB();
 
 // ═══════════════════════════════════════════════════════
-// AUTO CLEANUP — በየ 2 ሳምንቱ አላስፈላጊ ውሂብ ያጠፋል
+// AUTO CLEANUP — every 2 weeks
 // ═══════════════════════════════════════════════════════
-const TWO_WEEKS = 14 * 24 * 60 * 60 * 1000;
+// ═══════════════════════════════════════════════════════
+// AUTO CLEANUP — 👈 OPTIMIZED: daily instead of every 2 weeks
+// ═══════════════════════════════════════════════════════
+const ONE_DAY = 24 * 60 * 60 * 1000;
 
 async function runCleanup() {
   try {
@@ -208,11 +215,10 @@ async function runCleanup() {
 // ሰርቨር ሲነሳ ከ 60 ሰከንድ በኋላ አንድ ጊዜ
 setTimeout(runCleanup, 60000);
 
-// ከዚያ በየ 2 ሳምንቱ
-setInterval(runCleanup, TWO_WEEKS);
-
+// 👈 ከዚያ በየቀኑ (2 ሳምንት ሳይሆን)
+setInterval(runCleanup, ONE_DAY);
 // ═══════════════════════════════════════════════════════
-// KEEP-ALIVE (Render cold start ለመከላከል)
+// KEEP-ALIVE (Render cold start)
 // ═══════════════════════════════════════════════════════
 const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 
@@ -220,7 +226,7 @@ setInterval(async () => {
   try {
     await fetch(`${SELF_URL}/health`);
   } catch (err) {}
-}, 10 * 60 * 1000); // 👈 4 ደቂቃ → 10 ደቂቃ
+}, 10 * 60 * 1000);
 
 setTimeout(async () => {
   try {
@@ -237,8 +243,7 @@ try {
   startBot(app).then(() => {
     const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
     const RENDER_URL =
-      process.env.RENDER_EXTERNAL_URL ||
-      `https://fetan-bingo-he4x.onrender.com`;
+      process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-he4x.onrender.com`;
 
     setTimeout(async () => {
       try {
@@ -263,5 +268,4 @@ process.on("unhandledRejection", (r) =>
 );
 process.on("uncaughtException", (e) => {
   console.error("[uncaughtException]", e);
-  // አይወጣ — Render በራሱ ያስተዳድረዋል
 });

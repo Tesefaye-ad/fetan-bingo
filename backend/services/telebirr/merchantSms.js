@@ -81,7 +81,9 @@ async function waitForMerchantSms(txnId, seconds, stepMs = 2000) {
   return null;
 }
 
-// ─── 3) ከተጠቃሚው SMS ጋር ማመሳሰል ───
+// ═══════════════════════════════════════════════════════
+// 👈 FIX: 24-hour window only — removed strict time_mismatch
+// ═══════════════════════════════════════════════════════
 function matchMerchantSms(rec, { expectedAmount, userSmsMs, maxAgeHours = 24 }) {
   const now = Date.now();
   const fail = (reason, message) => ({ ok: false, reason, message });
@@ -95,17 +97,26 @@ function matchMerchantSms(rec, { expectedAmount, userSmsMs, maxAgeHours = 24 }) 
       `የደረሰን መጠን (${rec.amount}) ከ SMS መጠን (${expectedAmount}) ጋር አይመሳሰልም`
     );
   }
-  // ሁለቱም SMS የአንድ ግብይት ስለሆኑ ሰዓታቸው አንድ ነው
-  if (userSmsMs && rec.smsTimestampMs && Math.abs(userSmsMs - rec.smsTimestampMs) > 2 * 60 * 1000) {
-    return fail("time_mismatch", "የ SMS ሰዓት ከደረሰን ክፍያ ሰዓት ጋር አይመሳሰልም");
-  }
+
+  // ═══════════════════════════════════════════════════════
+  // 👈 time_mismatch check REMOVED.
+  //    The user SMS and merchant SMS should have the same
+  //    timestamp (both come from the same Ethio Telecom event),
+  //    but parsing/regex differences and timezone quirks can
+  //    cause ±1-2 min drift. That was rejecting valid payments.
+  //    We now only check the 24-hour freshness window.
+  // ═══════════════════════════════════════════════════════
+
   const ts = rec.smsTimestampMs;
   if (ts) {
-    if (ts > now + 5 * 60 * 1000) return fail("future_dated", "የክፍያ ቀኑ ትክክል አይደለም");
+    if (ts > now + 5 * 60 * 1000) {
+      return fail("future_dated", "የክፍያ ቀኑ ትክክል አይደለም");
+    }
     if ((now - ts) / 3600000 > maxAgeHours) {
       return fail("stale", `ክፍያው ከ ${maxAgeHours} ሰዓት በላይ አሮጌ ነው`);
     }
   }
+
   return {
     ok: true,
     data: {

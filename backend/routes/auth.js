@@ -10,22 +10,21 @@ const router = express.Router();
 const userRouter = express.Router();
 
 // ═══════════════════════════════════════════════════════
-// 👈 ADMIN TELEGRAM IDs — ከ env የሚነበብ
+// ADMIN TELEGRAM IDs — no fallback
 // ═══════════════════════════════════════════════════════
-const ADMIN_TELEGRAM_IDS = (process.env.ADMIN_TELEGRAM_IDS || "494653076")
+const ADMIN_TELEGRAM_IDS = String(process.env.ADMIN_TELEGRAM_IDS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-
+if (ADMIN_TELEGRAM_IDS.length === 0) {
+  throw new Error("[auth] ADMIN_TELEGRAM_IDS is required");
+}
 console.log("[auth] Admin Telegram IDs:", ADMIN_TELEGRAM_IDS);
 
 function isEnvAdmin(telegramId) {
   return ADMIN_TELEGRAM_IDS.includes(String(telegramId));
 }
 
-// ═══════════════════════════════════════════════════════
-// JWT HELPERS
-// ═══════════════════════════════════════════════════════
 function getJwtSecret() {
   const secret = process.env.JWT_SECRET;
   if (!secret || secret.length < 16) {
@@ -34,8 +33,7 @@ function getJwtSecret() {
   return secret;
 }
 
-// የታገዱ ተጠቃሚዎች — token ገና ስላልጨረሰ ብቻ እንዳይቀጥሉ (15 ሰከንድ cache)
-const banCache = new Map(); // userId -> { banned, exp }
+const banCache = new Map();
 const BAN_CACHE_MS = 15000;
 
 async function isUserBanned(userId) {
@@ -88,9 +86,6 @@ function verifySocketToken(token) {
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// TELEGRAM VERIFY
-// ═══════════════════════════════════════════════════════
 function verifyTelegramInitData(initData, botToken, maxAgeSeconds = 86400) {
   try {
     if (!initData || !botToken) return { valid: false, data: null };
@@ -121,7 +116,6 @@ function verifyTelegramInitData(initData, botToken, maxAgeSeconds = 86400) {
       crypto.timingSafeEqual(Buffer.from(computedHash), Buffer.from(hash));
     if (!valid) return { valid: false, data: null };
 
-    // auth_date ግዴታ ነው — ያለዚያ የቆየ initData ለዘላለም ይሰራ ነበር
     const authDate = Number(urlParams.get("auth_date") || 0);
     if (!authDate || Date.now() / 1000 - authDate > maxAgeSeconds) {
       return { valid: false, data: null };
@@ -138,7 +132,7 @@ function verifyTelegramInitData(initData, botToken, maxAgeSeconds = 86400) {
 }
 
 // ═══════════════════════════════════════════════════════
-// AUTH ROUTES — TELEGRAM LOGIN
+// AUTH — TELEGRAM LOGIN
 // ═══════════════════════════════════════════════════════
 router.post("/telegram", async (req, res) => {
   try {
@@ -155,16 +149,11 @@ router.post("/telegram", async (req, res) => {
 
     const { id, username, first_name, last_name, photo_url } = data.user;
     const telegramId = String(id);
-
-    // ═══════════════════════════════════════════════════
-    // 👈 ENV-BASED ADMIN CHECK
-    // ═══════════════════════════════════════════════════
     const shouldBeAdmin = isEnvAdmin(telegramId);
 
     let user = await User.findOne({ telegramId });
 
     if (!user) {
-      // 👈 አዲስ ተጠቃሚ — isAdmin ከ env ይወሰናል
       try {
         user = await User.create({
           telegramId,
@@ -173,10 +162,9 @@ router.post("/telegram", async (req, res) => {
           lastName: last_name || "",
           photoUrl: photo_url || "",
           balance: 0,
-          isAdmin: shouldBeAdmin, // 👈
+          isAdmin: shouldBeAdmin,
         });
       } catch (e) {
-        // ሁለት ጥያቄ በአንድ ጊዜ መጣ (bot + webapp) — ሌላኛው ፈጥሮታል
         if (e.code !== 11000) throw e;
         user = await User.findOne({ telegramId });
       }
@@ -184,27 +172,17 @@ router.post("/telegram", async (req, res) => {
         console.log(`[auth] ✅ New admin created: ${telegramId} (${username})`);
       }
     } else {
-      // 👈 ያለ ተጠቃሚ — profile አዘምን
       user.username = username || user.username;
       user.firstName = first_name || user.firstName;
       user.lastName = last_name || user.lastName;
       user.photoUrl = photo_url || user.photoUrl;
       user.lastActiveAt = new Date();
 
-      // 👈 AUTO-PROMOTE: env ውስጥ ካለ ግን DB ውስጥ false ከሆነ → true አድርግ
       if (shouldBeAdmin && !user.isAdmin) {
         user.isAdmin = true;
         console.log(
           `[auth] ⬆️ Auto-promoted ${telegramId} (${username}) to admin`
         );
-      }
-
-      // 👈 AUTO-DEMOTE: env ውስጥ ከሌለ ግን DB ውስጥ true ከሆነ → false አድርግ
-      // (ይህን መስመር ማስወገድ ከፈለጉ — env ሲያስወግዱ ቀድሞ admin የነበረ አይወርስም)
-      if (!shouldBeAdmin && user.isAdmin) {
-        // ⚠️ ማስጠንቀቂያ: ይህን ማቆየት ከፈለጉ አስቀምጡ
-        // user.isAdmin = false;
-        // console.log(`[auth] ⬇️ Demoted ${telegramId} from admin`);
       }
 
       await user.save();
@@ -239,7 +217,7 @@ router.post("/telegram", async (req, res) => {
         gamesWon: user.gamesWon,
         totalWinnings: user.totalWinnings,
         referralCount: user.referralCount,
-        isAdmin: user.isAdmin, // 👈 ወሳኝ
+        isAdmin: user.isAdmin,
       },
     });
   } catch (err) {
@@ -258,7 +236,6 @@ userRouter.get("/me", async (req, res) => {
     const user = await User.findById(req.userId).select("-__v").lean();
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // 👈 Read-time admin check — DB ቢረሳም env ውስጥ ካለ admin ነው
     if (!user.isAdmin && isEnvAdmin(user.telegramId)) {
       await User.updateOne(
         { _id: user._id },
@@ -352,8 +329,7 @@ userRouter.get("/games/history", async (req, res) => {
         (w) => w.toString() === userId.toString()
       );
       const myCard = (g.winningCartelas || []).find(
-        (wc) =>
-          wc.telegramId === String(req.telegramId)
+        (wc) => wc.telegramId === String(req.telegramId)
       );
       return {
         roomCode: g.roomCode,
@@ -409,9 +385,6 @@ userRouter.post("/notifications/read", async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// EXPORTS
-// ═══════════════════════════════════════════════════════
 module.exports = router;
 module.exports.requireAuth = requireAuth;
 module.exports.verifySocketToken = verifySocketToken;

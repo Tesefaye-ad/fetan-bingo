@@ -69,30 +69,24 @@ const GameSchema = new mongoose.Schema(
     scheduledStart: { type: Date },
     startedAt: { type: Date },
     finishedAt: { type: Date },
+    // 👈 NEW: winner notification sent timestamp (for crash-resume retry)
+    notifiedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
 // ═══════════════════════════════════════════════════════
-// 👈 INDEXES — የጨዋታ ፍለጋ ፍጥነት (6000+ ተጠቃሚ)
+// INDEXES
 // ═══════════════════════════════════════════════════════
-
-// ለ reconciler — የሚጠብቁ / ንቁ ክፍሎች
 GameSchema.index({ status: 1, roomCode: 1 }, { name: "idx_status_room" });
-
-// ለ cleanup cron — የተጠናቀቁ ጨዋታዎች
 GameSchema.index(
   { status: 1, finishedAt: -1 },
   { name: "idx_status_finished" }
 );
-
-// ለተጠቃሚ ታሪክ — "የእኔ ጨዋታዎች"
 GameSchema.index(
   { "players.user": 1, status: 1, finishedAt: -1 },
   { name: "idx_user_history" }
 );
-
-// ያልተጫወቱ ክፍሎችን ለማጥፋት
 GameSchema.index(
   { status: 1, "reservedCards.0": 1, updatedAt: 1 },
   { name: "idx_stale_waiting" }

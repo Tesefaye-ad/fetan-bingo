@@ -5,9 +5,6 @@ const Game = require("../models/Game");
 const Transaction = require("../models/Transaction");
 const { Notification } = require("../models/User");
 
-// ═══════════════════════════════════════════════════════
-// ✅ FIX: auth ን አንድ ጊዜ require አድርገን ሁሉንም exports እናወጣለን
-// ═══════════════════════════════════════════════════════
 const auth = require("./auth");
 const { requireAuth, clearBanCache } = auth;
 
@@ -17,31 +14,31 @@ const {
   rejectTransaction,
 } = require("../services/deposits");
 
-// regex injection / ReDoS መከላከያ
 const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const clampInt = (v, def, min, max) => {
   const n = parseInt(v, 10);
   if (!Number.isFinite(n)) return def;
   return Math.min(max, Math.max(min, n));
 };
-// በእጅ የተደረጉ ማስተካከያዎች / ቦነስ — እውነተኛ ገቢ/ወጪ አይደሉም
 const NON_CASH_REF = /^(ADMIN_ADJUST|BONUS-)/;
 
 const router = express.Router();
 router.use(requireAuth);
 
 // ═══════════════════════════════════════════════════════
-// 👈 ADMIN TELEGRAM IDs — ከ env የሚነበብ
+// ADMIN TELEGRAM IDs — no fallback
 // ═══════════════════════════════════════════════════════
-const ADMIN_TELEGRAM_IDS = (process.env.ADMIN_TELEGRAM_IDS || "494653076")
+const ADMIN_TELEGRAM_IDS = String(process.env.ADMIN_TELEGRAM_IDS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-
+if (ADMIN_TELEGRAM_IDS.length === 0) {
+  throw new Error("[admin] ADMIN_TELEGRAM_IDS is required");
+}
 console.log("[admin] Env admin IDs:", ADMIN_TELEGRAM_IDS);
 
 // ═══════════════════════════════════════════════════════
-// 👈 CONFIG MODEL (inline — አዲስ ፋይል ሳይፈጠር)
+// CONFIG MODEL
 // ═══════════════════════════════════════════════════════
 const ConfigSchema = new mongoose.Schema(
   {
@@ -61,7 +58,7 @@ async function getConfig() {
 }
 
 // ═══════════════════════════════════════════════════════
-// 👈 ADMIN GUARD — env ውስጥ ካለ ሁልጊዜ ይፈቅዳል + DB auto-sync
+// ADMIN GUARD
 // ═══════════════════════════════════════════════════════
 async function requireAdmin(req, res, next) {
   try {
@@ -70,7 +67,6 @@ async function requireAdmin(req, res, next) {
       return res.status(403).json({ error: "Admin access required" });
     }
 
-    // 👈 Env ውስጥ ካለ → admin ነው (DB ቢረሳም)
     if (ADMIN_TELEGRAM_IDS.includes(String(user.telegramId))) {
       if (!user.isAdmin) {
         User.updateOne(
@@ -86,7 +82,6 @@ async function requireAdmin(req, res, next) {
       return next();
     }
 
-    // Env ውስጥ ከሌለ — DB isAdmin ብቻ ነው የሚያስፈልገው
     if (!user.isAdmin) {
       return res.status(403).json({ error: "Admin access required" });
     }
@@ -98,7 +93,7 @@ async function requireAdmin(req, res, next) {
 }
 
 // ═══════════════════════════════════════════════════════
-// STATS — Financial Dashboard
+// 👈 FIX #11: STATS — real house rake (entry fees − prizes)
 // ═══════════════════════════════════════════════════════
 router.get("/stats", requireAdmin, async (req, res) => {
   try {
@@ -109,6 +104,8 @@ router.get("/stats", requireAdmin, async (req, res) => {
       pendingWithdrawals,
       approvedDepositsAgg,
       approvedWithdrawalsAgg,
+      entryFeesAgg,
+      prizesAgg,
     ] = await Promise.all([
       User.countDocuments(),
       Game.countDocuments({ status: "finished" }),
@@ -134,11 +131,20 @@ router.get("/stats", requireAdmin, async (req, res) => {
         },
         { $group: { _id: null, total: { $sum: "$amount" } } },
       ]),
+      Transaction.aggregate([
+        { $match: { type: "entry_fee", status: "completed" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+      Transaction.aggregate([
+        { $match: { type: "prize", status: "completed" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
     ]);
 
     const totalDeposits = approvedDepositsAgg[0]?.total || 0;
     const totalWithdrawals = approvedWithdrawalsAgg[0]?.total || 0;
-    const houseCommission = totalDeposits - totalWithdrawals;
+    const totalEntryFees = entryFeesAgg[0]?.total || 0;
+    const totalPrizes = prizesAgg[0]?.total || 0;
 
     res.json({
       activeUsers: getActiveUserCount(),
@@ -148,7 +154,11 @@ router.get("/stats", requireAdmin, async (req, res) => {
       pendingWithdrawals,
       totalDeposits,
       totalWithdrawals,
-      houseCommission,
+      netCashFlow: totalDeposits - totalWithdrawals,
+      totalEntryFees,
+      totalPrizes,
+      // 👈 real house rake = rake collected − prizes paid
+      houseCommission: totalEntryFees - totalPrizes,
     });
   } catch (err) {
     console.error("[admin/stats]", err);
@@ -156,9 +166,6 @@ router.get("/stats", requireAdmin, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// TRANSACTIONS — list with filters
-// ═══════════════════════════════════════════════════════
 router.get("/transactions", requireAdmin, async (req, res) => {
   try {
     const { type, status } = req.query;
@@ -199,9 +206,6 @@ router.get("/transactions", requireAdmin, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// APPROVE
-// ═══════════════════════════════════════════════════════
 router.post("/transactions/:id/approve", requireAdmin, async (req, res) => {
   try {
     const r = await approveTransaction(req.params.id);
@@ -213,9 +217,6 @@ router.post("/transactions/:id/approve", requireAdmin, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// REJECT
-// ═══════════════════════════════════════════════════════
 router.post("/transactions/:id/reject", requireAdmin, async (req, res) => {
   try {
     const reason =
@@ -231,9 +232,6 @@ router.post("/transactions/:id/reject", requireAdmin, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// USERS — list + search
-// ═══════════════════════════════════════════════════════
 router.get("/users", requireAdmin, async (req, res) => {
   try {
     const q = typeof req.query.q === "string" ? req.query.q.slice(0, 64) : "";
@@ -270,9 +268,6 @@ router.get("/users", requireAdmin, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// BAN / UNBAN
-// ═══════════════════════════════════════════════════════
 router.post("/users/:id/ban", requireAdmin, async (req, res) => {
   try {
     const { banned } = req.body;
@@ -286,8 +281,6 @@ router.post("/users/:id/ban", requireAdmin, async (req, res) => {
     );
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // ✅ FIX: clearBanCache አሁን በትክክል destructure ሆኗል
-    //    → የታገደ/የተነሳ ተጠቃሚ ወዲያውኑ ተጽእኖ ያሳያል (15 ሰከንድ አይጠብቅም)
     if (typeof clearBanCache === "function") {
       clearBanCache(user._id);
     }
@@ -298,9 +291,6 @@ router.post("/users/:id/ban", requireAdmin, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// ADJUST BALANCE / EDIT USER
-// ═══════════════════════════════════════════════════════
 router.post("/users/:id/balance", requireAdmin, async (req, res) => {
   try {
     const { amount, note } = req.body;
@@ -309,7 +299,6 @@ router.post("/users/:id/balance", requireAdmin, async (req, res) => {
       return res.status(400).json({ error: "Invalid amount" });
     }
 
-    // atomic — ቀሪ ሂሳብ ከዜሮ በታች እንዳይወርድ
     const filter = { _id: req.params.id };
     if (amt < 0) filter.balance = { $gte: -amt };
     const user = await User.findOneAndUpdate(
@@ -343,9 +332,6 @@ router.post("/users/:id/balance", requireAdmin, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// BROADCAST
-// ═══════════════════════════════════════════════════════
 router.post("/broadcast", requireAdmin, async (req, res) => {
   try {
     const { title, body } = req.body;
@@ -367,9 +353,6 @@ router.post("/broadcast", requireAdmin, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// CONFIG — GET / UPDATE
-// ═══════════════════════════════════════════════════════
 router.get("/config", requireAdmin, async (req, res) => {
   try {
     const config = await getConfig();

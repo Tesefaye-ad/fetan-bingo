@@ -21,14 +21,14 @@ const cents = (n) => Math.round(Number(n) * 100);
 
 function config() {
   return {
-    merchantPhone: process.env.DEPOSIT_TELEBIRR_PHONE || "0920790583",
+    // 👈 FIX: no hardcoded fallback — validated by server.js env validator
+    merchantPhone: process.env.DEPOSIT_TELEBIRR_PHONE,
     merchantName: process.env.DEPOSIT_TELEBIRR_NAME || "",
     minDeposit: Number(process.env.MIN_DEPOSIT || 20),
     maxDeposit: Number(process.env.MAX_DEPOSIT || 0),
     maxAgeHours: Number(
       process.env.RECEIPT_MAX_AGE_HOURS || process.env.MAX_SMS_AGE_HOURS || 24
     ),
-    // AUTO_APPROVE_DEPOSITS=false ከሆነ ሁሉም በአድሚን ይጸድቃሉ፤ ከገደብ በላይ ደግሞ በእጅ
     autoApprove:
       String(process.env.AUTO_APPROVE_DEPOSITS ?? "true").toLowerCase() !==
       "false",
@@ -36,16 +36,12 @@ function config() {
     requireSenderMatch:
       String(process.env.REQUIRE_SENDER_MATCH).toLowerCase() === "true",
     maxFailsPer10Min: Number(process.env.MAX_FAILED_DEPOSITS_10MIN || 5),
-    // ነባሪ: ኢትዮ ቴሌኮም ባይመልስ ክፍያው ወደ አድሚን በእጅ ማረጋገጫ ይላካል (ሃሰተኛ ደረሰኝ/404 ግን ወዲያው ውድቅ ነው)።
-    // MANUAL_REVIEW_ON_FETCH_FAIL=false ከተባለ በምትኩ ውድቅ ይሆናል።
     manualOnFetchFail:
       String(process.env.MANUAL_REVIEW_ON_FETCH_FAIL).toLowerCase() !== "false",
-    // ነባሪ: ሲስተሙ በራሱ ያላጸደቀው ማንኛውም ክፍያ (ሃሰተኛ ደረሰኝ፣ አለመመሳሰል፣ ማምጣት መከሽፍ) ወደ አድሚን ይሄዳል።
-    // MANUAL_REVIEW_ON_REJECT=false ከተባለ ደረሰኙ ሲያልፍ ብቻ ነው የሚጸድቀው፤ አለመመሳሰል ወዲያው ውድቅ ይሆናል።
     // የመርቻንት ስልክ SMS ማረጋገጫ (MERCHANT_SMS_TOKEN ሲኖር ይነቃል)
     merchantSmsEnabled: (process.env.MERCHANT_SMS_TOKEN || "").length >= 24,
     merchantSmsWaitSec: Number(process.env.MERCHANT_SMS_WAIT_SECONDS ?? 15),
-    // RECEIPT_CHECK_ENABLED=false → የኢትዮ ቴሌኮም ድረ-ገጽ ጭራሽ አይጠራም (Render ላይ ለሚዘገይ ጥሩ)
+    // RECEIPT_CHECK_ENABLED=false → የኢትዮ ቴሌኮም ድረ-ገጽ ጭራሽ አይጠራም
     receiptCheckEnabled:
       String(process.env.RECEIPT_CHECK_ENABLED ?? "true").toLowerCase() !== "false",
     manualOnReject:
@@ -57,11 +53,11 @@ const SMS_ERROR_MESSAGES = {
   fake_receipt_link: "የደረሰኝ ሊንኩ ከኢትዮ ቴሌኮም አይደለም",
   txn_id_conflict: "SMS ትክክል አይደለም",
   txn_id_missing: "ሙሉውን SMS ይለጥፉ",
-  amount_missing: " ሙሉውን SMS ይለጥፉ",
+  amount_missing: "ሙሉውን SMS ይለጥፉ",
 };
 
-const DUP_MSG =
-  "";
+// 👈 FIX: filled in (was empty string → produced message ending with "— ")
+const DUP_MSG = "ይህ ደረሰኝ ቀድሞ ጥቅም ላይ ውሏል";
 
 function rejected(reason, message, httpStatus = 422) {
   return {
@@ -212,7 +208,6 @@ async function queueManualReview({ user, sms, amount, pending, reason, receipt }
       requiresManualReview: true,
       verificationReason: reason,
       verificationDetail: (receipt && !receipt.ok && (receipt.message || receipt.detail)) || null,
-      // ሲስተሙ ደረሰኙን በኢትዮ ቴሌኮም ላይ በኦንላይን አረጋግጦታል?
       receiptVerified: !!(receipt && receipt.ok),
       receiptUrl: sms.receiptUrl,
       receiptVia: receipt && receipt.ok ? receipt.via : null,
@@ -341,7 +336,7 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
   if (!sms.receiptUrl) {
     return rejected(
       "receipt_link_missing",
-      "የደረሰኝ ሊንኩ የለም — ሙሉውን SMS (ከ https://transactioninfo.ethiotelecom.et/... ሊንክ ጋር) ይለጥፉ"
+      "ሙሉውን SMS ይለጥፉ"
     );
   }
   if (sms.direction === "received") {
@@ -455,8 +450,8 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
             receipt.reason === "awaiting_merchant_sms"
               ? "⏳ ክፍያዎ ገና አልደረሰንም። ሲደርስ በራስ ሰር ይጸድቃል፤ ካልሆነ አስተዳዳሪ ያጣራል።"
               : receipt.manualReview
-              ? "⏳ ደረሰኙን በኦንላይን ማረጋገጥ አልተቻለም — ጥያቄዎ ለአስተዳዳሪ ተልኳል። አስተዳዳሪው ካጸደቀ በኋላ ብሩ ይገባል።"
-              : "⚠️ ሲስተሙ ክፍያውን በራሱ ማጽደቅ አልቻለም — ጥያቄዎ ለአስተዳዳሪ ተልኳል። አስተዳዳሪው ካጣራ በኋላ ብሩ ይገባል።",
+              ? "⏳ ደረሰኙን ማረጋገጥ አልተቻለም — ጥያቄዎ ለአስተዳዳሪ ተልኳል። አስተዳዳሪው ካጸደቀ በኋላ ብሩ ይገባል።"
+              : "⚠️ ክፍያውን ማጽደቅ አልተቻለም — ጥያቄዎ ለአስተዳዳሪ ተልኳል። አስተዳዳሪው ካጣራ በኋላ ብሩ ይገባል።",
           reference: q.reference,
           httpStatus: 202,
         };
@@ -467,7 +462,7 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
     if (receipt.manualReview) {
       return rejected(
         receipt.reason,
-        "ደረሰኙን በኦንላይን ማረጋገጥ አልተቻለም (ክፍያው አልተመዘገበም)። ትንሽ ቆይተው ተመሳሳዩን SMS እንደገና ይላኩ",
+        "ደረሰኙን ማረጋገጥ አልተቻለም ትንሽ ቆይተው ተመሳሳዩን SMS እንደገና ይላኩ",
         503
       );
     }
@@ -492,7 +487,7 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
         status: "manual_review",
         reason: "exceeds_auto_limit",
         message:
-          "✅ ደረሰኙ በኢትዮ ቴሌኮም ተረጋግጧል — ጥያቄዎ ለአስተዳዳሪ ተልኳል። አስተዳዳሪው ካጸደቀ በኋላ ብሩ ወደ ዋሌትዎ ይገባል።",
+          "✅ ደረሰኙ ተረጋግጧል — ጥያቄዎ ለአስተዳዳሪ ተልኳል። አስተዳዳሪው ካጸደቀ በኋላ ብሩ ወደ ዋሌትዎ ይገባል።",
         reference: q.reference,
         httpStatus: 202,
       };
@@ -509,7 +504,6 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
       receipt,
       pending,
     });
-  
   } catch (err) {
     if (err && err.code === 11000) {
       await logRejection(user, sms, "duplicate");

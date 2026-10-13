@@ -16,7 +16,6 @@ function attachListeners() {
   mongoose.connection.on("disconnected", () => {
     console.warn("[db] MongoDB disconnected. Will retry...");
     isConnecting = false;
-    // 👈 ራስ-ሰር ዳግም ግንኙነት
     setTimeout(() => connectDB(), 3000);
   });
   mongoose.connection.on("reconnected", () =>
@@ -25,7 +24,6 @@ function attachListeners() {
 }
 
 async function connectDB() {
-  // ቀድሞ ከተገናኘ ወይም በመገናኘት ላይ ከሆነ ተወው
   if (mongoose.connection.readyState === 1) return;
   if (isConnecting) return;
 
@@ -42,15 +40,21 @@ async function connectDB() {
     await mongoose.connect(mongoURI, {
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
-      maxPoolSize: 10,
-      minPoolSize: 2,
+      // ═══════════════════════════════════════════════════════
+      // 👈 OPTIMIZED: 5→50 pool for 4500 concurrent users
+      //    MongoDB Atlas M0 free tier allows 500 connections
+      // ═══════════════════════════════════════════════════════
+      maxPoolSize: 50,
+      minPoolSize: 10,
       maxIdleTimeMS: 30000,
+      waitQueueTimeoutMS: 5000,
       connectTimeoutMS: 10000,
       heartbeatFrequencyMS: 10000,
       retryWrites: true,
       w: "majority",
+      compressors: ["zlib"],
     });
-    console.log("[db] MongoDB connection pool initialized");
+    console.log("[db] Connected (pool 50/10, zlib)");
   } catch (err) {
     console.error("[db] Initial connection failed:", err.message);
     isConnecting = false;

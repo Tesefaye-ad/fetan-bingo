@@ -10,27 +10,25 @@ const {
   isAdminChatId,
 } = require("./services/deposits");
 
-// ═══════════════════════════════════════════════════════
-// DB
-// ═══════════════════════════════════════════════════════
 const User = require("./models/User");
 const Transaction = require("./models/Transaction");
 const { Notification } = require("./models/User");
 
 // ═══════════════════════════════════════════════════════
-// ADMIN TELEGRAM IDs
+// ADMIN TELEGRAM IDs — from env (validated)
 // ═══════════════════════════════════════════════════════
-const ADMIN_TELEGRAM_IDS = (process.env.ADMIN_TELEGRAM_IDS || "494653076")
+const ADMIN_TELEGRAM_IDS = String(process.env.ADMIN_TELEGRAM_IDS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+if (ADMIN_TELEGRAM_IDS.length === 0) {
+  throw new Error("[bot] ADMIN_TELEGRAM_IDS is required");
+}
 
 // ═══════════════════════════════════════════════════════
-// 🎨 BANNER IMAGE
+// BANNER
 // ═══════════════════════════════════════════════════════
-const BANNER_IMAGE_URL =
-  process.env.BOT_BANNER_URL || "https://i.ibb.co/TDbchXZ6/fb.jpg";
-
+const BANNER_IMAGE_URL = process.env.BOT_BANNER_URL || null;
 const LOCAL_BANNER_PATH = path.join(__dirname, "assets", "banner.png");
 
 function getBannerSource() {
@@ -50,19 +48,22 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WEBAPP_URL = process.env.BOT_WEBAPP_URL;
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
 const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "@FetanBingoSupport";
-const DEPOSIT_PHONE = process.env.DEPOSIT_TELEBIRR_PHONE || "0920790583";
-const DEPOSIT_NAME = process.env.DEPOSIT_TELEBIRR_NAME || "Tesfaye Admasu";
+const DEPOSIT_PHONE = process.env.DEPOSIT_TELEBIRR_PHONE;
+const DEPOSIT_NAME = process.env.DEPOSIT_TELEBIRR_NAME || "";
 const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 20);
 const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 50);
 const REFERRAL_BONUS = Number(process.env.REFERRAL_BONUS || 5);
-
-// የስልክ ቁጥር regex — ኢትዮጵያ
-const PHONE_RE = /^(09|07|\+2519|\+2517|2519|2517)\d{8}$/;
 
 if (!BOT_TOKEN) {
   console.error("[bot] TELEGRAM_BOT_TOKEN is missing. Aborting.");
   process.exit(1);
 }
+if (!DEPOSIT_PHONE) {
+  console.error("[bot] DEPOSIT_TELEBIRR_PHONE is missing. Aborting.");
+  process.exit(1);
+}
+
+const PHONE_RE = /^(09|07|\+2519|\+2517|2519|2517)\d{8}$/;
 
 const bot = new Telegraf(BOT_TOKEN);
 
@@ -138,9 +139,6 @@ async function notifyAdmin(text) {
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// GET OR CREATE USER
-// ═══════════════════════════════════════════════════════
 async function getOrCreateUser(ctx, referredBy) {
   try {
     const tgUser = ctx.from;
@@ -185,9 +183,6 @@ async function getOrCreateUser(ctx, referredBy) {
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// REFERRAL BONUS
-// ═══════════════════════════════════════════════════════
 async function processReferralBonus(telegramId) {
   try {
     const claimed = await User.findOneAndUpdate(
@@ -363,7 +358,7 @@ bot.action("copy_code", async (ctx) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// 💵 DEPOSIT FLOW
+// DEPOSIT FLOW
 // ═══════════════════════════════════════════════════════
 const handleDeposit = async (ctx) => {
   try {
@@ -406,7 +401,7 @@ bot.action("action_deposit", async (ctx) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// 📤 WITHDRAW FLOW
+// WITHDRAW FLOW
 // ═══════════════════════════════════════════════════════
 const handleWithdraw = async (ctx) => {
   try {
@@ -458,7 +453,6 @@ const handleWithdraw = async (ctx) => {
   }
 };
 
-bot.hears("Withdraw 💵", handleWithdraw);
 bot.hears("Withdraw 📤", handleWithdraw);
 bot.action("action_withdraw", async (ctx) => {
   try {
@@ -472,7 +466,7 @@ bot.action("action_withdraw", async (ctx) => {
 // ═══════════════════════════════════════════════════════
 bot.action("confirm_withdraw", async (ctx) => {
   try {
-    await ctx.answerCbQuery(" Processing...");
+    await ctx.answerCbQuery("Processing...");
   } catch {}
 
   try {
@@ -519,7 +513,6 @@ bot.action("confirm_withdraw", async (ctx) => {
         },
       });
     } catch (txErr) {
-      // 👈 መዝገብ ካልተፈጠረ ብሩን መልስ
       await User.updateOne(
         { _id: user._id },
         { $inc: { balance: amount } }
@@ -540,9 +533,7 @@ bot.action("confirm_withdraw", async (ctx) => {
     if (ADMIN_CHAT_ID) {
       const adminText =
         `🆕 <b>Withdrawal Request</b>\n\n` +
-        `👤 <b>${esc(updated.firstName || "User")} ${esc(
-          updated.lastName || ""
-        )}</b>\n` +
+        `👤 <b>${esc(updated.firstName || "User")} ${esc(updated.lastName || "")}</b>\n` +
         `🆔 <code>${updated.telegramId}</code>\n` +
         `📱 <code>${esc(updated.phone)}</code>\n\n` +
         `💰 መጠን: <b>${amount} ETB</b>\n` +
@@ -587,7 +578,7 @@ bot.action("cancel_action", async (ctx) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// ADMIN — APPROVE / REJECT (withdraw + deposit)
+// ADMIN DECISION
 // ═══════════════════════════════════════════════════════
 function isBotAdmin(ctx) {
   const id = String(ctx.from?.id || "");
@@ -618,9 +609,7 @@ async function adminDecision(ctx, kind, approve) {
       `${approve ? "✅" : "❌"} <b>${label} ${
         approve ? "APPROVED" : "REJECTED"
       }</b>\n\n` +
-        `👤 ${esc(r.user?.firstName || "User")} (${esc(
-          r.user?.telegramId || ""
-        )})\n` +
+        `👤 ${esc(r.user?.firstName || "User")} (${esc(r.user?.telegramId || "")})\n` +
         `💰 ${tx.amount} ETB`,
       { parse_mode: "HTML" }
     );
@@ -636,7 +625,7 @@ bot.action(/^dep_ok:(.+)$/, (ctx) => adminDecision(ctx, "dep", true));
 bot.action(/^dep_no:(.+)$/, (ctx) => adminDecision(ctx, "dep", false));
 
 // ═══════════════════════════════════════════════════════
-// 💵 DEPOSIT — SMS Verification & Auto-Approve
+// DEPOSIT SMS
 // ═══════════════════════════════════════════════════════
 async function handleDepositSms(ctx, smsText) {
   const userId = String(ctx.from.id);
@@ -707,18 +696,10 @@ async function handleDepositSms(ctx, smsText) {
     `${result.message}\n\n📞 ችግር ካለ ${SUPPORT_CONTACT} ያግኙን።`,
     mainKeyboard()
   );
-  if (result.status === "rejected" && result.reason !== "duplicate") {
-    await notifyAdmin(
-      `❌ <b>Deposit Rejected</b>\n\n` +
-        `👤 ${esc(user.firstName || "User")} (${user.telegramId})\n` +
-        `📋 ምክንያት: ${esc(result.reason || "unknown")}`
-    );
-  }
 }
 
 // ═══════════════════════════════════════════════════════
-// 🆕 TEXT HANDLER — CRITICAL FIX
-// Deposit SMS, Withdraw phone/amount ይይዛል
+// TEXT HANDLER
 // ═══════════════════════════════════════════════════════
 bot.on("text", async (ctx, next) => {
   const step = getStep(ctx.from.id);
@@ -727,12 +708,10 @@ bot.on("text", async (ctx, next) => {
   const text = String(ctx.message.text || "").trim();
   if (!text) return next();
 
-  // ─── Deposit: user pasted Telebirr SMS ───
   if (step.type === "deposit") {
     return handleDepositSms(ctx, text);
   }
 
-  // ─── Withdraw: user sent phone number ───
   if (step.type === "withdraw_phone") {
     const phone = text.replace(/[^\d+]/g, "");
     if (!PHONE_RE.test(phone)) {
@@ -761,7 +740,6 @@ bot.on("text", async (ctx, next) => {
     );
   }
 
-  // ─── Withdraw: user sent amount ───
   if (step.type === "withdraw_amount") {
     const amount = Number(text.replace(/[^\d.]/g, ""));
     if (!Number.isFinite(amount) || amount < MIN_WITHDRAW) {
@@ -880,10 +858,9 @@ bot.catch((err, ctx) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// MAIN — Webhook
+// MAIN
 // ═══════════════════════════════════════════════════════
 async function main(app) {
-  // ─── Bot Commands ───
   try {
     await bot.telegram.setMyCommands([
       { command: "start", description: "Start" },
@@ -900,16 +877,11 @@ async function main(app) {
     console.error("Menu setup error:", err);
   }
 
-  // ═══════════════════════════════════════════════════════
-  // ✅ FIX #1: Description በትክክል ማስተካከል
-  // JSON.stringify ሳይጠቀም — plain string ብቻ
-  // (ቀድሞ {"description":"..."} ሆኖ ይታይ ነበር)
-  // ═══════════════════════════════════════════════════════
   try {
     await bot.telegram.setMyDescription(
       "🎉 እንኳን ወደ Fetan Bingo በደህና መጡ!\n\n" +
         "🎰 ይጫወቱ፣ ያሸንፉ እና እውነተኛ ገንዘብ ያግኙ\n" +
-        "⚡ ፈጣን ዲፖዚት እና  ወጪ\n" +
+        "⚡ ፈጣን ዲፖዚት እና ወጪ\n" +
         "🎁 ለአዲስ ተጠቃሚዎች ቦነስ\n\n" +
         "🎮 ለመጀመር Play ን ይጫኑ!"
     );
@@ -918,9 +890,6 @@ async function main(app) {
     console.error("[bot] setMyDescription failed:", err.message);
   }
 
-  // ═══════════════════════════════════════════════════════
-  // ✅ FIX #2: Short Description (ከ Start Bot በታች የሚታየው)
-  // ═══════════════════════════════════════════════════════
   try {
     await bot.telegram.setMyShortDescription(
       "🎰 Fetan Bingo — ይጫወቱ እና ያሸንፉ!"
@@ -930,7 +899,6 @@ async function main(app) {
     console.error("[bot] setMyShortDescription failed:", err.message);
   }
 
-  // ─── WebApp Menu Button ───
   if (WEBAPP_URL) {
     try {
       await bot.telegram.setChatMenuButton({
@@ -944,7 +912,6 @@ async function main(app) {
     }
   }
 
-  // ─── Webhook ───
   const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
   app.use(bot.webhookCallback(webhookPath));
 

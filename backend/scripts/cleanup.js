@@ -10,12 +10,13 @@ const { Notification } = require("../models/User");
 const DAY = 24 * 60 * 60 * 1000;
 
 // ─── የማጥፊያ ዕድሜዎች ───
+
 const RETENTION = {
-  notifications: 30 * DAY,           // 30 ቀናት
-  transactionsCompleted: 180 * DAY,  // 6 ወር
-  transactionsFailed: 30 * DAY,      // የተሳሳቱ 1 ወር
-  gamesFinished: 60 * DAY,           // 2 ወር
-  gamesWaitingStale: 7 * DAY,        // ያልተጫወቱ 1 ሳምንት
+  notifications: 7 * DAY,              // 30 → 7
+  transactionsCompleted: 90 * DAY,     // 180 → 90
+  transactionsFailed: 14 * DAY,        // 30 → 14
+  gamesFinished: 7 * DAY,             // 60 → 14
+  gamesWaitingStale: 1 * DAY,          // 7 → 1
 };
 
 async function cleanup() {

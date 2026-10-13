@@ -368,19 +368,26 @@ async function verifyReceipt(options) {
       manualReview: true,
     });
   }
+
+  // 👈 Future-dated: reject
   if (data.paymentDateMs > now + 5 * 60 * 1000) {
     return fail("future_dated", "የክፍያ ቀኑ ትክክል አይደለም");
   }
-  if ((now - data.paymentDateMs) / 3600000 > maxAgeHours) {
-    return fail("stale", `ደረሰኙ ከ ${maxAgeHours} ሰዓት በላይ አሮጌ ነው`);
-  }
-  if (
-    smsTimestampMs &&
-    Math.abs(smsTimestampMs - data.paymentDateMs) > 10 * 60 * 1000
-  ) {
+
+  // ═══════════════════════════════════════════════════════
+  // 👈 FIX: 24-hour window only — no exact-time matching.
+  //    Previously a strict `time_mismatch` check rejected
+  //    receipts whose timestamp differed by >10 min from the
+  //    SMS. That caused false rejections due to timezone
+  //    parsing differences between the phone SMS and the
+  //    receipt page. Now we only verify that the payment
+  //    happened within `maxAgeHours` (default 24h).
+  // ═══════════════════════════════════════════════════════
+  const ageHours = (now - data.paymentDateMs) / 3600000;
+  if (ageHours > maxAgeHours) {
     return fail(
-      "time_mismatch",
-      "የ SMS ሰዓት ከደረሰኙ ሰዓት ጋር አይመሳሰልም"
+      "stale",
+      `ደረሰኙ ከ ${maxAgeHours} ሰዓት በላይ አሮጌ ነው`
     );
   }
 
