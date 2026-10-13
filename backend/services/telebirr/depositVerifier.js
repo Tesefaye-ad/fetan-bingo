@@ -29,10 +29,14 @@ function config() {
     requireSenderMatch:
       String(process.env.REQUIRE_SENDER_MATCH).toLowerCase() === "true",
     maxFailsPer10Min: Number(process.env.MAX_FAILED_DEPOSITS_10MIN || 5),
-    // ነባሪ: ደረሰኙ በኦንላይን ካልተረጋገጠ ውድቅ ይሆናል።
-    // MANUAL_REVIEW_ON_FETCH_FAIL=true ከተባለ ብቻ ወደ አድሚን በእጅ ማረጋገጫ ይላካል።
+    // ነባሪ: ኢትዮ ቴሌኮም ባይመልስ ክፍያው ወደ አድሚን በእጅ ማረጋገጫ ይላካል (ሃሰተኛ ደረሰኝ/404 ግን ወዲያው ውድቅ ነው)።
+    // MANUAL_REVIEW_ON_FETCH_FAIL=false ከተባለ በምትኩ ውድቅ ይሆናል።
     manualOnFetchFail:
-      String(process.env.MANUAL_REVIEW_ON_FETCH_FAIL).toLowerCase() === "true",
+      String(process.env.MANUAL_REVIEW_ON_FETCH_FAIL).toLowerCase() !== "false",
+    // ነባሪ: ሲስተሙ በራሱ ያላጸደቀው ማንኛውም ክፍያ (ሃሰተኛ ደረሰኝ፣ አለመመሳሰል፣ ማምጣት መከሽፍ) ወደ አድሚን ይሄዳል።
+    // MANUAL_REVIEW_ON_REJECT=false ከተባለ ደረሰኙ ሲያልፍ ብቻ ነው የሚጸድቀው፤ አለመመሳሰል ወዲያው ውድቅ ይሆናል።
+    manualOnReject:
+      String(process.env.MANUAL_REVIEW_ON_REJECT).toLowerCase() !== "false",
   };
 }
 
@@ -185,7 +189,7 @@ async function creditWithSession(args) {
 }
 
 // ─── በእጅ ማረጋገጫ (ደረሰኝ ማምጣት ሲከሽፍ) ───
-async function queueManualReview({ user, sms, amount, pending, reason }) {
+async function queueManualReview({ user, sms, amount, pending, reason, receipt }) {
   try {
     const meta = {
       source: "telebirr_auto",
@@ -194,6 +198,15 @@ async function queueManualReview({ user, sms, amount, pending, reason }) {
       smsRaw: sms.raw.slice(0, 500),
       requiresManualReview: true,
       verificationReason: reason,
+      verificationDetail: (receipt && !receipt.ok && (receipt.message || receipt.detail)) || null,
+      // ሲስተሙ ደረሰኙን በኢትዮ ቴሌኮም ላይ በኦንላይን አረጋግጦታል?
+      receiptVerified: !!(receipt && receipt.ok),
+      receiptUrl: sms.receiptUrl,
+      receiptVia: receipt && receipt.ok ? receipt.via : null,
+      receiptPaymentDate:
+        receipt && receipt.ok && receipt.data ? receipt.data.paymentDate : null,
+      payerName: receipt && receipt.ok && receipt.data ? receipt.data.payerName : null,
+      payerPhone: receipt && receipt.ok && receipt.data ? receipt.data.payerPhone : null,
     };
 
     let tx;
@@ -250,7 +263,15 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
     "meta.autoRejected": true,
     createdAt: { $gte: new Date(Date.now() - 10 * 60 * 1000) },
   });
-  if (recentFails >= cfg.maxFailsPer10Min) {
+  const recentQueued = await Transaction.countDocuments({
+    user: user._id,
+    type: "deposit",
+    status: "pending",
+    "meta.requiresManualReview": true,
+    "meta.receiptVerified": false,
+    createdAt: { $gte: new Date(Date.now() - 10 * 60 * 1000) },
+  });
+  if (recentFails + recentQueued >= cfg.maxFailsPer10Min) {
     return rejected(
       "too_many_attempts",
       "ብዙ ጊዜ ሞክረዋል። ከ10 ደቂቃ በኋላ ይሞክሩ",
@@ -270,7 +291,7 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
   if (!sms.receiptUrl) {
     return rejected(
       "receipt_link_missing",
-      "የደረሰኝ ሊንኩ የለም — ሙሉውን SMS (ከ https://transactioninfo.ethiotelecom.et/... ሊንክ ጋር) ይለጥፉ"
+      "ሙሉውን SMS ይለጥፉ"
     );
   }
   if (sms.direction === "received") {
@@ -344,13 +365,21 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
   });
 
   if (!receipt.ok) {
-    if (receipt.manualReview && cfg.manualOnFetchFail) {
+    console.error(
+      `[deposit] ደረሰኝ አልጸደቀም txn=${sms.txnId} reason=${receipt.reason} detail=${receipt.detail || receipt.message || "-"}`
+    );
+
+    // ሲስተሙ በራሱ ያላጸደቀው → ወደ አድሚን (ዋሌት አይነካም)
+    const sendToAdmin =
+      cfg.manualOnReject || (receipt.manualReview && cfg.manualOnFetchFail);
+    if (sendToAdmin) {
       const q = await queueManualReview({
         user,
         sms,
         amount: sms.amount,
         pending,
         reason: receipt.reason,
+        receipt,
       });
       if (q === "duplicate") return rejected("duplicate", DUP_MSG, 409);
       if (q) {
@@ -358,19 +387,20 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
           ok: false,
           status: "manual_review",
           reason: receipt.reason,
-          message:
-            "ጥያቄዎ ለአስተዳዳሪ ተልኳል — ከተረጋገጠ በኋላ ብሩ ይገባል።",
+          message: receipt.manualReview
+            ? "⏳ ደረሰኙን ማረጋገጥ አልተቻለም — ጥያቄዎ ለአስተዳዳሪ ተልኳል። አስተዳዳሪው ካጸደቀ በኋላ ብሩ ይገባል።"
+            : "⚠️ ጥያቄዎ ለአስተዳዳሪ ተልኳል። አስተዳዳሪው ካጣራ በኋላ ብሩ ይገባል።",
           reference: q.reference,
           httpStatus: 202,
         };
       }
     }
-    // ኢትዮ ቴሌኮም አልመለሰም / ገጹ አልተነበበም: ክፍያው እውነት መሆኑ አልተረጋገጠም → ውድቅ።
-    // የተጠቃሚው ጥፋት ስላልሆነ መዝገብ አይያዝም፤ ተመሳሳዩን SMS ቆይቶ እንደገና መላክ ይችላል።
+
+    // ወደ አድሚን ካልተላከ (ቅንብሩ ከጠፋ)
     if (receipt.manualReview) {
       return rejected(
         receipt.reason,
-        "ደረሰኙን በኦንላይን ማረጋገጥ አልተቻለም (ክፍያው አልተመዘገበም)። ትንሽ ቆይተው ተመሳሳዩን SMS እንደገና ይላኩ",
+        "ደረሰኙን ማረጋገጥ አልተቻለም። ትንሽ ቆይተው ተመሳሳዩን SMS እንደገና ይላኩ",
         503
       );
     }
@@ -386,6 +416,7 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
       amount: sms.amount,
       pending,
       reason: cfg.autoApprove ? "exceeds_auto_limit" : "auto_approve_disabled",
+      receipt,
     });
     if (q === "duplicate") return rejected("duplicate", DUP_MSG, 409);
     if (q) {
@@ -394,7 +425,7 @@ async function verifyAndCreditDeposit({ userId, smsText, reference }) {
         status: "manual_review",
         reason: "exceeds_auto_limit",
         message:
-          " አስተዳዳሪ ካረጋገጠ በኋላ ብሩ ይገባል።",
+          "✅ ደረሰኙ ተረጋግጧል —  ብሩ ወደ ዋሌትዎ ይገባል።",
         reference: q.reference,
         httpStatus: 202,
       };

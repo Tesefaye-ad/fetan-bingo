@@ -241,38 +241,65 @@ test("workflow: ✅ reference ያለው ጥያቄ ወደ completed ይቀየራ�
   assert.equal(db.txs.find((t) => t.reference === "DEP-2").status, "completed");
   assert.equal(u.balance, 100);
 });
-test("workflow: ❌ ሃሰተኛ ደረሰኝ (404) እና የተሳሳተ ተቀባይ", async () => {
+test("workflow: ⚠️ ሲስተሙ ያላጸደቀው (ሃሰተኛ 404 / የተሳሳተ ተቀባይ) → ወደ አድሚን፣ ዋሌት አይነካም", async () => {
   const u = freshUser();
   mockAxios(async () => ({ status: 404, data: "" }));
-  assert.equal((await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "FK11FK22FK" }) })).reason, "receipt_not_found");
+  const r1 = await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "FK11FK22FK" }) });
+  assert.equal(r1.status, "manual_review");
+  assert.equal(r1.reason, "receipt_not_found");
   okReceipt({ id: "WR11WR22WR", to: "2519****9999" });
-  assert.equal((await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "WR11WR22WR" }) })).reason, "wrong_recipient");
+  const r2 = await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "WR11WR22WR" }) });
+  assert.equal(r2.status, "manual_review");
+  assert.equal(r2.reason, "wrong_recipient");
   assert.equal(u.balance, 0);
+  const q = db.txs.find((t) => t.meta && t.meta.transactionId === "WR11WR22WR");
+  assert.equal(q.status, "pending");
+  assert.equal(q.meta.requiresManualReview, true);
+  assert.equal(q.meta.receiptVerified, false);
 });
-test("workflow: ⏳ ደረሰኝ ማምጣት ቢከሽፍ (ነባሪ) → ውድቅ፣ ዋሌት አይነካም፣ ቁጥሩ አይቃጠልም", async () => {
+test("workflow: ✅ ሲስተሙ ካጸደቀው ወደ አድሚን አይሄድም", async () => {
+  const u = freshUser();
+  okReceipt({ id: "OK11OK22OK" });
+  const r = await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "OK11OK22OK" }) });
+  assert.equal(r.status, "approved");
+  const tx = db.txs.find((t) => t.meta && t.meta.transactionId === "OK11OK22OK");
+  assert.equal(tx.status, "completed");
+  assert.notEqual(tx.meta.requiresManualReview, true);
+});
+test("workflow: MANUAL_REVIEW_ON_REJECT=false → አለመመሳሰል ወዲያው ውድቅ", async () => {
+  process.env.MANUAL_REVIEW_ON_REJECT = "false";
+  try {
+    const u = freshUser();
+    okReceipt({ id: "RJ11RJ22RJ", to: "2519****9999" });
+    const r = await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "RJ11RJ22RJ" }) });
+    assert.equal(r.status, "rejected");
+    assert.equal(r.reason, "wrong_recipient");
+  } finally {
+    delete process.env.MANUAL_REVIEW_ON_REJECT;
+  }
+});
+test("workflow: ⏳ ኢትዮ ቴሌኮም ባይመልስ (ነባሪ) → በእጅ ማረጋገጫ፣ ዋሌት አይነካም", async () => {
   mockAxios(async () => { throw new Error("ECONNRESET"); });
   const u = freshUser();
   const r = await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "MN11MN22MN" }) });
-  assert.equal(r.status, "rejected");
-  assert.equal(r.reason, "fetch_failed");
+  assert.equal(r.status, "manual_review");
   assert.equal(u.balance, 0);
-  assert.equal(db.txs.some((t) => t.meta && t.meta.transactionId === "MN11MN22MN"), false);
-  // ኢንተርኔቱ ሲመለስ ተመሳሳዩ SMS ይጸድቃል
-  okReceipt({ id: "MN11MN22MN" });
-  const r2 = await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "MN11MN22MN" }) });
-  assert.equal(r2.status, "approved");
+  assert.equal(db.txs.find((t) => t.meta.transactionId === "MN11MN22MN").status, "pending");
 });
-test("workflow: ⏳ MANUAL_REVIEW_ON_FETCH_FAIL=true → በእጅ ማረጋገጫ", async () => {
-  process.env.MANUAL_REVIEW_ON_FETCH_FAIL = "true";
+test("workflow: ⏳ MANUAL_REVIEW_ON_FETCH_FAIL=false → ውድቅ፣ ቁጥሩ አይቃጠልም", async () => {
+  process.env.MANUAL_REVIEW_ON_FETCH_FAIL = "false";
+  process.env.MANUAL_REVIEW_ON_REJECT = "false";
   try {
     mockAxios(async () => { throw new Error("ECONNRESET"); });
     const u = freshUser();
     const r = await verifyAndCreditDeposit({ userId: u._id, smsText: sms({ id: "MR11MR22MR" }) });
-    assert.equal(r.status, "manual_review");
+    assert.equal(r.status, "rejected");
+    assert.equal(r.reason, "fetch_failed");
     assert.equal(u.balance, 0);
-    assert.equal(db.txs.find((t) => t.meta.transactionId === "MR11MR22MR").status, "pending");
+    assert.equal(db.txs.some((t) => t.meta && t.meta.transactionId === "MR11MR22MR"), false);
   } finally {
     delete process.env.MANUAL_REVIEW_ON_FETCH_FAIL;
+    delete process.env.MANUAL_REVIEW_ON_REJECT;
   }
 });
 test("workflow: ❌ ያለ ደረሰኝ ሊንክ የተለጠፈ SMS → ውድቅ", async () => {

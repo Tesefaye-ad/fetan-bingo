@@ -2,6 +2,9 @@
 // ═══════════════════════════════════════════════════════
 // ክፍል 2: ONLINE RECEIPT VERIFIER
 // ═══════════════════════════════════════════════════════
+const fs = require("fs");
+const https = require("https");
+const tls = require("tls");
 const axios = require("axios");
 const cheerio = require("cheerio");
 
@@ -22,6 +25,26 @@ const HEADERS = {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// ─── HTTPS agent ───
+// የኢትዮ ቴሌኮም ጣቢያ የ SSL ሰንሰለት ብዙ ጊዜ ያልተሟላ ነው (ብሮውዘር ራሱ ያሟላዋል፣ Node ግን አያደርገውም)
+// → "UNABLE_TO_VERIFY_LEAF_SIGNATURE". መፍትሄ: የጎደለውን CA ሰርተፊኬት (.pem) ፋይል አድርገው
+// RECEIPT_CA_FILE=/path/to/ca.pem ይበሉ። ማረጋገጫው አይጠፋም፤ ተጨማሪ CA ብቻ ይታመናል።
+let _agent;
+function getAgent() {
+  if (_agent !== undefined) return _agent;
+  const file = process.env.RECEIPT_CA_FILE;
+  if (!file) return (_agent = undefined);
+  try {
+    const extra = fs.readFileSync(file, "utf8");
+    _agent = new https.Agent({ ca: [...tls.rootCertificates, extra] });
+  } catch (e) {
+    console.error("[receipt] RECEIPT_CA_FILE ማንበብ አልተቻለም:", e.message);
+    _agent = undefined;
+  }
+  return _agent;
+}
+const errText = (err) => (err.code ? `${err.code}: ${err.message}` : err.message);
+
 // ─── URL ግንባታ (SSRF መከላከያ) ───
 function buildReceiptUrl(txnId) {
   if (!/^[A-Za-z0-9]{6,20}$/.test(String(txnId || ""))) return null;
@@ -40,6 +63,7 @@ async function fetchDirect(url, retries = 2) {
         responseType: "text",
         maxRedirects: 3,
         maxContentLength: MAX_BYTES,
+        httpsAgent: getAgent(),
         beforeRedirect: (opts) => {
           if (String(opts.hostname || "").toLowerCase() !== RECEIPT_HOST) {
             throw new Error("redirect_blocked");
@@ -63,7 +87,7 @@ async function fetchDirect(url, retries = 2) {
       last = { ok: false, via: "direct", status: res.status };
       if (res.status >= 400) break;
     } catch (err) {
-      last = { ok: false, via: "direct", error: err.message };
+      last = { ok: false, via: "direct", error: errText(err) };
     }
 
     if (attempt < retries) await sleep(500 * (attempt + 1));
@@ -295,6 +319,7 @@ async function verifyReceipt(options) {
   if (!fetched.ok) {
     return fail("fetch_failed", "ደረሰኙን ማምጣት አልተቻለም", {
       manualReview: true,
+      detail: fetched.error,
     });
   }
 
@@ -302,6 +327,7 @@ async function verifyReceipt(options) {
   if (!data.invoiceNo || data.amount == null) {
     return fail("unparseable", "የደረሰኝ ይዘት ማንበብ አልተቻለም", {
       manualReview: true,
+      detail: `html_length=${String(fetched.html).length}`,
     });
   }
 

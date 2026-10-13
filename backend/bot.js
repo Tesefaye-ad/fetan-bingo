@@ -327,8 +327,7 @@ const handleBalance = async (ctx) => {
     `🧳 <b>Account Info</b>\n\n` +
     `👤 Name: <b>${esc(user.firstName || "User")} ${esc(user.lastName || "")}</b>\n` +
     `📱 Phone: ${esc(user.phone || "Not registered")}\n` +
-    `💰 Main: <b>${formatMoney(user.balance)} ETB</b>\n` +
-    `🆔 ID: <code>${user.telegramId}</code>`;
+    `💰 Main: <b>${formatMoney(user.balance)} ETB</b>\n`;
 
   const keyboard = Markup.inlineKeyboard([
     [
@@ -910,7 +909,7 @@ async function main(app) {
     await bot.telegram.setMyDescription(
       "🎉 እንኳን ወደ Fetan Bingo በደህና መጡ!\n\n" +
         "🎰 ይጫወቱ፣ ያሸንፉ እና እውነተኛ ገንዘብ ያግኙ\n" +
-        "⚡ ፈጣን ዲፖዚት እና ቅጽበታዊ ወጪ\n" +
+        "⚡ ፈጣን ዲፖዚት እና  ወጪ\n" +
         "🎁 ለአዲስ ተጠቃሚዎች ቦነስ\n\n" +
         "🎮 ለመጀመር Play ን ይጫኑ!"
     );
