@@ -2,7 +2,7 @@ const jwt = require("jsonwebtoken");
 
 function getJwtSecret() {
   const secret = process.env.JWT_SECRET;
-  if (!secret || secret.length < 16) {
+  if (!secret || secret.length < 32) {
     // Fail fast — ይህ የደህንነት አደጋ ነው
     throw new Error(
       "[auth] JWT_SECRET is missing or too short. Set a strong secret in .env"

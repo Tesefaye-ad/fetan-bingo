@@ -14,6 +14,7 @@ import {
   markNotificationsRead,
   getWalletHistory,
   useTelegram,
+  warmUpServer,
 } from "./api";
 
 const DEFAULT_ADMIN_IDS = ["494653076"];
@@ -38,157 +39,223 @@ const SHARED_ROOMS = {
 // ═══════════════════════════════════════════════════════
 function Login({ onLoggedIn }) {
   const { initData, ready, telegramUser } = useTelegram();
+  const [attempt, setAttempt] = useState(0);
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState("በመግባት ላይ...");
 
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
+    setError("");
 
     if (!initData) {
-      const isDev = process.env.NODE_ENV === "development";
-      if (!isDev) {
-        onLoggedIn(null);
-        return;
+      if (process.env.NODE_ENV === "development") {
+        onLoggedIn({
+          id: "local_dev_user",
+          telegramId: telegramUser?.id ? String(telegramUser.id) : "000000000",
+          firstName: telegramUser?.first_name || "Dev",
+          username: telegramUser?.username || "dev_user",
+          balance: 1000,
+          bonusBalance: 200,
+          gamesWon: 0,
+          referralCount: 0,
+          isAdmin: true,
+        });
+      } else {
+        setError(
+          "ይህን ጨዋታ ከ Telegram ቦት ውስጥ ባለው «Play 🎮» ቁልፍ ብቻ ይክፈቱ።"
+        );
       }
-      onLoggedIn({
-        id: "local_dev_user",
-        telegramId: telegramUser?.id ? String(telegramUser.id) : "000000000",
-        firstName: telegramUser?.first_name || "Dev",
-        username: telegramUser?.username || "dev_user",
-        balance: 1000,
-        bonusBalance: 200,
-        gamesWon: 0,
-        referralCount: 0,
-        isAdmin: true,
-      });
       return;
     }
 
     async function handleLogin() {
-      try {
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Login timeout")),
-            LOGIN_TIMEOUT_MS
-          )
-        );
-        const user = await Promise.race([
-          loginWithTelegram(initData),
-          timeoutPromise,
-        ]);
+      // Render free-tier servers sleep; wake it up first, then try login
+      // up to 3 times so a cold start never leaves the user on a blank page.
+      setStatus("ሰርቨሩን በማንቃት ላይ...");
+      await warmUpServer();
+      let lastErr = null;
+      for (let i = 1; i <= 3; i++) {
         if (cancelled) return;
-        localStorage.setItem("telegramId", user.telegramId);
-        onLoggedIn(user);
-      } catch (err) {
-        if (cancelled) return;
-        console.warn("[Login] failed:", err?.message);
-
-        if (telegramUser?.id) {
-          const tgId = String(telegramUser.id);
-          const isAdminFallback = ADMIN_IDS.includes(tgId);
-          onLoggedIn({
-            id: tgId,
-            telegramId: tgId,
-            firstName: telegramUser.first_name || "Player",
-            username: telegramUser.username || `user_${tgId}`,
-            balance: 0,
-            gamesWon: 0,
-            isAdmin: isAdminFallback,
-          });
-        } else {
-          onLoggedIn(null);
+        try {
+          setStatus(i === 1 ? "በመግባት ላይ..." : `እንደገና በመሞከር ላይ (${i}/3)...`);
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Login timeout")), 30000)
+          );
+          const user = await Promise.race([
+            loginWithTelegram(initData),
+            timeoutPromise,
+          ]);
+          if (cancelled) return;
+          localStorage.setItem("telegramId", user.telegramId);
+          onLoggedIn(user);
+          return;
+        } catch (err) {
+          lastErr = err;
+          console.warn("[Login] attempt", i, "failed:", err?.message);
+          const code = err?.response?.status;
+          if (code === 401 || code === 403) break; // retry won't help
+          await new Promise((r) => setTimeout(r, 2000));
         }
       }
+      if (cancelled) return;
+      const code = lastErr?.response?.status;
+      if (code === 403) setError("አካውንትዎ ታግዷል። ድጋፍ ያግኙ።");
+      else if (code === 401)
+        setError(
+          "የ Telegram ማረጋገጫ አልተሳካም። ቦቱን ዘግተው በ «Play 🎮» ቁልፍ እንደገና ይክፈቱ።"
+        );
+      else
+        setError(
+          "ከሰርቨር ጋር መገናኘት አልተቻለም። ኢንተርኔትዎን ያረጋግጡ እና እንደገና ይሞክሩ።"
+        );
     }
     handleLogin();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, initData, telegramUser?.id]);
+  }, [ready, initData, telegramUser?.id, attempt]);
 
-  return null;
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 16,
+        padding: 24,
+        textAlign: "center",
+        color: "#fff",
+      }}
+    >
+      <style>{"@keyframes fbspin{to{transform:rotate(360deg)}}"}</style>
+      <div style={{ fontSize: 28, fontWeight: 900 }}>🎰 Fetan Bingo</div>
+      {error ? (
+        <>
+          <div style={{ maxWidth: 320, lineHeight: 1.5, opacity: 0.9 }}>
+            {error}
+          </div>
+          {initData && (
+            <button
+              onClick={() => setAttempt((n) => n + 1)}
+              style={{
+                background: "linear-gradient(135deg,#27ae60,#1e8449)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 12,
+                padding: "12px 28px",
+                fontSize: 16,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              🔄 እንደገና ሞክር
+            </button>
+          )}
+        </>
+      ) : (
+        <>
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              border: "4px solid rgba(255,255,255,0.2)",
+              borderTopColor: "#fff",
+              borderRadius: "50%",
+              animation: "fbspin 0.9s linear infinite",
+            }}
+          />
+          <div style={{ opacity: 0.8 }}>{status}</div>
+        </>
+      )}
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════════════════
 // GAME LOBBY
 // ═══════════════════════════════════════════════════════
+function GameButton({ fee, color1, color2, glowColor, onPlay }) {
+  return (
+    <button
+      onClick={() => onPlay(fee)}
+      style={{
+        width: "100%",
+        background: `linear-gradient(135deg, ${color1} 0%, ${color2} 100%)`,
+        color: "#fff",
+        border: "none",
+        borderRadius: 14,
+        padding: "18px 24px",
+        cursor: "pointer",
+        boxShadow: `0 8px 24px ${glowColor}66, 0 4px 12px ${glowColor}44, inset 0 1px 0 rgba(255,255,255,0.2)`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 10,
+        position: "relative",
+        overflow: "hidden",
+        transition: "transform 0.1s ease",
+        fontFamily: "inherit",
+      }}
+      onMouseDown={(e) => {
+        e.currentTarget.style.transform = "scale(0.98)";
+      }}
+      onMouseUp={(e) => {
+        e.currentTarget.style.transform = "scale(1)";
+      }}
+      onTouchStart={(e) => {
+        e.currentTarget.style.transform = "scale(0.98)";
+      }}
+      onTouchEnd={(e) => {
+        e.currentTarget.style.transform = "scale(1)";
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: "-100%",
+          width: "100%",
+          height: "100%",
+          background:
+            "linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)",
+          animation: "shine 3s infinite",
+          pointerEvents: "none",
+        }}
+      />
+      <span
+        style={{
+          fontSize: 14,
+          opacity: 0.95,
+          textShadow: "0 1px 2px rgba(0,0,0,0.3)",
+          zIndex: 1,
+        }}
+      >
+        ▶
+      </span>
+      <span
+        style={{
+          fontSize: 18,
+          fontWeight: "900",
+          letterSpacing: 0.3,
+          textShadow: "0 2px 4px rgba(0,0,0,0.3)",
+          zIndex: 1,
+        }}
+      >
+        Play {fee} ETB
+      </span>
+    </button>
+  );
+}
+
 function GameLobby({ onPlayStake }) {
   function play(fee) {
     onPlayStake(fee, SHARED_ROOMS[fee] || `ROOM${fee}`);
   }
 
-  const GameButton = ({ fee, color1, color2, glowColor }) => {
-    return (
-      <button
-        onClick={() => play(fee)}
-        style={{
-          width: "100%",
-          background: `linear-gradient(135deg, ${color1} 0%, ${color2} 100%)`,
-          color: "#fff",
-          border: "none",
-          borderRadius: 14,
-          padding: "18px 24px",
-          cursor: "pointer",
-          boxShadow: `0 8px 24px ${glowColor}66, 0 4px 12px ${glowColor}44, inset 0 1px 0 rgba(255,255,255,0.2)`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 10,
-          position: "relative",
-          overflow: "hidden",
-          transition: "transform 0.1s ease",
-          fontFamily: "inherit",
-        }}
-        onMouseDown={(e) => {
-          e.currentTarget.style.transform = "scale(0.98)";
-        }}
-        onMouseUp={(e) => {
-          e.currentTarget.style.transform = "scale(1)";
-        }}
-        onTouchStart={(e) => {
-          e.currentTarget.style.transform = "scale(0.98)";
-        }}
-        onTouchEnd={(e) => {
-          e.currentTarget.style.transform = "scale(1)";
-        }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: "-100%",
-            width: "100%",
-            height: "100%",
-            background:
-              "linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)",
-            animation: "shine 3s infinite",
-            pointerEvents: "none",
-          }}
-        />
-        <span
-          style={{
-            fontSize: 14,
-            opacity: 0.95,
-            textShadow: "0 1px 2px rgba(0,0,0,0.3)",
-            zIndex: 1,
-          }}
-        >
-          ▶
-        </span>
-        <span
-          style={{
-            fontSize: 18,
-            fontWeight: "900",
-            letterSpacing: 0.3,
-            textShadow: "0 2px 4px rgba(0,0,0,0.3)",
-            zIndex: 1,
-          }}
-        >
-          Play {fee} ETB
-        </span>
-      </button>
-    );
-  };
 
   return (
     <div
@@ -268,12 +335,14 @@ function GameLobby({ onPlayStake }) {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <GameButton
+            onPlay={play}
             fee={10}
             color1="#10b981"
             color2="#059669"
             glowColor="#10b981"
           />
           <GameButton
+            onPlay={play}
             fee={20}
             color1="#06b6d4"
             color2="#0891b2"
@@ -321,12 +390,14 @@ function GameLobby({ onPlayStake }) {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <GameButton
+            onPlay={play}
             fee={50}
             color1="#8b5cf6"
             color2="#7c3aed"
             glowColor="#8b5cf6"
           />
           <GameButton
+            onPlay={play}
             fee={100}
             color1="#f59e0b"
             color2="#d97706"
@@ -1113,33 +1184,9 @@ function App() {
     return () => clearInterval(id);
   }, [user]);
 
-  if (!user) {
-    return <Login onLoggedIn={handleLoggedIn} />;
-  }
-
-  const handlePlayStake = async (fee, code) => {
-    setStakeAmount(fee);
-    setRoomCode(code);
-    let live = false;
-    try {
-      const room = await getRoom(code, 2500);
-      live = room.status === "active";
-    } catch (err) {
-      console.warn("[App] room status check failed:", err.message);
-    }
-    if (live) {
-      setCardIds([]);
-      setShowCartela(false);
-      setGameStatus("active");
-    } else {
-      setShowCartela(true);
-      setGameStatus("waiting");
-    }
-  };
-
   // ═══════════════════════════════════════════════════════
-  // 👈 FIX: memoized callbacks — prevent socket re-subscribe
-  //    on every render (which silently drops events)
+  // Hooks MUST run before any early return (Rules of Hooks).
+  // Memoized so child sockets don't re-subscribe on every render.
   // ═══════════════════════════════════════════════════════
   const handleCartelaConfirm = useCallback((ids) => {
     setCardIds(ids);
@@ -1167,6 +1214,30 @@ function App() {
     setShowCartela(true);
     setGameStatus("waiting");
   }, []);
+
+  if (!user) {
+    return <Login onLoggedIn={handleLoggedIn} />;
+  }
+
+  const handlePlayStake = async (fee, code) => {
+    setStakeAmount(fee);
+    setRoomCode(code);
+    let live = false;
+    try {
+      const room = await getRoom(code, 2500);
+      live = room.status === "active";
+    } catch (err) {
+      console.warn("[App] room status check failed:", err.message);
+    }
+    if (live) {
+      setCardIds([]);
+      setShowCartela(false);
+      setGameStatus("active");
+    } else {
+      setShowCartela(true);
+      setGameStatus("waiting");
+    }
+  };
 
   return (
     <div className="app" style={{ paddingBottom: 80 }}>

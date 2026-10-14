@@ -43,6 +43,7 @@ require("dotenv").config();
     for (const e of errors) console.error("  • " + e);
     console.error("");
     console.error("[env] ⚠️ Fix the variables above in Render → Environment.");
+    if (process.env.NODE_ENV !== "test") process.exit(1); // ❗ ሳይስተካከል አይነሳም
   } else {
     console.log("[env] ✅ Validation passed");
   }
@@ -269,4 +270,6 @@ process.on("unhandledRejection", (r) =>
 );
 process.on("uncaughtException", (e) => {
   console.error("[uncaughtException]", e);
+  // ሰርቨሩ በተበላሸ ሁኔታ እንዳይቀጥል — Render በራሱ እንደገና ያስነሳዋል
+  setTimeout(() => process.exit(1), 1000).unref();
 });
