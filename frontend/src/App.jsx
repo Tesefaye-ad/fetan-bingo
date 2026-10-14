@@ -34,35 +34,50 @@ const SHARED_ROOMS = {
 };
 
 // ═══════════════════════════════════════════════════════
-// LOGIN
+// LOGIN — ✅ FIXED: shows loading + error UI (never blank)
 // ═══════════════════════════════════════════════════════
 function Login({ onLoggedIn }) {
   const { initData, ready, telegramUser } = useTelegram();
+  const [status, setStatus] = useState("loading"); // loading | error
+  const [errorMsg, setErrorMsg] = useState("");
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
 
+    // ═══════════════════════════════════════════════════════
+    // Telegram WebApp ካልተገኘ
+    // ═══════════════════════════════════════════════════════
     if (!initData) {
       const isDev = process.env.NODE_ENV === "development";
-      if (!isDev) {
-        onLoggedIn(null);
+      if (isDev) {
+        onLoggedIn({
+          id: "local_dev_user",
+          telegramId: telegramUser?.id
+            ? String(telegramUser.id)
+            : "000000000",
+          firstName: telegramUser?.first_name || "Dev",
+          username: telegramUser?.username || "dev_user",
+          balance: 1000,
+          bonusBalance: 200,
+          gamesWon: 0,
+          referralCount: 0,
+          isAdmin: true,
+        });
         return;
       }
-      onLoggedIn({
-        id: "local_dev_user",
-        telegramId: telegramUser?.id ? String(telegramUser.id) : "000000000",
-        firstName: telegramUser?.first_name || "Dev",
-        username: telegramUser?.username || "dev_user",
-        balance: 1000,
-        bonusBalance: 200,
-        gamesWon: 0,
-        referralCount: 0,
-        isAdmin: true,
-      });
+      setStatus("error");
+      setErrorMsg(
+        "⚠️ ይህ ገጽ ከ Telegram ውስጥ ብቻ ይሰራል።\n\n@fetanbingo1_bot ን ከፍተው 'Play 🎮' ን ይጫኑ።"
+      );
       return;
     }
 
+    // ═══════════════════════════════════════════════════════
+    // ወደ Backend ሂድ
+    // ═══════════════════════════════════════════════════════
+    setStatus("loading");
     async function handleLogin() {
       try {
         const timeoutPromise = new Promise((_, reject) =>
@@ -80,8 +95,9 @@ function Login({ onLoggedIn }) {
         onLoggedIn(user);
       } catch (err) {
         if (cancelled) return;
-        console.warn("[Login] failed:", err?.message);
+        console.error("[Login] failed:", err);
 
+        // Telegram user ካለ — fallback
         if (telegramUser?.id) {
           const tgId = String(telegramUser.id);
           const isAdminFallback = ADMIN_IDS.includes(tgId);
@@ -95,7 +111,12 @@ function Login({ onLoggedIn }) {
             isAdmin: isAdminFallback,
           });
         } else {
-          onLoggedIn(null);
+          setStatus("error");
+          setErrorMsg(
+            `❌ ግንኙነት አልተሳካም።\n\n${
+              err?.message || "Unknown error"
+            }\n\nእንደገና ይሞክሩ።`
+          );
         }
       }
     }
@@ -104,9 +125,109 @@ function Login({ onLoggedIn }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, initData, telegramUser?.id]);
+  }, [ready, initData, telegramUser?.id, retryCount]);
 
-  return null;
+  // ═══════════════════════════════════════════════════════
+  // Loading screen
+  // ═══════════════════════════════════════════════════════
+  if (status === "loading" || !ready) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: "100vh",
+          background: "linear-gradient(180deg, #0f1420 0%, #1a0f2e 100%)",
+          color: "#fff",
+          padding: 20,
+          textAlign: "center",
+        }}
+      >
+        <div
+          style={{
+            width: 60,
+            height: 60,
+            border: "4px solid rgba(243,156,18,0.3)",
+            borderTop: "4px solid #f39c12",
+            borderRadius: "50%",
+            animation: "spin 1s linear infinite",
+            marginBottom: 20,
+          }}
+        />
+        <div style={{ fontSize: 18, fontWeight: 900, color: "#f39c12" }}>
+          Fetan Bingo
+        </div>
+        <div style={{ fontSize: 13, color: "#888", marginTop: 8 }}>
+          በመጫን ላይ...
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // Error screen
+  // ═══════════════════════════════════════════════════════
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "100vh",
+        background: "linear-gradient(180deg, #0f1420 0%, #1a0f2e 100%)",
+        color: "#fff",
+        padding: 30,
+        textAlign: "center",
+      }}
+    >
+      <div style={{ fontSize: 60, marginBottom: 20 }}>⚠️</div>
+      <div
+        style={{
+          fontSize: 18,
+          fontWeight: 900,
+          color: "#f39c12",
+          marginBottom: 12,
+        }}
+      >
+        Fetan Bingo
+      </div>
+      <div
+        style={{
+          fontSize: 14,
+          color: "#ccc",
+          lineHeight: 1.6,
+          whiteSpace: "pre-line",
+          marginBottom: 24,
+          maxWidth: 320,
+        }}
+      >
+        {errorMsg}
+      </div>
+      <button
+        onClick={() => {
+          setErrorMsg("");
+          setStatus("loading");
+          setRetryCount((c) => c + 1);
+        }}
+        style={{
+          background: "linear-gradient(135deg, #f39c12, #e67e22)",
+          color: "#fff",
+          border: "none",
+          borderRadius: 12,
+          padding: "12px 32px",
+          fontSize: 14,
+          fontWeight: 900,
+          cursor: "pointer",
+        }}
+      >
+        🔄 እንደገና ይሞክሩ
+      </button>
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1137,10 +1258,6 @@ function App() {
     }
   };
 
-  // ═══════════════════════════════════════════════════════
-  // 👈 FIX: memoized callbacks — prevent socket re-subscribe
-  //    on every render (which silently drops events)
-  // ═══════════════════════════════════════════════════════
   const handleCartelaConfirm = useCallback((ids) => {
     setCardIds(ids);
     setShowCartela(false);
