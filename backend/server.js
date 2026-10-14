@@ -42,7 +42,9 @@ require("dotenv").config();
     console.error("\n❌ ENV VALIDATION FAILED:");
     for (const e of errors) console.error("  • " + e);
     console.error("");
-  
+    console.error("[env] ⚠️ Fix the variables above in Render → Environment.");
+  } else {
+    console.log("[env] ✅ Validation passed");
   }
 
   const mask = (v) =>
@@ -50,7 +52,6 @@ require("dotenv").config();
       ? "****"
       : String(v).slice(0, 4) + "…" + String(v).slice(-4);
 
-  console.log("[env] ✅ Validation passed");
   console.log(`[env] ADMIN_TELEGRAM_IDS = ${process.env.ADMIN_TELEGRAM_IDS}`);
   console.log(`[env] JWT_SECRET = ${mask(process.env.JWT_SECRET)}`);
   console.log(`[env] TELEGRAM_BOT_TOKEN = ${mask(process.env.TELEGRAM_BOT_TOKEN)}`);
@@ -243,7 +244,7 @@ try {
   startBot(app).then(() => {
     const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
     const RENDER_URL =
-      process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-he4x.onrender.com`;
+      process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-ra58.onrender.com`;
 
     setTimeout(async () => {
       try {
