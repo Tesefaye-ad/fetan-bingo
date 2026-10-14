@@ -1,349 +1,350 @@
+"use strict";
 // ═══════════════════════════════════════════════════════
-// DEPOSITS — SMS ትንተና, አድሚን ማሳወቂያ, approve / reject
+// ADMIN DEPOSIT / WITHDRAWAL SERVICE
+//
+// ይህ ፋይል በ bot.js, routes/admin.js, telebirr/merchantSms.js እና
+// telebirr/depositVerifier.js የሚጠበቁትን ተግባራት ይይዛል፦
+//
+//   approveTransaction(txId, opts?)      → { ok, transaction, user } | { ok:false, error, code }
+//   rejectTransaction(txId, reason?, opts?)
+//   isAdminChatId(id)
+//   notifyAdminsOfDeposit(tx, user)      → ✅/❌ ቁልፎች ያለው መልዕክት ለአድሚን
+//   notifyAdminsOfRejection(user, sms, reason, extra?)
+//   maybeAlertReject(user, sms, reason, extra?)
+//
+// ማስታወሻ፦ የ verifyAndCreditDeposit ቦታው services/telebirr/depositVerifier.js ነው።
 // ═══════════════════════════════════════════════════════
-const crypto = require("crypto");
+const axios = require("axios");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 const { Notification } = require("../models/User");
 
-const SMS_MAX_CHARS = 1500;
+// ─── helpers ───────────────────────────────────────────
+const esc = (s) =>
+  String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 
-const splitIds = (v) =>
-  String(v || "")
+const fmt = (n) =>
+  Number(n || 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+const fail = (error, code = 400) => ({ ok: false, error, code });
+
+function adminTelegramIds() {
+  return String(process.env.ADMIN_TELEGRAM_IDS || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-
-// 🔒 FIX: ምንም hardcoded ID የለም — ADMIN_CHAT_ID፣ ከሌለ ADMIN_TELEGRAM_IDS (env ብቻ)
-function adminChatIds() {
-  const ids = splitIds(process.env.ADMIN_CHAT_ID);
-  return ids.length ? ids : splitIds(process.env.ADMIN_TELEGRAM_IDS);
 }
 
 function isAdminChatId(id) {
-  return adminChatIds().includes(String(id));
+  const chat = process.env.ADMIN_CHAT_ID;
+  return !!chat && String(id) === String(chat);
 }
 
-function normalizeSms(text) {
-  return String(text || "").replace(/\s+/g, " ").trim();
+// መልዕክት የሚደርሰው ቦታ፦ ADMIN_CHAT_ID ካለ እሱ፣ ከሌለ ሁሉም አድሚኖች
+function adminTargets() {
+  const chat = process.env.ADMIN_CHAT_ID;
+  return chat ? [String(chat)] : adminTelegramIds();
 }
 
-function parseSms(text) {
-  const raw = normalizeSms(text);
-  let amount = null;
-  const amountPatterns = [
-    /(?:ETB|Birr|ብር)\s*([0-9][0-9,]*(?:\.[0-9]+)?)/i,
-    /([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:ETB|Birr|ብር)/i,
-  ];
-  for (const re of amountPatterns) {
-    const m = re.exec(raw);
-    if (m) {
-      const n = Number(m[1].replace(/,/g, ""));
-      if (Number.isFinite(n) && n > 0) {
-        amount = n;
-        break;
-      }
-    }
-  }
-
-  let txnId = null;
-  const idMatch =
-    /(?:transaction\s*(?:number|id|no\.?)|ref(?:erence)?\s*(?:number|no\.?)?|የግብይት\s*(?:ቁጥር|መለያ))\s*(?:is|:|፡)?\s*([A-Z0-9]{8,14})\b/i.exec(
-      raw
+// Telegram Bot API በቀጥታ (bot.js ን ማስገባት circular dependency ስለሚፈጥር)
+async function sendTelegram(chatId, text, extra = {}) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) return false;
+  try {
+    await axios.post(
+      `https://api.telegram.org/bot${token}/sendMessage`,
+      { chat_id: chatId, text, parse_mode: "HTML", ...extra },
+      { timeout: 10000 }
     );
-  if (idMatch) txnId = idMatch[1].toUpperCase();
-
-  const smsHash = crypto
-    .createHash("sha256")
-    .update(raw.toLowerCase())
-    .digest("hex");
-
-  return { raw, amount, txnId, smsHash };
-}
-
-function looksLikeDepositSms(text) {
-  const raw = normalizeSms(text);
-  if (raw.length < 20) return false;
-  const p = parseSms(raw);
-  return (
-    !!p.amount &&
-    /telebirr|transaction|received|transfer|ተቀብለዋል|ተልኳል|ተላልፏል|ግብይት|ብር|ETB/i.test(
-      raw
-    )
-  );
-}
-
-// 👈 FIX: depositVerifier fields (transactionId / smsFingerprint) + legacy fields
-async function findDuplicateDeposit({ txnId, smsHash }, excludeId) {
-  const or = [
-    { "meta.smsFingerprint": smsHash },
-    { "meta.smsHash": smsHash }, // legacy
-  ];
-  if (txnId) {
-    or.push({ "meta.transactionId": txnId });
-    or.push({ "meta.txnId": txnId }); // legacy
-  }
-  const q = {
-    type: "deposit",
-    status: { $in: ["pending", "completed"] },
-    $or: or,
-  };
-  if (excludeId) q._id = { $ne: excludeId };
-  return Transaction.findOne(q).select("_id status amount user").lean();
-}
-
-function getBot() {
-  try {
-    return require("../bot").bot || null;
-  } catch {
-    return null;
-  }
-}
-
-async function notifyUserTelegram(telegramId, text) {
-  const bot = getBot();
-  if (!bot || !telegramId) return;
-  try {
-    await bot.telegram.sendMessage(String(telegramId), text);
+    return true;
   } catch (err) {
-    console.error("[deposits] notify user failed:", err.message);
-  }
-}
-
-// ═══════════════════════════════════════════════════════
-// 👈 FIX: notifyAdminsOfDeposit — የ depositVerifier fields ይጠቀማል
-// ═══════════════════════════════════════════════════════
-async function notifyAdminsOfDeposit(tx, user, extra = {}) {
-  const bot = getBot();
-  const ids = adminChatIds();
-  if (!bot || ids.length === 0) {
-    console.warn("[deposits] ADMIN_CHAT_ID or bot missing — admin not notified");
+    console.error(
+      "[deposits] telegram send failed:",
+      (err.response && err.response.data && err.response.data.description) ||
+        err.message
+    );
     return false;
   }
-  const lines = [
-    "🆕 አዲስ Deposit (ማረጋገጫ ይጠብቃል)",
-    `👤 ${user.firstName || ""} ${
-      user.username ? "@" + user.username : ""
-    } (ID: ${user.telegramId})`,
-    `💰 መጠን: ${tx.amount} ETB`,
-  ];
-  if (extra.typedAmount && extra.typedAmount !== tx.amount) {
-    lines.push(`⚠️ ተጠቃሚው የጻፈው መጠን ይለያል: ${extra.typedAmount} ETB`);
+}
+
+async function sendToAdmins(text, extra) {
+  const targets = adminTargets();
+  if (!targets.length) {
+    console.warn("[deposits] no admin target (ADMIN_CHAT_ID / ADMIN_TELEGRAM_IDS)");
+    return false;
   }
-
-  // 👈 FIX: ሁለቱንም የ field ስሞች ይፈትሻል
-  const txnId = tx.meta?.transactionId || tx.meta?.txnId;
-  if (txnId) lines.push(`🧾 Txn ID: ${txnId}`);
-
-  lines.push(`🔖 Ref: ${tx.reference || tx._id}`);
-
-  const smsRaw = tx.meta?.smsRaw || tx.meta?.sms;
-  if (smsRaw) {
-    lines.push("", "📩 SMS:", String(smsRaw).slice(0, SMS_MAX_CHARS));
-  }
-
-  lines.push(
-    "",
-    "ብሩ በ Telebirr አካውንትዎ መግባቱን ያረጋግጡ፣ ከዚያ ይወስኑ 👇"
+  const results = await Promise.allSettled(
+    targets.map((t) => sendTelegram(t, text, extra))
   );
+  return results.some((r) => r.status === "fulfilled" && r.value);
+}
 
-  const keyboard = {
-    inline_keyboard: [
-      [
-        { text: "✅ Approve", callback_data: `dep_ok:${tx._id}` },
-        { text: "❌ Reject", callback_data: `dep_no:${tx._id}` },
-      ],
-    ],
-  };
-
-  let sent = 0;
-  for (const id of ids) {
-    try {
-      await bot.telegram.sendMessage(id, lines.join("\n"), {
-        reply_markup: keyboard,
-      });
-      sent++;
-    } catch (err) {
-      console.error(`[deposits] admin notify failed (${id}):`, err.message);
-    }
+// ተጠቃሚውን ማሳወቅ (Telegram + በመተግበሪያ ውስጥ) — ስህተት ዋናውን ስራ አያቆምም
+async function notifyUser(user, { title, body, type, tgText }) {
+  if (!user) return;
+  try {
+    await Notification.create({ user: user._id, title, body, type });
+  } catch (e) {
+    console.error("[deposits] notification failed:", e.message);
   }
-  return sent > 0;
+  if (user.telegramId) await sendTelegram(user.telegramId, tgText || body);
 }
 
 // ═══════════════════════════════════════════════════════
-// APPROVE / REJECT — atomic
+// APPROVE
+// ዋና መከላከያ፦ status "pending" → "completed" በአንድ atomic ክወና ይገለበጣል፤
+// ስለዚህ ሁለት አድሚን (ወይም አድሚን + የመርቻንት SMS) በአንድ ጊዜ ቢያጸድቁ አንዱ ብቻ ያልፋል።
 // ═══════════════════════════════════════════════════════
-async function approveTransaction(id) {
-  const existing = await Transaction.findById(id);
-  if (!existing) return { ok: false, code: 404, error: "Not found" };
-  if (existing.status !== "pending")
-    return { ok: false, code: 400, error: "Already processed" };
-
-  // 👈 FIX: ሁለቱንም field ስሞች ይፈትሻል
-  const smsHash = existing.meta?.smsFingerprint || existing.meta?.smsHash;
-  const txnId = existing.meta?.transactionId || existing.meta?.txnId;
-  if (existing.type === "deposit" && smsHash) {
-    const dup = await findDuplicateDeposit(
-      { txnId, smsHash },
-      existing._id
-    );
-    if (dup && dup.status === "completed") {
-      return {
-        ok: false,
-        code: 409,
-        error: "ይህ SMS / Txn ID ቀድሞ ተቀባይነት አግኝቷል (ድርብ ክፍያ)",
-      };
-    }
-  }
+async function approveTransaction(txId, opts = {}) {
+  const by = opts.by || "admin";
 
   const tx = await Transaction.findOneAndUpdate(
     {
-      _id: id,
+      _id: txId,
       status: "pending",
       type: { $in: ["deposit", "withdrawal"] },
       amount: { $gt: 0 },
     },
-    { $set: { status: "completed" } },
+    {
+      $set: {
+        status: "completed",
+        "meta.approvedAt": new Date(),
+        "meta.approvedBy": by,
+      },
+    },
     { new: true }
   );
+
   if (!tx) {
-    // 🔒 FIX: ትክክለኛውን ምክንያት መመለስ (ስህተት ዓይነት ወይም ድርብ)
-    const cur = await Transaction.findById(id);
-    if (cur && !["deposit", "withdrawal"].includes(cur.type)) {
-      return { ok: false, code: 400, error: "Only deposits/withdrawals can be approved" };
+    const existing = await Transaction.findById(txId).lean();
+    if (!existing) return fail("Transaction not found", 404);
+    if (!["deposit", "withdrawal"].includes(existing.type)) {
+      return fail("Only deposits/withdrawals can be approved", 400);
     }
-    return { ok: false, code: 400, error: "Already processed" };
+    return fail(`Already ${existing.status}`, 409);
   }
 
-  let user = null;
   try {
+    // ── ተቀማጭ፦ ብሩ ወደ ዋሌት ይገባል ──
     if (tx.type === "deposit") {
-      user = await User.findByIdAndUpdate(
-        tx.user,
+      const user = await User.findOneAndUpdate(
+        { _id: tx.user },
         { $inc: { balance: tx.amount, totalDeposits: tx.amount } },
         { new: true }
       );
-    } else {
-      user = await User.findByIdAndUpdate(
-        tx.user,
-        { $inc: { totalWithdrawals: tx.amount } },
-        { new: true }
+      if (!user) {
+        await Transaction.updateOne(
+          { _id: tx._id },
+          { $set: { status: "failed", "meta.creditError": "user_missing" } }
+        );
+        return fail("User not found", 404);
+      }
+      await Transaction.updateOne(
+        { _id: tx._id },
+        { $set: { balanceAfter: user.balance } }
       );
-    }
-  } catch (err) {
-    // 🔒 FIX: $inc ቢሳሳት "completed" ሆኖ ብር ሳይገባ እንዳይቀር → ወደ pending መልስ
-    console.error("[deposits] approve credit failed, reverting:", err.message);
-    await Transaction.updateOne({ _id: tx._id }, { $set: { status: "pending" } }).catch(() => {});
-    return { ok: false, code: 500, error: "Could not approve — try again" };
-  }
-  if (!user) {
-    await Transaction.updateOne(
-      { _id: tx._id },
-      { $set: { status: "pending" } }
-    );
-    return { ok: false, code: 404, error: "User not found" };
-  }
-  if (tx.type === "deposit") {
-    tx.balanceAfter = user.balance;
-    // 🔒 FIX: ብሩ ገብቷል — የ balanceAfter መዝገብ ቢከሽፍ ማጽደቁ አይሰረዝም
-    await tx.save().catch((e) =>
-      console.error("[deposits] balanceAfter save failed:", e.message)
-    );
-  }
+      tx.balanceAfter = user.balance;
 
-  const isDep = tx.type === "deposit";
-  // 🔒 FIX: ማሳወቂያ ቢከሽፍ ብሩ ገብቶ "ስህተት" እንዳይታይ
-  await Notification.create({
-    user: user._id,
-    title: isDep ? "✅ Deposit Approved" : "✅ Withdrawal Approved",
-    body: isDep
-      ? `Your deposit of ${tx.amount} ETB has been added.`
-      : `Your withdrawal of ${tx.amount} ETB has been processed.`,
-    type: isDep ? "deposit" : "withdraw",
-  }).catch((e) => console.error("[deposits] notification failed:", e.message));
-  notifyUserTelegram(
-    user.telegramId,
-    isDep
-      ? `✅ ዲፖዚትዎ ተቀባይነት አግኝቷል: ${tx.amount} ETB ወደ ዋሌትዎ ገብቷል። አዲስ ቀሪ ሂሳብ: ${user.balance} ETB`
-      : `✅ ወጪ ጥያቄዎ ተፈጽሟል: ${tx.amount} ETB`
-  );
-  return { ok: true, transaction: tx, user };
+      await notifyUser(user, {
+        title: "✅ Deposit Approved",
+        body: `Your deposit of ${tx.amount} ETB has been added.`,
+        type: "deposit",
+        tgText: `✅ <b>ተቀማጭዎ ጸድቋል</b>\n💰 ${fmt(tx.amount)} ETB ወደ ዋሌትዎ ገብቷል።\n💳 ቀሪ ሂሳብ: <b>${fmt(user.balance)} ETB</b>`,
+      });
+      return { ok: true, transaction: tx, user };
+    }
+
+    // ── ወጪ፦ ብሩ ቀድሞ ተቀንሷል፤ እዚህ "ተከፍሏል" ተብሎ ብቻ ይመዘገባል ──
+    const user = await User.findOneAndUpdate(
+      { _id: tx.user },
+      { $inc: { totalWithdrawals: tx.amount } },
+      { new: true }
+    );
+    await notifyUser(user, {
+      title: "✅ Withdrawal Approved",
+      body: `Your withdrawal of ${tx.amount} ETB has been approved.`,
+      type: "withdraw",
+      tgText: `✅ <b>የወጪ ጥያቄዎ ጸድቋል</b>\n💰 ${fmt(tx.amount)} ETB${
+        tx.meta && tx.meta.phone ? ` ወደ <code>${esc(tx.meta.phone)}</code>` : ""
+      } ተልኳል።`,
+    });
+    return { ok: true, transaction: tx, user };
+  } catch (err) {
+    // ያልታሰበ ስህተት → ሁኔታውን መልስ (ብር አልተነካም ማለት ነው ወይም $inc አልተሳካም)
+    console.error("[deposits] approve failed, reverting:", err);
+    await Transaction.updateOne(
+      { _id: tx._id, status: "completed" },
+      { $set: { status: "pending", "meta.approveError": String(err.message).slice(0, 200) } }
+    ).catch(() => {});
+    return fail("Could not approve — try again", 500);
+  }
 }
 
-async function rejectTransaction(id, reason) {
-  const existing = await Transaction.findById(id);
-  if (!existing) return { ok: false, code: 404, error: "Not found" };
-  if (existing.status !== "pending")
-    return { ok: false, code: 400, error: "Already processed" };
+// ═══════════════════════════════════════════════════════
+// REJECT
+// ወጪ ከተከለከለ ቀድሞ የተቀነሰው ብር ወደ ተጠቃሚው ይመለሳል።
+// ═══════════════════════════════════════════════════════
+async function rejectTransaction(txId, reason, opts = {}) {
+  const by = opts.by || "admin";
+  const cleanReason = reason ? String(reason).slice(0, 300) : "Rejected by admin";
 
-  const why = reason || "Rejected";
   const tx = await Transaction.findOneAndUpdate(
     {
-      _id: id,
+      _id: txId,
       status: "pending",
       type: { $in: ["deposit", "withdrawal"] },
     },
     {
-      // 🔒 FIX: meta በሙሉ አይተካም (ሌላ መስክ እንዳይጠፋ)
-      $set: { status: "failed", "meta.rejectReason": why },
+      $set: {
+        status: "failed",
+        "meta.rejectedAt": new Date(),
+        "meta.rejectedBy": by,
+        "meta.rejectReason": cleanReason,
+      },
     },
     { new: true }
   );
-  if (!tx) return { ok: false, code: 400, error: "Already processed" };
 
-  let user = null;
-  if (tx.type === "withdrawal") {
-    // 🔒 FIX: ብሩ መመለሱ ዋስትና ይኑረው — ካልተመለሰ ሁኔታውን ወደ pending መልስ
-    try {
-      user = await User.findByIdAndUpdate(
-        tx.user,
+  if (!tx) {
+    const existing = await Transaction.findById(txId).lean();
+    if (!existing) return fail("Transaction not found", 404);
+    if (!["deposit", "withdrawal"].includes(existing.type)) {
+      return fail("Only deposits/withdrawals can be rejected", 400);
+    }
+    return fail(`Already ${existing.status}`, 409);
+  }
+
+  try {
+    // ── ወጪ፦ ብሩን መመለስ ──
+    if (tx.type === "withdrawal") {
+      const user = await User.findOneAndUpdate(
+        { _id: tx.user },
         { $inc: { balance: tx.amount } },
         { new: true }
       );
-    } catch (err) {
-      console.error("[deposits] refund failed, reverting:", err.message);
-    }
-    if (!user) {
-      await Transaction.updateOne(
-        { _id: tx._id },
-        { $set: { status: "pending", "meta.refundError": true } }
-      ).catch(() => {});
-      return { ok: false, code: 500, error: "Refund failed — withdrawal left pending" };
-    }
-    tx.balanceAfter = user.balance;
-    await tx.save().catch((e) =>
-      console.error("[deposits] balanceAfter save failed:", e.message)
-    );
-  } else {
-    user = await User.findById(tx.user);
-  }
+      if (!user) {
+        // ተጠቃሚው ከሌለ መመለስ አይቻልም — ሁኔታውን መልሰን አድሚን እንዲያይ እንተወዋለን
+        await Transaction.updateOne(
+          { _id: tx._id },
+          { $set: { status: "pending", "meta.refundError": "user_missing" } }
+        );
+        return fail("User not found — refund impossible", 404);
+      }
+      // የመመለሻ መዝገብ (ለታሪክ) — አለመፈጠሩ ብሩን አይነካም
+      await Transaction.create({
+        user: user._id,
+        type: "refund",
+        amount: tx.amount,
+        balanceAfter: user.balance,
+        reference: `WD-REFUND-${tx._id}`,
+        status: "completed",
+        meta: { reason: "withdrawal_rejected", originalTx: String(tx._id) },
+      }).catch((e) => console.error("[deposits] refund record failed:", e.message));
 
-  if (user) {
-    const isDep = tx.type === "deposit";
-    await Notification.create({
-      user: user._id,
-      title: isDep ? "❌ Deposit Rejected" : "❌ Withdrawal Rejected",
-      body: reason || `Your ${tx.type} of ${tx.amount} ETB was rejected.`,
-      type: "warning",
-    }).catch((e) => console.error("[deposits] notification failed:", e.message));
-    notifyUserTelegram(
-      user.telegramId,
-      isDep
-        ? `❌ ዲፖዚትዎ (${tx.amount} ETB) ተቀባይነት አላገኘም። ችግር ካለ Support ያግኙ።`
-        : `❌ ወጪ ጥያቄዎ (${tx.amount} ETB) ውድቅ ሆኗል፤ ገንዘቡ ወደ ዋሌትዎ ተመልሷል።`
-    );
+      await notifyUser(user, {
+        title: "❌ Withdrawal Rejected",
+        body: `Your withdrawal of ${tx.amount} ETB was rejected and refunded.`,
+        type: "withdraw",
+        tgText: `❌ <b>የወጪ ጥያቄዎ ተቀባይነት አላገኘም</b>\n💰 ${fmt(tx.amount)} ETB ወደ ዋሌትዎ ተመልሷል።\n💳 ቀሪ ሂሳብ: <b>${fmt(user.balance)} ETB</b>`,
+      });
+      return { ok: true, transaction: tx, user };
+    }
+
+    // ── ተቀማጭ፦ ዋሌት አይነካም ──
+    const user = await User.findById(tx.user);
+    await notifyUser(user, {
+      title: "❌ Deposit Rejected",
+      body: `Your deposit of ${tx.amount} ETB was not approved.`,
+      type: "deposit",
+      tgText: `❌ <b>ተቀማጭዎ ተቀባይነት አላገኘም</b>\n💰 ${fmt(tx.amount)} ETB\nምክንያት: ${esc(cleanReason)}\nጥያቄ ካለዎት Support ያግኙ።`,
+    });
+    return { ok: true, transaction: tx, user };
+  } catch (err) {
+    console.error("[deposits] reject failed, reverting:", err);
+    await Transaction.updateOne(
+      { _id: tx._id, status: "failed" },
+      { $set: { status: "pending" } }
+    ).catch(() => {});
+    return fail("Could not reject — try again", 500);
   }
-  return { ok: true, transaction: tx, user };
 }
 
+// ═══════════════════════════════════════════════════════
+// ADMIN ALERTS
+// ═══════════════════════════════════════════════════════
+
+// በእጅ ማረጋገጫ የሚፈልግ ተቀማጭ → ✅/❌ ቁልፎች (bot.js: dep_ok / dep_no)
+async function notifyAdminsOfDeposit(tx, user) {
+  const m = (tx && tx.meta) || {};
+  const text =
+    `🆕 <b>Deposit — በእጅ ማረጋገጫ</b>\n\n` +
+    `👤 <b>${esc(user && user.firstName) || "User"} ${esc(user && user.lastName)}</b>\n` +
+    `🆔 <code>${esc(user && user.telegramId)}</code>\n` +
+    `📱 <code>${esc((user && user.phone) || "-")}</code>\n\n` +
+    `💰 መጠን: <b>${fmt(tx.amount)} ETB</b>\n` +
+    `🔖 Txn: <code>${esc(m.transactionId || "-")}</code>\n` +
+    `📌 ምክንያት: <code>${esc(m.verificationReason || "-")}</code>\n` +
+    (m.verificationDetail ? `ℹ️ ${esc(String(m.verificationDetail).slice(0, 200))}\n` : "") +
+    (m.payerName ? `🙍 ከፋይ: ${esc(m.payerName)} ${esc(m.payerPhone || "")}\n` : "") +
+    (m.receiptVerified ? `✅ ደረሰኝ በኢትዮ ቴሌኮም ተረጋግጧል\n` : `⚠️ ደረሰኝ አልተረጋገጠም\n`) +
+    (m.receiptUrl ? `🔗 ${esc(m.receiptUrl)}\n` : "") +
+    `🕐 ${new Date().toLocaleString("en-US", { timeZone: "Africa/Addis_Ababa" })}`;
+
+  return sendToAdmins(text, {
+    disable_web_page_preview: true,
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "✅ Approve", callback_data: `dep_ok:${tx._id}` },
+          { text: "❌ Reject", callback_data: `dep_no:${tx._id}` },
+        ],
+      ],
+    },
+  });
+}
+
+// ተመሳሳይ ማንቂያ ለአንድ ተጠቃሚ በ 10 ደቂቃ አንድ ጊዜ ብቻ (አድሚን እንዳይጥለቀለቅ)
+const ALERT_WINDOW_MS = 10 * 60 * 1000;
+const lastAlert = new Map();
+function shouldAlert(key) {
+  const now = Date.now();
+  if (lastAlert.size > 2000) {
+    for (const [k, t] of lastAlert) if (now - t > ALERT_WINDOW_MS) lastAlert.delete(k);
+  }
+  const prev = lastAlert.get(key);
+  if (prev && now - prev < ALERT_WINDOW_MS) return false;
+  lastAlert.set(key, now);
+  return true;
+}
+
+async function notifyAdminsOfRejection(user, sms, reason, extra = {}) {
+  const key = `${user && user._id}:${reason}`;
+  if (!shouldAlert(key)) return false;
+  const text =
+    `🚨 <b>Deposit ውድቅ / ጥርጣሬ</b>\n\n` +
+    `👤 ${esc(user && user.firstName) || "User"} (<code>${esc(user && user.telegramId)}</code>)\n` +
+    `📌 ምክንያት: <code>${esc(reason)}</code>\n` +
+    (sms && sms.amount ? `💰 ${fmt(sms.amount)} ETB\n` : "") +
+    (sms && sms.txnId ? `🔖 Txn: <code>${esc(sms.txnId)}</code>\n` : "") +
+    (extra.detail ? `ℹ️ ${esc(String(extra.detail).slice(0, 200))}\n` : "") +
+    `🕐 ${new Date().toLocaleString("en-US", { timeZone: "Africa/Addis_Ababa" })}`;
+  return sendToAdmins(text);
+}
+
+const maybeAlertReject = (user, sms, reason, extra) =>
+  notifyAdminsOfRejection(user, sms, reason, extra);
+
 module.exports = {
-  adminChatIds,
-  isAdminChatId,
-  parseSms,
-  looksLikeDepositSms,
-  findDuplicateDeposit,
-  notifyAdminsOfDeposit,
   approveTransaction,
   rejectTransaction,
-  SMS_MAX_CHARS,
+  isAdminChatId,
+  notifyAdminsOfDeposit,
+  notifyAdminsOfRejection,
+  maybeAlertReject,
 };
