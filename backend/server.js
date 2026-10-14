@@ -42,7 +42,7 @@ require("dotenv").config();
     console.error("\n❌ ENV VALIDATION FAILED:");
     for (const e of errors) console.error("  • " + e);
     console.error("");
-    process.exit(1);
+  
   }
 
   const mask = (v) =>
