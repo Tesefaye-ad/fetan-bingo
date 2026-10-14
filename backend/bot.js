@@ -27,10 +27,9 @@ if (ADMIN_TELEGRAM_IDS.length === 0) {
 
 // ═══════════════════════════════════════════════════════
 // BANNER
-// ✅ FIX: banner.png → fb.jpg (ፋይሉ ያለው fb.jpg ነው)
 // ═══════════════════════════════════════════════════════
 const BANNER_IMAGE_URL = process.env.BOT_BANNER_URL || null;
-const LOCAL_BANNER_PATH = path.join(__dirname, "assets", "fb.jpg");
+const LOCAL_BANNER_PATH = path.join(__dirname, "assets", "banner.png");
 
 function getBannerSource() {
   if (BANNER_IMAGE_URL && BANNER_IMAGE_URL.startsWith("http")) {
@@ -39,11 +38,6 @@ function getBannerSource() {
   if (fs.existsSync(LOCAL_BANNER_PATH, fs.constants.F_OK)) {
     return { source: fs.createReadStream(LOCAL_BANNER_PATH) };
   }
-  console.warn(
-    "[bot] ⚠️ Banner not found at:",
-    LOCAL_BANNER_PATH,
-    "— sending text only"
-  );
   return null;
 }
 
@@ -239,10 +233,9 @@ bot.start(async (ctx) => {
           caption: MAIN_MENU_TEXT,
           ...mainKeyboard(),
         })
-        .catch((err) => {
-          console.error("[/start] banner send failed:", err.message);
-          ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {});
-        });
+        .catch(() =>
+          ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {})
+        );
     } else {
       ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {});
     }
