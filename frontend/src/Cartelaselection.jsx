@@ -192,12 +192,20 @@ export default function CartelaSelection({
       if (!d.roomCode || d.roomCode === roomCode) goLive();
     };
 
-    const onSel = ({ cardId }) => {
-      if (typeof cardId !== "number") return;
-      setTakenCards((p) => (p.includes(cardId) ? p : [...p, cardId]));
+    // ═══════════════════════════════════════════════════════
+    // 👈 OPTIMIZED: batched card broadcasts
+    //    Server sends "cards_taken" every 250ms with a list
+    // ═══════════════════════════════════════════════════════
+    const onCardsTaken = ({ cardIds }) => {
+      if (!Array.isArray(cardIds)) return;
+      setTakenCards((p) => {
+        const set = new Set(p);
+        for (const id of cardIds) set.add(id);
+        return [...set];
+      });
     };
 
-    const onDesel = ({ cardId }) => {
+    const onCardReleased = ({ cardId }) => {
       if (typeof cardId !== "number") return;
       setTakenCards((p) => p.filter((x) => x !== cardId));
     };
@@ -223,8 +231,8 @@ export default function CartelaSelection({
     s.on("connect", watch);
     s.on("room_state", onRoomState);
     s.on("game_started", onGameStarted);
-    s.on("card_selected", onSel);
-    s.on("card_deselected", onDesel);
+    s.on("cards_taken", onCardsTaken);
+    s.on("card_released", onCardReleased);
     s.on("balance_update", onBal);
     s.on("my_reservations", onMine);
     s.on("error_message", onErr);
@@ -234,15 +242,15 @@ export default function CartelaSelection({
       s.off("connect", watch);
       s.off("room_state", onRoomState);
       s.off("game_started", onGameStarted);
-      s.off("card_selected", onSel);
-      s.off("card_deselected", onDesel);
+      s.off("cards_taken", onCardsTaken);
+      s.off("card_released", onCardReleased);
       s.off("balance_update", onBal);
       s.off("my_reservations", onMine);
       s.off("error_message", onErr);
       clearTimeout(noticeTimerRef.current);
     };
   }, [roomCode, applyRoomState, goLive, flash]);
-
+  
   // ───────────── ቆጣሪ ─────────────
   useEffect(() => {
     if (!deadlineMs) return;

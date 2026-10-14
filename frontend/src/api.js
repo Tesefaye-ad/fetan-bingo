@@ -7,29 +7,33 @@ const API_BASE_URL =
   process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.onrender.com";
 
 // ═══════════════════════════════════════════════════════
-// AXIOS — short timeout for most, long for auth
+// AXIOS
 // ═══════════════════════════════════════════════════════
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000, // 👈 15s ለአብዛኛዎቹ
+  timeout: 15000,
   headers: { "Content-Type": "application/json" },
 });
-
-// 👈 Retry interceptor — 1 ጊዜ ብቻ
+// ═══════════════════════════════════════════════════════
+// 👈 FIX: only retry IDEMPOTENT methods (GET/HEAD/OPTIONS)
+// POST retries can double-charge withdraw/transfer
+// ═══════════════════════════════════════════════════════
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const config = error.config;
+    if (!config) return Promise.reject(error);
+
+    const method = String(config.method || "get").toLowerCase();
+    const isIdempotent = ["get", "head", "options"].includes(method);
 
     const isNetwork =
       !error.response ||
       error.code === "ECONNABORTED" ||
       error.message === "Network Error";
 
-    // Retry በአንድ ጊዜ ብቻ
-    if (isNetwork && config && !config._retry && config._retryCount !== 1) {
+    if (isNetwork && isIdempotent && !config._retry) {
       config._retry = true;
-      config._retryCount = 1;
       await new Promise((r) => setTimeout(r, 1500));
       return api(config);
     }
@@ -45,15 +49,14 @@ api.interceptors.request.use((config) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// SOCKET — 60s connect timeout ለ cold start + token refresh
+// SOCKET
 // ═══════════════════════════════════════════════════════
 let socket = null;
-let socketToken = null; // 👈 አሮጌውን token ለማወዳደር
+let socketToken = null;
 
 export function getSocket() {
   const token = localStorage.getItem("bingo_token");
 
-  // 👈 Token ቢቀየር → አሮጌውን socket አጥፍተን አዲስ እንፍጠር
   if (socket && socketToken !== token) {
     console.log("[socket] Token changed — reconnecting");
     socket.disconnect();
@@ -61,7 +64,6 @@ export function getSocket() {
     socketToken = null;
   }
 
-  if (socket && socket.connected) return socket;
   if (socket) return socket;
 
   socketToken = token;
@@ -136,14 +138,14 @@ export function useTelegram() {
 }
 
 // ═══════════════════════════════════════════════════════
-// AUTH — long timeout ለ cold start
+// AUTH
 // ═══════════════════════════════════════════════════════
 export async function loginWithTelegram(initData) {
   if (!initData) throw new Error("Telegram initData is missing.");
   const { data } = await api.post(
     "/api/auth/telegram",
     { initData },
-    { timeout: 60000 } // 👈 auth ብቻ 60s
+    { timeout: 60000 }
   );
   localStorage.setItem("bingo_token", data.token);
   localStorage.setItem("telegramId", data.user.telegramId);
@@ -151,7 +153,7 @@ export async function loginWithTelegram(initData) {
 }
 
 // ═══════════════════════════════════════════════════════
-// ROOM — የክፍሉ ሁኔታ (ሰዓቱን አይቀይርም) + የሰርቨር ሰዓት ማመሳሰል
+// ROOM
 // ═══════════════════════════════════════════════════════
 export async function getRoom(roomCode, timeout = 4000) {
   const sentAt = Date.now();
@@ -163,7 +165,6 @@ export async function getRoom(roomCode, timeout = 4000) {
   return data;
 }
 
-// ለድሮ ጥሪዎች ተኳሃኝነት
 export const createRoom = (entryFee, roomCode) => getRoom(roomCode);
 
 // ═══════════════════════════════════════════════════════
@@ -313,6 +314,5 @@ export async function adminSaveConfig(ticketPrice, winnerPercent) {
   });
   return data;
 }
-
 
 export default api;

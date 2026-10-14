@@ -346,7 +346,7 @@ function GameLobby({ onPlayStake }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// HISTORY PAGE — Transactions + Games
+// HISTORY PAGE
 // ═══════════════════════════════════════════════════════
 function HistoryPage() {
   const [tab, setTab] = useState("transactions");
@@ -1078,14 +1078,12 @@ function App() {
   ];
   if (isAdmin) tabs.push({ id: "Admin", label: "Admin", icon: "⚙️" });
 
-  // ✅ FIX #1: onLoggedIn memoized → infinite login loop ተስተካክሏል
   const handleLoggedIn = useCallback((u) => {
     if (!u) return;
     setUser(u);
     setBalance(u.balance || 0);
   }, []);
 
-  // ✅ FIX #2: getMe አሁን በትክክል ይሰራል — user ሲገኝ ብቻ አንድ ጊዜ
   useEffect(() => {
     if (!user?.telegramId) return;
     let cancelled = false;
@@ -1139,32 +1137,36 @@ function App() {
     }
   };
 
-  const handleCartelaConfirm = (ids) => {
+  // ═══════════════════════════════════════════════════════
+  // 👈 FIX: memoized callbacks — prevent socket re-subscribe
+  //    on every render (which silently drops events)
+  // ═══════════════════════════════════════════════════════
+  const handleCartelaConfirm = useCallback((ids) => {
     setCardIds(ids);
     setShowCartela(false);
-  };
+  }, []);
 
-  const handleGameStatusChange = (status) => {
+  const handleGameStatusChange = useCallback((status) => {
     setGameStatus(status);
     if (status === "active") {
       setShowCartela(false);
     }
-  };
+  }, []);
 
-  const handleLeave = () => {
+  const handleLeave = useCallback(() => {
     setRoomCode(null);
     setCardIds([]);
     setShowCartela(false);
     setStakeAmount(10);
     setActiveTab("Game");
     setGameStatus("waiting");
-  };
+  }, []);
 
-  const handleGameEnded = () => {
+  const handleGameEnded = useCallback(() => {
     setCardIds([]);
     setShowCartela(true);
     setGameStatus("waiting");
-  };
+  }, []);
 
   return (
     <div className="app" style={{ paddingBottom: 80 }}>

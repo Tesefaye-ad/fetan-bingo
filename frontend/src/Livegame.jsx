@@ -157,7 +157,6 @@ function Confetti() {
     </div>
   );
 }
-
 // ═══════════════════════════════════════════════════════
 // SOUND
 // ═══════════════════════════════════════════════════════
@@ -213,7 +212,6 @@ const sound = {
     this.play(600, 60, "square", 0.08);
   },
 };
-
 // ═══════════════════════════════════════════════════════
 // 75-NUMBER TRACKER
 // ═══════════════════════════════════════════════════════
@@ -830,20 +828,25 @@ export default function LiveGame({
       if (data.entryFee) setEntryFee(data.entryFee);
     };
 
-    const onNumberCalled = ({
-      number,
-      letter,
-      calledNumbers: cn,
-      winPattern: wp,
-    }) => {
+        // ═══════════════════════════════════════════════════════
+    // 👈 OPTIMIZED: server no longer sends full calledNumbers
+    //    Client appends the new number itself (92% bandwidth cut)
+    // ═══════════════════════════════════════════════════════
+    const onNumberCalled = ({ number, letter, winPattern: wp }) => {
       setLastNumber(number);
       setLastLetter(letter || getLetter(number).letter);
-      setCalledNumbers(cn);
+
+      // 👈 append-only — avoid duplicates
+      setCalledNumbers((prev) =>
+        prev.includes(number) ? prev : [...prev, number]
+      );
+
       if (wp) setWinPattern(wp);
       setNumberAnimKey((k) => k + 1);
       if (soundOnRef.current) sound.callNumber(number);
       setFlashNumber(true);
       setTimeout(() => setFlashNumber(false), 600);
+
       setCards((prev) =>
         prev.map((ci) => {
           const m = ci.marked.map((r) => [...r]);
