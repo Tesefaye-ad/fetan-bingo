@@ -1,7 +1,6 @@
 // ═══════════════════════════════════════════════════════
 // GAME SOCKET — Fetan Bingo game engine
 // ═══════════════════════════════════════════════════════
-const crypto = require("crypto");
 const mongoose = require("mongoose");
 const Game = require("../models/Game");
 const User = require("../models/User");
@@ -81,7 +80,7 @@ function letterFor(n) {
 function randomUncalled(calledSet, max) {
   const remaining = max - calledSet.size;
   if (remaining <= 0) return null;
-  let pick = crypto.randomInt(remaining);
+  let pick = Math.floor(Math.random() * remaining);
   for (let i = 1; i <= max; i++) {
     if (calledSet.has(i)) continue;
     if (pick === 0) return i;
