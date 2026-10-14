@@ -4,7 +4,7 @@ import { io } from "socket.io-client";
 import { useState, useEffect, useRef, useMemo } from "react";
 
 const API_BASE_URL =
-  process.env.REACT_APP_API_URL || "https://fetan-bingo-he4x.onrender.com";
+  process.env.REACT_APP_API_URL || "https://fetan-bingo-ra58.onrender.com";
 
 // ═══════════════════════════════════════════════════════
 // AXIOS

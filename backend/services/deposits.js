@@ -4,18 +4,18 @@
 // SMS → Parse → Duplicate → Verify → Credit/Reject
 // ═══════════════════════════════════════════════════════
 const mongoose = require("mongoose");
-const User = require("../../models/User");
-const Transaction = require("../../models/Transaction");
-const { Notification } = require("../../models/User");
-const { parseTelebirrSms } = require("./smsParser");
-const { verifyReceipt } = require("./receiptVerifier");
+const User = require("../models/User");
+const Transaction = require("../models/Transaction");
+const { Notification } = require("../models/User");
+const { parseTelebirrSms } = require("./telebirr/smsParser");
+const { verifyReceipt } = require("./telebirr/receiptVerifier");
 const {
   findMerchantSms,
   waitForMerchantSms,
   matchMerchantSms,
   markClaimed,
   approvePendingFor,
-} = require("./merchantSms");
+} = require("./telebirr/merchantSms");
 
 const cents = (n) => Math.round(Number(n) * 100);
 
