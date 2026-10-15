@@ -649,7 +649,7 @@ bot.action("confirm_withdraw", async (ctx) => {
         `🆔 <code>${updated.telegramId}</code>\n` +
         `📱 <code>${esc(updated.phone)}</code>\n\n` +
         `💰 መጠን: <b>${amount} ETB</b>\n` +
-        `💳 ቀሪ: <b>${formatMoney(updated.balance)} ETB</b>\n` +
+        `💳 ድምር: <b>${formatMoney(updated.balance)} ETB</b>\n` +
         `🕐 ${new Date().toLocaleString("en-US", {
           timeZone: "Africa/Addis_Ababa",
         })}`;
@@ -809,16 +809,14 @@ async function handleDepositSms(ctx, smsText) {
     await ctx.reply(
       `✅ <b>ማስገባት ተሳክቷል!</b>\n\n` +
         `💰 መጠን: <b>+${result.amount} ETB</b>\n` +
-        `💳 አዲስ ቀሪ: <b>${formatMoney(result.balance)} ETB</b>\n` +
+        `💳 ድምር: <b>${formatMoney(result.balance)} ETB</b>\n` +
         `🎮 አሁን መጫወት ይችላሉ!`,
       { parse_mode: "HTML", ...mainKeyboard() }
     );
     await notifyAdmin(
-      `✅ <b>Auto-Approved Deposit</b>\n\n` +
+      `✅ <b>Approved Deposit</b>\n\n` +
         `👤 ${esc(user.firstName || "User")} (${user.telegramId})\n` +
-        `💰 <b>${result.amount} ETB</b>\n` +
-        `📎 Tx ID: <code>${esc(result.transactionId)}</code>\n` +
-        `📎 Ref: <code>${esc(result.reference)}</code>`
+        `💰 <b>${result.amount} ETB</b>\n` 
     );
     return;
   }
@@ -1001,8 +999,11 @@ bot.catch((err, ctx) => {
 // MAIN
 // ═══════════════════════════════════════════════════════
 async function setupBotProfile() {
-  try {
-    await bot.telegram.setMyCommands([
+  // ✅ ማሻሻያ 1: ሁሉንም የቴሌግራም ጥሪዎች በአንድ ጊዜ (Parallel) መላክ
+  const tasks = [];
+
+  tasks.push(
+    bot.telegram.setMyCommands([
       { command: "start", description: "Start" },
       { command: "register", description: "Register" },
       { command: "play", description: "Play" },
@@ -1011,46 +1012,40 @@ async function setupBotProfile() {
       { command: "withdraw", description: "Withdraw" },
       { command: "invite", description: "Invite" },
       { command: "instruction", description: "Instruction" },
-    ]);
-    console.log("[bot] ✅ Commands set");
-  } catch (err) {
-    console.error("Menu setup error:", err);
-  }
+    ]).then(() => console.log("[bot] ✅ Commands set"))
+      .catch(err => console.error("Menu setup error:", err.message))
+  );
 
-  try {
-    await bot.telegram.setMyDescription(
+  tasks.push(
+    bot.telegram.setMyDescription(
       "🎉 እንኳን ወደ Fetan Bingo በደህና መጡ!\n\n" +
-        "🎰 ይጫወቱ፣ ያሸንፉ እና እውነተኛ ገንዘብ ያግኙ\n" +
-        "⚡ ፈጣን ዲፖዚት እና ወጪ\n" +
-        "🎁 ለአዲስ ተጠቃሚዎች ቦነስ\n\n" +
-        "🎮 ለመጀመር Play ን ይጫኑ!"
-    );
-    console.log("[bot] ✅ Description set");
-  } catch (err) {
-    console.error("[bot] setMyDescription failed:", err.message);
-  }
+      "🎰 ይጫወቱ፣ ያሸንፉ እና እውነተኛ ገንዘብ ያግኙ\n" +
+      "⚡ ፈጣን ዲፖዚት እና ወጪ\n" +
+      "🎁 ለአዲስ ተጠቃሚዎች ቦነስ\n\n" +
+      "🎮 ለመጀመር Play ን ይጫኑ!"
+    ).then(() => console.log("[bot] ✅ Description set"))
+      .catch(err => console.error("[bot] setMyDescription failed:", err.message))
+  );
 
-  try {
-    await bot.telegram.setMyShortDescription(
+  tasks.push(
+    bot.telegram.setMyShortDescription(
       "🎰 Fetan Bingo — ይጫወቱ እና ያሸንፉ!"
-    );
-    console.log("[bot] ✅ Short description set");
-  } catch (err) {
-    console.error("[bot] setMyShortDescription failed:", err.message);
-  }
+    ).then(() => console.log("[bot] ✅ Short description set"))
+      .catch(err => console.error("[bot] setMyShortDescription failed:", err.message))
+  );
 
   if (WEBAPP_URL) {
-    try {
-      await bot.telegram.setChatMenuButton({
+    tasks.push(
+      bot.telegram.setChatMenuButton({
         type: "web_app",
         text: "Play Bingo",
         web_app: { url: WEBAPP_URL },
-      });
-      console.log("[bot] ✅ Menu button set");
-    } catch (err) {
-      console.error("[bot] Menu button error:", err.message);
-    }
+      }).then(() => console.log("[bot] ✅ Menu button set"))
+        .catch(err => console.error("[bot] Menu button error:", err.message))
+    );
   }
+
+  await Promise.all(tasks);
 }
 
 async function main(app) {
@@ -1059,12 +1054,12 @@ async function main(app) {
   app.use(bot.webhookCallback(webhookPath));
   console.log("[bot] Fetan bingo bot registered (webhook mode)");
 
-  // ✅ ምስሉን አስቀድሞ ጫን (preload) — የመጀመሪያ ጥያቄ ሲመጣ ወዲያውኑ ይላካል
-  preloadBanner().catch((err) =>
+  // ✅ ማሻሻያ 2: ምስሉን አስቀድሞ ጫን (preload) — እና እስኪጨርስ እዚህ ጠብቅ
+  await preloadBanner().catch((err) =>
     console.error("[bot] banner preload failed:", err.message)
   );
 
-  // ✅ የ commands/description/menu ማዋቀር በ background
+  // ✅ የ commands/description/menu ማዋቀር በ background (አሁን በ Parallel ይሠራል)
   setupBotProfile().catch((err) =>
     console.error("[bot] profile setup failed:", err.message)
   );

@@ -127,54 +127,11 @@ function Login({ onLoggedIn }) {
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          gap: 20,
           background:
             "linear-gradient(180deg, #0a0a14 0%, #150a2e 50%, #0a0a14 100%)",
-          color: "#fff",
         }}
       >
-        <div
-          style={{
-            fontSize: 52,
-            animation: "float 2s ease-in-out infinite",
-          }}
-        >
-          🎰
-        </div>
-        <div
-          style={{
-            fontSize: 24,
-            fontWeight: "900",
-            background:
-              "linear-gradient(135deg, #f39c12 0%, #ffd43b 50%, #f39c12 100%)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            backgroundClip: "text",
-            letterSpacing: 0.5,
-          }}
-        >
-          Fetan Bingo
-        </div>
-        <div
-          style={{
-            width: 36,
-            height: 36,
-            border: "3px solid rgba(243,156,18,0.2)",
-            borderTop: "3px solid #f39c12",
-            borderRadius: "50%",
-            animation: "spin 0.8s linear infinite",
-          }}
-        />
-        <div style={{ fontSize: 12, opacity: 0.6, fontWeight: 600 }}>
-          በመግባት ላይ...
-        </div>
-        <style>{`
-          @keyframes spin { to { transform: rotate(360deg); } }
-          @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-8px); }
-          }
-        `}</style>
+        {/* 🎰 ኢሞጂ፣ Fetan Bingo ጽሑፍ፣ Spinner እና "በመግባት ላይ..." ተወግደዋል */}
       </div>
     );
   }
