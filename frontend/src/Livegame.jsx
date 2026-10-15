@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { getSocket } from "./api";
 
 const HEADERS = [
@@ -39,6 +39,9 @@ function buildBoard() {
     for (let c = 0; c < 5; c++) out.push(c * 15 + r + 1);
   return out;
 }
+
+// ✅ FIX: buildBoard በየ render አዲስ array እንዳይፈጥር — አንድ ጊዜ ብቻ
+const BOARD = buildBoard();
 
 // ═══════════════════════════════════════════════════════
 // PATTERN PREVIEW
@@ -118,10 +121,22 @@ function PatternPreview({ pattern, size = 70 }) {
 
 // ═══════════════════════════════════════════════════════
 // CONFETTI
+// ✅ FIX: Math.random በ useMemo ውስጥ — በየ render አይቀየርም
 // ═══════════════════════════════════════════════════════
 function Confetti() {
-  const pieces = Array.from({ length: 40 }, (_, i) => i);
-  const colors = ["#f39c12", "#2ecc71", "#3498db", "#e74c3c", "#9c27b0"];
+  const pieces = useMemo(() => {
+    const colors = ["#f39c12", "#2ecc71", "#3498db", "#e74c3c", "#9c27b0"];
+    return Array.from({ length: 40 }, (_, i) => ({
+      id: i,
+      left: Math.random() * 100,
+      delay: Math.random() * 2,
+      duration: 2 + Math.random() * 2,
+      color: colors[i % colors.length],
+      size: 5 + Math.random() * 6,
+      isCircle: Math.random() > 0.5,
+    }));
+  }, []);
+
   return (
     <div
       style={{
@@ -132,31 +147,25 @@ function Confetti() {
         overflow: "hidden",
       }}
     >
-      {pieces.map((i) => {
-        const left = Math.random() * 100;
-        const delay = Math.random() * 2;
-        const duration = 2 + Math.random() * 2;
-        const color = colors[i % colors.length];
-        const size = 5 + Math.random() * 6;
-        return (
-          <div
-            key={i}
-            style={{
-              position: "absolute",
-              top: "-20px",
-              left: `${left}%`,
-              width: size,
-              height: size,
-              background: color,
-              borderRadius: Math.random() > 0.5 ? "50%" : "2px",
-              animation: `confettiFall ${duration}s linear ${delay}s infinite`,
-            }}
-          />
-        );
-      })}
+      {pieces.map((p) => (
+        <div
+          key={p.id}
+          style={{
+            position: "absolute",
+            top: "-20px",
+            left: `${p.left}%`,
+            width: p.size,
+            height: p.size,
+            background: p.color,
+            borderRadius: p.isCircle ? "50%" : "2px",
+            animation: `confettiFall ${p.duration}s linear ${p.delay}s infinite`,
+          }}
+        />
+      ))}
     </div>
   );
 }
+
 // ═══════════════════════════════════════════════════════
 // SOUND
 // ═══════════════════════════════════════════════════════
@@ -212,6 +221,7 @@ const sound = {
     this.play(600, 60, "square", 0.08);
   },
 };
+
 // ═══════════════════════════════════════════════════════
 // 75-NUMBER TRACKER
 // ═══════════════════════════════════════════════════════
@@ -260,7 +270,8 @@ function NumberTracker({ calledNumbers, lastNumber }) {
           gap: 2,
         }}
       >
-        {buildBoard().map((n) => {
+        {/* ✅ FIX: BOARD (memoized) ተጠቅመናል */}
+        {BOARD.map((n) => {
           const info = getLetter(n);
           const called = calledNumbers.includes(n);
           const isLast = lastNumber === n;
@@ -440,14 +451,9 @@ function UserCard({ card, marked, cardId, lastNumber, cardCount = 1 }) {
 
 // ═══════════════════════════════════════════════════════
 // CURRENT NUMBER — Beautiful Animated Display
+// ✅ FIX: flashNumber prop ተወግዷል (ጥቅም ላይ አይውልም)
 // ═══════════════════════════════════════════════════════
-function CurrentNumber({
-  lastInfo,
-  lastLetter,
-  lastNumber,
-  numberAnimKey,
-  flashNumber,
-}) {
+function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey }) {
   if (!lastInfo) {
     return (
       <div
@@ -459,7 +465,6 @@ function CurrentNumber({
           overflow: "visible",
         }}
       >
-        {/* Idle pulse rings */}
         <div
           style={{
             position: "absolute",
@@ -515,7 +520,6 @@ function CurrentNumber({
         overflow: "visible",
       }}
     >
-      {/* 🌊 RING 1 */}
       <div
         style={{
           position: "absolute",
@@ -527,8 +531,6 @@ function CurrentNumber({
           boxShadow: `0 0 15px ${lastInfo.color}`,
         }}
       />
-
-      {/* 🌊 RING 2 */}
       <div
         style={{
           position: "absolute",
@@ -540,8 +542,6 @@ function CurrentNumber({
           pointerEvents: "none",
         }}
       />
-
-      {/* 🌊 RING 3 */}
       <div
         style={{
           position: "absolute",
@@ -553,8 +553,6 @@ function CurrentNumber({
           pointerEvents: "none",
         }}
       />
-
-      {/* 🔄 Rotating Dashed Ring */}
       <div
         style={{
           position: "absolute",
@@ -565,8 +563,6 @@ function CurrentNumber({
           pointerEvents: "none",
         }}
       />
-
-      {/* 💡 Outer Glow Aura — ቀስ ብሎ የሚብራ */}
       <div
         style={{
           position: "absolute",
@@ -581,8 +577,6 @@ function CurrentNumber({
           zIndex: 1,
         }}
       />
-
-      {/* ✨ MAIN CIRCLE — ቀስ ብሎ የሚብራ */}
       <div
         key={numberAnimKey}
         style={{
@@ -615,7 +609,6 @@ function CurrentNumber({
           `,
         }}
       >
-        {/* 💫 Shimmer */}
         <div
           style={{
             position: "absolute",
@@ -632,8 +625,6 @@ function CurrentNumber({
             zIndex: 10,
           }}
         />
-
-        {/* ✨ Sparkle dot — ቀስ ብሎ የሚብራ */}
         <div
           style={{
             position: "absolute",
@@ -650,7 +641,6 @@ function CurrentNumber({
           }}
         />
 
-        {/* Letter + Number */}
         <span
           style={{
             fontSize: 11,
@@ -694,7 +684,10 @@ export default function LiveGame({
   const soundOnRef = useRef(true);
   const cardsReceivedRef = useRef(false);
   const retryTimerRef = useRef(null);
-  // ✅ FIX: onConnectOnce handler ለ cleanup
+  // ✅ FIX: ሁሉንም retry timers ለማጽዳት
+  const retryTimersRef = useRef([]);
+  // ✅ FIX: unmount የተረጋገጠ ነው?
+  const mountedRef = useRef(true);
   const onConnectOnceRef = useRef(null);
 
   const [cards, setCards] = useState([]);
@@ -716,13 +709,19 @@ export default function LiveGame({
   const fallbackTimerRef = useRef(null);
   const countdownTimerRef = useRef(null);
 
+  // ✅ FIX: mountedRef ለ unmount ይዘጋጃል
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     soundOnRef.current = soundOn;
     sound.enabled = soundOn;
   }, [soundOn]);
 
-  // ✅ FIX: AudioContext ን በተጠቃሚ ጠቅታ ላይ warm up ያደርጋል
-  // (spectator ሆኖ ከገባ ድምጽ እንዲሰራ)
   useEffect(() => {
     const warm = () => sound.init();
     window.addEventListener("click", warm, { once: true });
@@ -737,7 +736,9 @@ export default function LiveGame({
     const socket = getSocket();
     socketRef.current = socket;
 
+    // ✅ FIX: mountedRef ጥበቃ
     const emitJoin = (reason = "initial") => {
+      if (!mountedRef.current) return;
       if (!socket.connected) return;
       if (cardsReceivedRef.current) return;
       socket.emit("join_room", { roomCode });
@@ -828,15 +829,10 @@ export default function LiveGame({
       if (data.entryFee) setEntryFee(data.entryFee);
     };
 
-        // ═══════════════════════════════════════════════════════
-    // 👈 OPTIMIZED: server no longer sends full calledNumbers
-    //    Client appends the new number itself (92% bandwidth cut)
-    // ═══════════════════════════════════════════════════════
     const onNumberCalled = ({ number, letter, winPattern: wp }) => {
       setLastNumber(number);
       setLastLetter(letter || getLetter(number).letter);
 
-      // 👈 append-only — avoid duplicates
       setCalledNumbers((prev) =>
         prev.includes(number) ? prev : [...prev, number]
       );
@@ -929,17 +925,24 @@ export default function LiveGame({
       if (socket.connected) {
         emitJoin("initial");
       } else {
-        // ✅ FIX: named handler ስለሆነ cleanup ይቻላል
         const onConnectOnce = () => emitJoin("onconnect");
         onConnectOnceRef.current = onConnectOnce;
         socket.once("connect", onConnectOnce);
       }
-      retryTimerRef.current = setTimeout(() => emitJoin("retry-1.5s"), 1500);
-      setTimeout(() => emitJoin("retry-3s"), 3000);
-      setTimeout(() => emitJoin("retry-5s"), 5000);
+
+      // ✅ FIX: ሁሉንም retry timers በ array ውስጥ ያስቀምጡ
+      // (ከዚህ በፊት 3s/5s timers አልተቀመጡም → ከ unmount በኋላ ይቀጥሉ ነበር)
+      retryTimersRef.current = [
+        setTimeout(() => emitJoin("retry-1.5s"), 1500),
+        setTimeout(() => emitJoin("retry-3s"), 3000),
+        setTimeout(() => emitJoin("retry-5s"), 5000),
+      ];
     }
 
     return () => {
+      // ✅ FIX: ሁሉንም retry timers አጽዳ
+      retryTimersRef.current.forEach(clearTimeout);
+      retryTimersRef.current = [];
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       clearTimeout(popupTimerRef.current);
       clearTimeout(fallbackTimerRef.current);
@@ -948,7 +951,6 @@ export default function LiveGame({
       joinedRef.current = false;
       cardsReceivedRef.current = false;
       socket.off("connect", onConnect);
-      // ✅ FIX: once handler ን አጽዳ
       if (onConnectOnceRef.current) {
         socket.off("connect", onConnectOnceRef.current);
         onConnectOnceRef.current = null;
@@ -971,10 +973,6 @@ export default function LiveGame({
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
   const cardCount = cards.length || 1;
 
-  // ═══════════════════════════════════════════════════════
-  // 🎬 ANIMATION STYLES
-  // ✅ FIX: pulseRing1 የጠፋው } ተመልሷል
-  // ═══════════════════════════════════════════════════════
   const animationStyles = `
     @keyframes popIn {
       0% { transform: scale(0); opacity: 0; }
@@ -1007,8 +1005,6 @@ export default function LiveGame({
       0%, 100% { transform: scale(1); opacity: 0.5; }
       50% { transform: scale(1.2); opacity: 0.15; }
     }
-
-    /* 🌊 3 Pulse Rings — ✅ FIX: የጠፋው } ተመልሷል */
     @keyframes pulseRing1 {
       0%   { transform: scale(1);    opacity: 0.8; }
       100% { transform: scale(1.9);  opacity: 0; }
@@ -1021,14 +1017,10 @@ export default function LiveGame({
       0%   { transform: scale(1);    opacity: 0.6; }
       100% { transform: scale(2.5);  opacity: 0; }
     }
-
-    /* 💫 Shimmer */
     @keyframes shimmer {
       0%   { background-position: -200% center; }
       100% { background-position: 200% center; }
     }
-
-    /* ✨ Blink — ቀንሷል (ቀስ ብሎ የሚብራ) */
     @keyframes blink {
       0%, 100% {
         box-shadow: 0 0 18px currentColor, 0 0 32px currentColor;
@@ -1039,22 +1031,16 @@ export default function LiveGame({
         opacity: 1;
       }
     }
-
-    /* 🔄 Rotate Dashed */
     @keyframes rotateDashed {
       0%   { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
-
-    /* 🌟 Number Float */
     @keyframes numberFloat {
       0%, 100% { transform: translateY(0) scale(1); }
       50%      { transform: translateY(-2px) scale(1.02); }
     }
   `;
 
-  // ✅ FIX: Winner በ telegramId ይፈልጋል (በ name ሳይሆን)
-  // ─ ሁለት ተጫዋቾች ተመሳሳይ ስም ቢኖራቸውም ትክክለኛውን ሽልማት ያሳያል
   const findWinnerByCartela = (wc) => {
     if (!bingoPopup?.winners) return null;
     return bingoPopup.winners.find(
@@ -1081,7 +1067,7 @@ export default function LiveGame({
           paddingBottom: 90,
         }}
       >
-        {/* ═══ STATS ═══ */}
+        {/* STATS */}
         <div
           style={{
             display: "grid",
@@ -1113,12 +1099,10 @@ export default function LiveGame({
             minHeight: 0,
           }}
         >
-          {/* LEFT: 75-TRACKER */}
           <div style={{ overflowY: "auto", minHeight: 0 }}>
             <NumberTracker calledNumbers={calledNumbers} lastNumber={lastNumber} />
           </div>
 
-          {/* RIGHT COLUMN */}
           <div
             style={{
               display: "flex",
@@ -1127,7 +1111,6 @@ export default function LiveGame({
               minHeight: 0,
             }}
           >
-            {/* CURRENT — Beautiful Animated Circle */}
             <div
               style={{
                 background: lastInfo
@@ -1170,16 +1153,15 @@ export default function LiveGame({
                 {soundOn ? "🔊" : "🔇"}
               </button>
 
+              {/* ✅ FIX: flashNumber prop ተወግዷል */}
               <CurrentNumber
                 lastInfo={lastInfo}
                 lastLetter={lastLetter}
                 lastNumber={lastNumber}
                 numberAnimKey={numberAnimKey}
-                flashNumber={flashNumber}
               />
             </div>
 
-            {/* SCROLLABLE: PATTERN + CARDS */}
             <div
               style={{
                 flex: 1,
@@ -1357,7 +1339,7 @@ export default function LiveGame({
           </button>
         </div>
 
-        {/* ═══ BINGO POPUP ═══ */}
+        {/* BINGO POPUP */}
         {bingoPopup && (
           <>
             <Confetti />
@@ -1374,7 +1356,6 @@ export default function LiveGame({
                 overflowY: "auto",
               }}
             >
-              {/* Header */}
               <div
                 style={{
                   display: "flex",
@@ -1433,7 +1414,6 @@ export default function LiveGame({
                 </div>
               </div>
 
-              {/* Pattern badge */}
               <div
                 style={{
                   background: "linear-gradient(135deg, #1a1a2e, #0f1420)",
@@ -1458,7 +1438,6 @@ export default function LiveGame({
                 </span>
               </div>
 
-              {/* WINNERS LIST */}
               <div
                 style={{
                   background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
@@ -1550,7 +1529,6 @@ export default function LiveGame({
                 )}
               </div>
 
-              {/* WINNING CARTELAS */}
               {bingoPopup.winningCartelas?.length > 0 && (
                 <div
                   style={{
@@ -1578,7 +1556,6 @@ export default function LiveGame({
                   </div>
 
                   {bingoPopup.winningCartelas.slice(0, 2).map((wc, idx) => {
-                    // ✅ FIX: በ telegramId ይፈልጋል (በ name ሳይሆን)
                     const owner = findWinnerByCartela(wc);
                     const prizeAmount = owner?.prize ?? null;
 
@@ -1703,7 +1680,6 @@ export default function LiveGame({
                 </div>
               )}
 
-              {/* Countdown */}
               <div
                 style={{
                   color: "#888",

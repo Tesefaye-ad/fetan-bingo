@@ -82,7 +82,11 @@ export default function CartelaSelection({
   const noticeTimerRef = useRef(null);
   const pollStopRef = useRef(false);
   const mountedRef = useRef(true);
-  selectedRef.current = selectedCards;
+
+  // ✅ FIX: ref ን በ render body ሳይሆን በ useEffect ያዘምኑ
+  useEffect(() => {
+    selectedRef.current = selectedCards;
+  }, [selectedCards]);
 
   // Refs ለ handleSelect
   const takenRef = useRef([]);
@@ -192,10 +196,6 @@ export default function CartelaSelection({
       if (!d.roomCode || d.roomCode === roomCode) goLive();
     };
 
-    // ═══════════════════════════════════════════════════════
-    // 👈 OPTIMIZED: batched card broadcasts
-    //    Server sends "cards_taken" every 250ms with a list
-    // ═══════════════════════════════════════════════════════
     const onCardsTaken = ({ cardIds }) => {
       if (!Array.isArray(cardIds)) return;
       setTakenCards((p) => {
@@ -250,7 +250,7 @@ export default function CartelaSelection({
       clearTimeout(noticeTimerRef.current);
     };
   }, [roomCode, applyRoomState, goLive, flash]);
-  
+
   // ───────────── ቆጣሪ ─────────────
   useEffect(() => {
     if (!deadlineMs) return;
@@ -334,13 +334,11 @@ export default function CartelaSelection({
     }
   };
 
-  // numbers በ useMemo
   const numbers = useMemo(
     () => Array.from({ length: TOTAL_CARDS }, (_, i) => i + 1),
     []
   );
 
-  // Sets በ useMemo
   const selectedSet = useMemo(() => new Set(selectedCards), [selectedCards]);
   const takenSet = useMemo(() => new Set(takenCards), [takenCards]);
 
@@ -400,7 +398,6 @@ export default function CartelaSelection({
           CHOOSE CARTELA
         </div>
 
-        {/* ✅ FIX: "syncing…" ተወግዷል — notice ብቻ ይታያል */}
         {notice && (
           <div
             style={{
@@ -416,7 +413,6 @@ export default function CartelaSelection({
         )}
       </div>
 
-      {/* Info cells */}
       <div
         style={{
           display: "grid",
@@ -451,7 +447,6 @@ export default function CartelaSelection({
         />
       </div>
 
-      {/* Selected / Total / Max */}
       <div
         style={{
           display: "grid",
@@ -479,7 +474,6 @@ export default function CartelaSelection({
         </span>
       </div>
 
-      {/* Numbers grid */}
       <div
         style={{
           flex: 1,

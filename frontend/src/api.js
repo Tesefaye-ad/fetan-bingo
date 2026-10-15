@@ -1,7 +1,7 @@
 import axios from "axios";
 import { syncClock } from "./serverClock";
 import { io } from "socket.io-client";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export const API_BASE_URL =
   process.env.REACT_APP_API_URL || "https://fetan-bingo-ra58.onrender.com";
@@ -14,16 +14,14 @@ const api = axios.create({
   timeout: 15000,
   headers: { "Content-Type": "application/json" },
 });
-// ═══════════════════════════════════════════════════════
-// 👈 FIX: only retry IDEMPOTENT methods (GET/HEAD/OPTIONS)
-// POST retries can double-charge withdraw/transfer
-// ═══════════════════════════════════════════════════════
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const config = error.config;
     if (!config) return Promise.reject(error);
 
+    // ✅ ለ idempotent methods ብቻ retry ያደርጋል (POST ድርብ ክፍያ እንዳያስከትል)
     const method = String(config.method || "get").toLowerCase();
     const isIdempotent = ["get", "head", "options"].includes(method);
 
@@ -49,7 +47,7 @@ api.interceptors.request.use((config) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// SOCKET
+// SOCKET — singleton (token ሲቀየር ይቀዳል)
 // ═══════════════════════════════════════════════════════
 let socket = null;
 let socketToken = null;
@@ -89,7 +87,7 @@ export function disconnectSocket() {
 }
 
 // ═══════════════════════════════════════════════════════
-// useTelegram
+// useTelegram — SDK ዘግይቶ ቢጫንም ይጠብቃል (30 × 100ms = 3s)
 // ═══════════════════════════════════════════════════════
 export function useTelegram() {
   const getTg = () => window.Telegram?.WebApp;
@@ -133,24 +131,19 @@ export function useTelegram() {
     };
   }, []);
 
-  const webApp = useMemo(() => getTg(), []);
-  return { telegramUser, initData, isTelegram, ready, webApp };
+  return { telegramUser, initData, isTelegram, ready };
 }
 
 // ═══════════════════════════════════════════════════════
-// SERVER WARM-UP (Render free tier sleeps after inactivity)
+// SERVER WARM-UP — memoized (Render cold start ለመቀነስ)
 // ═══════════════════════════════════════════════════════
-// ✅ አንድ ጊዜ ብቻ ይላካል (memoized) — index.js ቀድሞ ሲጠራው ሰርቨሩ
-// ገና Telegram SDK ሳይዘጋጅ መንቃት ይጀምራል፤ ስለዚህ መግባት ፈጣን ይሆናል።
 let warmUpPromise = null;
 export function warmUpServer() {
   if (!warmUpPromise) {
     warmUpPromise = axios
       .get(`${API_BASE_URL}/health`, { timeout: 45000 })
       .then(() => undefined)
-      .catch(() => {
-        /* ignore — login will report the real error */
-      });
+      .catch(() => {});
   }
   return warmUpPromise;
 }
@@ -170,6 +163,12 @@ export async function loginWithTelegram(initData) {
   return data.user;
 }
 
+export function logout() {
+  localStorage.removeItem("bingo_token");
+  localStorage.removeItem("telegramId");
+  disconnectSocket();
+}
+
 // ═══════════════════════════════════════════════════════
 // ROOM
 // ═══════════════════════════════════════════════════════
@@ -183,7 +182,8 @@ export async function getRoom(roomCode, timeout = 4000) {
   return data;
 }
 
-export const createRoom = (entryFee, roomCode) => getRoom(roomCode);
+// ✅ FIX: `entryFee` ጥቅም ላይ የማይውል ነበር — ተወግዷል
+export const createRoom = (roomCode) => getRoom(roomCode);
 
 // ═══════════════════════════════════════════════════════
 // WALLET
@@ -272,11 +272,19 @@ export async function adminGetTransactions({
   limit = 50,
   skip = 0,
 } = {}) {
+  // ✅ FIX: NaN ጥበቃ
+  const safeLimit = Number.isFinite(Number(limit))
+    ? Math.min(Math.max(1, Number(limit)), 200)
+    : 50;
+  const safeSkip = Number.isFinite(Number(skip))
+    ? Math.max(0, Number(skip))
+    : 0;
+
   const params = new URLSearchParams();
   if (type) params.set("type", type);
   if (status) params.set("status", status);
-  params.set("limit", limit);
-  params.set("skip", skip);
+  params.set("limit", safeLimit);
+  params.set("skip", safeSkip);
   const { data } = await api.get(`/api/admin/transactions?${params}`);
   return data;
 }
@@ -294,10 +302,18 @@ export async function adminRejectTransaction(id, reason) {
 }
 
 export async function adminGetUsers({ q, limit = 50, skip = 0 } = {}) {
+  // ✅ FIX: NaN ጥበቃ
+  const safeLimit = Number.isFinite(Number(limit))
+    ? Math.min(Math.max(1, Number(limit)), 200)
+    : 50;
+  const safeSkip = Number.isFinite(Number(skip))
+    ? Math.max(0, Number(skip))
+    : 0;
+
   const params = new URLSearchParams();
   if (q) params.set("q", q);
-  params.set("limit", limit);
-  params.set("skip", skip);
+  params.set("limit", safeLimit);
+  params.set("skip", safeSkip);
   const { data } = await api.get(`/api/admin/users?${params}`);
   return data;
 }

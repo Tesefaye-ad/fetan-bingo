@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Wallet from "./Wallet.jsx";
 import LiveGame from "./Livegame.jsx";
 import CartelaSelection from "./Cartelaselection.jsx";
@@ -17,15 +17,8 @@ import {
   warmUpServer,
 } from "./api";
 
-const DEFAULT_ADMIN_IDS = ["494653076"];
-const ENV_ADMIN_IDS = (process.env.REACT_APP_ADMIN_IDS || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-const ADMIN_IDS =
-  ENV_ADMIN_IDS.length > 0 ? ENV_ADMIN_IDS : DEFAULT_ADMIN_IDS;
-
-const LOGIN_TIMEOUT_MS = 60000;
+// ✅ FIX: Hardcoded admin IDs ተወግዷል — backend ብቻ ይወስናል
+const LOGIN_TIMEOUT_MS = 30000;
 
 const SHARED_ROOMS = {
   10: "ROOM10",
@@ -41,11 +34,13 @@ function Login({ onLoggedIn }) {
   const { initData, ready, telegramUser } = useTelegram();
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
     setError("");
+    setLoading(true);
 
     if (!initData) {
       if (process.env.NODE_ENV === "development") {
@@ -64,38 +59,46 @@ function Login({ onLoggedIn }) {
         setError(
           "ይህን ጨዋታ ከ Telegram ቦት ውስጥ ባለው «Play 🎮» ቁልፍ ብቻ ይክፈቱ።"
         );
+        setLoading(false);
       }
       return;
     }
 
     async function handleLogin() {
-      // Render free-tier servers sleep; wake it up first, then try login
-      // up to 3 times so a cold start never leaves the user on a blank page.
       await warmUpServer();
       let lastErr = null;
+
       for (let i = 1; i <= 3; i++) {
         if (cancelled) return;
+        // ✅ FIX: timer ን አጽዳ (unhandled rejection ይከላከላል)
+        let timerId = null;
         try {
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Login timeout")), 30000)
-          );
+          const timeoutPromise = new Promise((_, reject) => {
+            timerId = setTimeout(
+              () => reject(new Error("Login timeout")),
+              LOGIN_TIMEOUT_MS
+            );
+          });
           const user = await Promise.race([
             loginWithTelegram(initData),
             timeoutPromise,
           ]);
+          if (timerId) clearTimeout(timerId);
           if (cancelled) return;
           localStorage.setItem("telegramId", user.telegramId);
           onLoggedIn(user);
           return;
         } catch (err) {
+          if (timerId) clearTimeout(timerId);
           lastErr = err;
           console.warn("[Login] attempt", i, "failed:", err?.message);
           const code = err?.response?.status;
-          if (code === 401 || code === 403) break; // retry won't help
+          if (code === 401 || code === 403) break;
           await new Promise((r) => setTimeout(r, 2000));
         }
       }
       if (cancelled) return;
+      setLoading(false);
       const code = lastErr?.response?.status;
       if (code === 403) setError("አካውንትዎ ታግዷል። ድጋፍ ያግኙ።");
       else if (code === 401)
@@ -114,8 +117,68 @@ function Login({ onLoggedIn }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, initData, telegramUser?.id, attempt]);
 
-  // የመጫኛ ገጽ (አርማ/ስፒነር/"በመግባት ላይ...") ተወግዷል — በመግባት ላይ ምንም አይታይም።
-  // ስህተት ሲኖር ብቻ መልዕክቱ እና «እንደገና ሞክር» ቁልፍ ይታያሉ።
+  // ✅ FIX: Loading spinner ተጨምሯል (ባዶ ገጽ ሳይሆን)
+  if (loading && !error) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 20,
+          background:
+            "linear-gradient(180deg, #0a0a14 0%, #150a2e 50%, #0a0a14 100%)",
+          color: "#fff",
+        }}
+      >
+        <div
+          style={{
+            fontSize: 52,
+            animation: "float 2s ease-in-out infinite",
+          }}
+        >
+          🎰
+        </div>
+        <div
+          style={{
+            fontSize: 24,
+            fontWeight: "900",
+            background:
+              "linear-gradient(135deg, #f39c12 0%, #ffd43b 50%, #f39c12 100%)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+            letterSpacing: 0.5,
+          }}
+        >
+          Fetan Bingo
+        </div>
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            border: "3px solid rgba(243,156,18,0.2)",
+            borderTop: "3px solid #f39c12",
+            borderRadius: "50%",
+            animation: "spin 0.8s linear infinite",
+          }}
+        />
+        <div style={{ fontSize: 12, opacity: 0.6, fontWeight: 600 }}>
+          በመግባት ላይ...
+        </div>
+        <style>{`
+          @keyframes spin { to { transform: rotate(360deg); } }
+          @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
   if (!error) return null;
 
   return (
@@ -130,13 +193,41 @@ function Login({ onLoggedIn }) {
         padding: 24,
         textAlign: "center",
         color: "#fff",
+        background:
+          "linear-gradient(180deg, #0a0a14 0%, #150a2e 50%, #0a0a14 100%)",
       }}
     >
-      <div style={{ fontSize: 28, fontWeight: 900 }}>🎰 Fetan Bingo</div>
-      <div style={{ maxWidth: 320, lineHeight: 1.5, opacity: 0.9 }}>{error}</div>
+      <div style={{ fontSize: 48 }}>🎰</div>
+      <div
+        style={{
+          fontSize: 28,
+          fontWeight: 900,
+          background:
+            "linear-gradient(135deg, #f39c12 0%, #ffd43b 50%, #f39c12 100%)",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          backgroundClip: "text",
+        }}
+      >
+        Fetan Bingo
+      </div>
+      <div
+        style={{
+          maxWidth: 320,
+          lineHeight: 1.5,
+          opacity: 0.9,
+          fontSize: 13,
+        }}
+      >
+        {error}
+      </div>
       {initData && (
         <button
-          onClick={() => setAttempt((n) => n + 1)}
+          onClick={() => {
+            setAttempt((n) => n + 1);
+            setError("");
+            setLoading(true);
+          }}
           style={{
             background: "linear-gradient(135deg,#27ae60,#1e8449)",
             color: "#fff",
@@ -146,6 +237,7 @@ function Login({ onLoggedIn }) {
             fontSize: 16,
             fontWeight: 700,
             cursor: "pointer",
+            boxShadow: "0 6px 20px rgba(39,174,96,0.4)",
           }}
         >
           🔄 እንደገና ሞክር
@@ -235,7 +327,6 @@ function GameLobby({ onPlayStake }) {
   function play(fee) {
     onPlayStake(fee, SHARED_ROOMS[fee] || `ROOM${fee}`);
   }
-
 
   return (
     <div
@@ -1117,17 +1208,21 @@ function App() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [gameStatus, setGameStatus] = useState("waiting");
 
-  const isAdmin =
-    user?.isAdmin === true ||
-    (user?.telegramId && ADMIN_IDS.includes(String(user.telegramId)));
+  // ✅ FIX: Admin ከ backend ብቻ ይወሰናል (client hardcoded የለም)
+  const isAdmin = user?.isAdmin === true;
 
-  const tabs = [
-    { id: "Game", label: "Game", icon: "🎮" },
-    { id: "Wallet", label: "Wallet", icon: "💳" },
-    { id: "History", label: "History", icon: "📜" },
-    { id: "Profile", label: "Profile", icon: "👤" },
-  ];
-  if (isAdmin) tabs.push({ id: "Admin", label: "Admin", icon: "⚙️" });
+  // ✅ FIX: tabs useMemo
+  const tabs = useMemo(() => {
+    const base = [
+      { id: "Game", label: "Game", icon: "🎮" },
+      { id: "Wallet", label: "Wallet", icon: "💳" },
+      { id: "History", label: "History", icon: "📜" },
+      { id: "Profile", label: "Profile", icon: "👤" },
+    ];
+    return isAdmin
+      ? [...base, { id: "Admin", label: "Admin", icon: "⚙️" }]
+      : base;
+  }, [isAdmin]);
 
   const handleLoggedIn = useCallback((u) => {
     if (!u) return;
@@ -1164,10 +1259,6 @@ function App() {
     return () => clearInterval(id);
   }, [user]);
 
-  // ═══════════════════════════════════════════════════════
-  // Hooks MUST run before any early return (Rules of Hooks).
-  // Memoized so child sockets don't re-subscribe on every render.
-  // ═══════════════════════════════════════════════════════
   const handleCartelaConfirm = useCallback((ids) => {
     setCardIds(ids);
     setShowCartela(false);

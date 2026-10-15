@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   initiateDeposit,
   withdraw as withdrawApi,
   transfer as transferApi,
-  getWalletHistory,
 } from "./api";
 
-function Wallet({ balance, setBalance, showHistory }) {
+// ✅ FIX: showHistory dead code ተወግዷል — History ገጽ App.jsx ነው
+function Wallet({ balance, setBalance }) {
   const [amount, setAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawPhone, setWithdrawPhone] = useState("");
@@ -14,15 +14,6 @@ function Wallet({ balance, setBalance, showHistory }) {
   const [transferAmount, setTransferAmount] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [history, setHistory] = useState([]);
-
-  useEffect(() => {
-    if (showHistory) {
-      getWalletHistory()
-        .then(setHistory)
-        .catch(() => {});
-    }
-  }, [showHistory]);
 
   const handleDeposit = async (e) => {
     e.preventDefault();
@@ -102,170 +93,6 @@ function Wallet({ balance, setBalance, showHistory }) {
     }
   };
 
-  // ═══════════════════════════════════════════════
-  // HISTORY VIEW
-  // ═══════════════════════════════════════════════
-  if (showHistory) {
-    return (
-      <div
-        style={{
-          padding: "15px",
-          maxWidth: "450px",
-          margin: "0 auto",
-          minHeight: "100vh",
-          background: "linear-gradient(180deg, #0a0a14 0%, #150a2e 100%)",
-        }}
-      >
-        <h2
-          style={{
-            color: "#f39c12",
-            marginBottom: 18,
-            textAlign: "center",
-            fontSize: 20,
-            fontWeight: "900",
-            letterSpacing: 1,
-            background: "linear-gradient(135deg, #f39c12, #ffd43b, #f39c12)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            backgroundClip: "text",
-          }}
-        >
-          📜 TRANSACTION HISTORY
-        </h2>
-
-        {history.length === 0 ? (
-          <EmptyHistory />
-        ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {history.map((tx) => {
-              const isOut = [
-                "withdrawal",
-                "entry_fee",
-                "transfer_out",
-              ].includes(tx.type);
-              const typeIcon = {
-                deposit: "📥",
-                withdrawal: "📤",
-                entry_fee: "🎯",
-                prize: "🏆",
-                refund: "↩️",
-                transfer_in: "📩",
-                transfer_out: "📨",
-              }[tx.type] || "💰";
-
-              return (
-                <li
-                  key={tx._id}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    background:
-                      "linear-gradient(135deg, rgba(26,26,46,0.9), rgba(15,20,32,0.9))",
-                    border: `1px solid ${
-                      tx.status === "completed"
-                        ? isOut
-                          ? "rgba(231,76,60,0.3)"
-                          : "rgba(46,204,113,0.3)"
-                        : tx.status === "pending"
-                        ? "rgba(243,156,18,0.4)"
-                        : "rgba(42,42,64,0.6)"
-                    }`,
-                    borderRadius: 12,
-                    padding: "12px 14px",
-                    marginBottom: 8,
-                    fontSize: 13,
-                    color: "#fff",
-                    animation: "fadeInUp 0.3s ease-out",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div
-                      style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 10,
-                        background: isOut
-                          ? "rgba(231,76,60,0.15)"
-                          : "rgba(46,204,113,0.15)",
-                        border: `1px solid ${
-                          isOut
-                            ? "rgba(231,76,60,0.4)"
-                            : "rgba(46,204,113,0.4)"
-                        }`,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 18,
-                      }}
-                    >
-                      {typeIcon}
-                    </div>
-                    <div>
-                      <div
-                        style={{
-                          fontWeight: "700",
-                          textTransform: "capitalize",
-                          fontSize: 12,
-                          marginBottom: 2,
-                        }}
-                      >
-                        {tx.type.replace("_", " ")}
-                      </div>
-                      <div style={{ color: "#666", fontSize: 10 }}>
-                        {new Date(tx.createdAt).toLocaleString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div
-                      style={{
-                        color: isOut ? "#e74c3c" : "#2ecc71",
-                        fontWeight: "900",
-                        fontSize: 14,
-                        textShadow: isOut
-                          ? "0 0 10px rgba(231,76,60,0.5)"
-                          : "0 0 10px rgba(46,204,113,0.5)",
-                      }}
-                    >
-                      {isOut ? "-" : "+"}
-                      {tx.amount} ETB
-                    </div>
-                    <div
-                      style={{
-                        color:
-                          tx.status === "pending"
-                            ? "#f39c12"
-                            : tx.status === "failed"
-                            ? "#e74c3c"
-                            : "#666",
-                        fontSize: 9,
-                        fontWeight: "700",
-                        textTransform: "uppercase",
-                        letterSpacing: 0.5,
-                        marginTop: 2,
-                      }}
-                    >
-                      {tx.status}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-    );
-  }
-
-  // ═══════════════════════════════════════════════
-  // MAIN VIEW
-  // ═══════════════════════════════════════════════
   return (
     <div
       style={{
@@ -276,7 +103,7 @@ function Wallet({ balance, setBalance, showHistory }) {
         background: "linear-gradient(180deg, #0a0a14 0%, #150a2e 100%)",
       }}
     >
-      {/* 💳 Balance Card — Beautiful */}
+      {/* 💳 Balance Card */}
       <div
         style={{
           background:
@@ -290,7 +117,6 @@ function Wallet({ balance, setBalance, showHistory }) {
             "0 12px 40px rgba(243,156,18,0.4), inset 0 1px 0 rgba(255,255,255,0.3)",
         }}
       >
-        {/* Decorative circles */}
         <div
           style={{
             position: "absolute",
@@ -339,13 +165,7 @@ function Wallet({ balance, setBalance, showHistory }) {
             }}
           >
             {balance}
-            <span
-              style={{
-                fontSize: 16,
-                fontWeight: "700",
-                opacity: 0.9,
-              }}
-            >
+            <span style={{ fontSize: 16, fontWeight: "700", opacity: 0.9 }}>
               ETB
             </span>
           </div>
@@ -545,27 +365,6 @@ function WalletCard({ icon, title, subtitle, color, children }) {
         </div>
       </div>
       {children}
-    </div>
-  );
-}
-
-function EmptyHistory() {
-  return (
-    <div
-      style={{
-        textAlign: "center",
-        padding: 60,
-        color: "#666",
-        border: "1px dashed rgba(42,42,64,0.8)",
-        borderRadius: 14,
-        fontSize: 13,
-      }}
-    >
-      <div style={{ fontSize: 50, marginBottom: 12, opacity: 0.5 }}>📭</div>
-      <div style={{ fontWeight: "700" }}>No transactions yet</div>
-      <div style={{ fontSize: 11, marginTop: 4 }}>
-        Your history will appear here
-      </div>
     </div>
   );
 }
