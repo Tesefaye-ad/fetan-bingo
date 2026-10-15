@@ -838,7 +838,7 @@ bot.on("text", async (ctx, next) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// INVITE
+// INVITE — ✅ ያለ Main Keyboard (ቁልፎች ተወግደዋል)
 // ═══════════════════════════════════════════════════════
 const handleInvite = async (ctx) => {
   try {
@@ -850,13 +850,40 @@ const handleInvite = async (ctx) => {
       user.telegramId
     }`;
 
-    await ctx.reply(
+    // ✅ የእንኳን ደህና መጡ መልዕክት + የግብዣ ሊንክ ብቻ (Main Keyboard የለም)
+    const inviteText =
+      `${MAIN_MENU_TEXT}\n\n` +
       `🎁 <b>Invite & Earn ${REFERRAL_BONUS} ETB</b>\n\n` +
-        `የእርስዎ የግብዣ ሊንክ:\n` +
-        `<code>${link}</code>\n\n` +
-        `👥 የጋበዟቸው ሰዎች: <b>${user.referralCount || 0}</b>`,
-      { parse_mode: "HTML" }
-    );
+      `የእርስዎ የግብዣ ሊንክ:\n` +
+      `<code>${link}</code>\n\n` +
+      `👥 የጋበዟቸው ሰዎች: <b>${user.referralCount || 0}</b>`;
+
+    // Main Keyboard አልተካተተም
+    const extra = { caption: inviteText, parse_mode: "HTML" };
+
+    // 1. ምስሉ (Banner) ካለ አብሮ ላክ
+    if (bannerFileId) {
+      try {
+        await ctx.replyWithPhoto(bannerFileId, extra);
+        return;
+      } catch (err) {
+        bannerFileId = null;
+      }
+    }
+
+    // 2. ከ URL ላክ (ለመጀመሪያ ጊዜ)
+    const url = bannerUrlIfValid();
+    if (url) {
+      try {
+        await ctx.replyWithPhoto(url, extra);
+        return;
+      } catch (err) {
+        console.error("[invite] URL banner failed:", err.message);
+      }
+    }
+
+    // 3. ምስሉ ካልተሳካ ጽሑፉን ብቻ ላክ
+    await ctx.reply(inviteText, { parse_mode: "HTML" });
   } catch (err) {
     console.error("[handleInvite]", err.message);
   }
@@ -924,7 +951,6 @@ bot.catch((err, ctx) => {
 // ═══════════════════════════════════════════════════════
 async function setupBotProfile() {
   try {
-    // ✅ ማሻሻያ: በቅደም ተከተል (Sequential) እንዲሆን እና የቴሌግራም Rate Limit እንዳይከሰት ተደርጓል
     await bot.telegram.setMyCommands([
       { command: "start", description: "Start" },
       { command: "register", description: "Register" },
