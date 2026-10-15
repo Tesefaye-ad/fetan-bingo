@@ -401,7 +401,7 @@ function GameLobby({ onPlayStake, isLoading }) {
               textShadow: "0 0 12px rgba(243,156,18,0.5)",
             }}
           >
-            DAILY JACKPOT
+            DAILY BINGO
           </span>
           <span style={{ fontSize: 16 }}>🏆</span>
         </div>
