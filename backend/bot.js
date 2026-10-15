@@ -1,7 +1,5 @@
 require("dotenv").config();
 const { Telegraf, Markup } = require("telegraf");
-const fs = require("fs");
-const path = require("path");
 const crypto = require("crypto");
 const { verifyAndCreditDeposit } = require("./services/telebirr/depositVerifier");
 const {
@@ -26,18 +24,13 @@ if (ADMIN_TELEGRAM_IDS.length === 0) {
 }
 
 // ═══════════════════════════════════════════════════════
-// BANNER — ✅ ቀጥተኛ ImgBB አድራሻ + file_id ቅድሚያ
+// BANNER — ✅ ፈጣን ምላሽ ለማግኘት የተሻሻለ (fs ተወግዷል)
 // ═══════════════════════════════════════════════════════
 const BANNER_IMAGE_URL =
   process.env.BOT_BANNER_URL ||
-  "https://i.ibb.co/tMBQz2kt/fb.jpg"; // ✅ ከ ImgBB የተገኘ ቀጥተኛ አድራሻ
-const LOCAL_BANNER_PATH = path.join(__dirname, "assets", "fb.jpg");
+  "https://i.ibb.co/tMBQz2kt/fb.jpg";
 
-// ✅ file_id በ .env ውስጥ ተቀምጧል — በኋላ ላይ ወዲያውኑ ይላካል
 let bannerFileId = process.env.BOT_BANNER_FILE_ID || null;
-
-// ✅ ምስሉን አስቀድሞ መጫን (preload) — የመጀመሪያ ጥያቄ ሲመጣ ወዲያውኑ ይላካል
-let preloadedBanner = null; // Buffer
 
 function bannerUrlIfValid() {
   return BANNER_IMAGE_URL &&
@@ -48,98 +41,30 @@ function bannerUrlIfValid() {
     : null;
 }
 
-// ✅ ምስሉን አስቀድሞ መጫን (አካባቢያዊ ፋይል ወይም URL)
-async function preloadBanner() {
-  // 1. የአካባቢያዊ ፋይል
-  if (fs.existsSync(LOCAL_BANNER_PATH)) {
-    try {
-      preloadedBanner = fs.readFileSync(LOCAL_BANNER_PATH);
-      console.log("[bot] ✅ Banner preloaded from local file");
-      return;
-    } catch (err) {
-      console.warn("[bot] ⚠️ Local banner preload failed:", err.message);
-    }
-  }
-
-  // 2. ከ URL መጫን
-  const url = bannerUrlIfValid();
-  if (!url) return;
-  try {
-    const https = require("https");
-    preloadedBanner = await new Promise((resolve, reject) => {
-      https.get(url, (res) => {
-        if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode}`));
-          return;
-        }
-        const chunks = [];
-        res.on("data", (chunk) => chunks.push(chunk));
-        res.on("end", () => resolve(Buffer.concat(chunks)));
-        res.on("error", reject);
-      }).on("error", reject);
-    });
-    console.log("[bot] ✅ Banner preloaded from URL");
-  } catch (err) {
-    console.warn("[bot] ⚠️ URL banner preload failed:", err.message);
-  }
-}
-
+// ✅ ፈጣን የእንኳን ደህና መጡ መልዕክት (ምስል + ጽሑፍ በአንድ ላይ)
 async function sendWelcome(ctx) {
   const extra = { caption: MAIN_MENU_TEXT, ...mainKeyboard() };
 
-  // ✅ 1. file_id ቅድሚያ (በጣም ፈጣን — ከ Telegram አገልጋይ ወዲያውኑ ይላካል)
+  // 1. file_id ካለ ወዲያውኑ ላክ (በጣም ፈጣኑ መንገድ — ሚሊሰከንዶች)
   if (bannerFileId) {
     try {
       await ctx.replyWithPhoto(bannerFileId, extra);
       return true;
     } catch (err) {
-      bannerFileId = null; // ልክ ያልሆነ ሆኗል — እንደገና ከፋይሉ
+      bannerFileId = null; // ልክ ያልሆነ ሆኗል — እንደገና ከURL
       console.error("[/start] cached banner failed:", err.message);
     }
   }
 
-  // ✅ 2. አስቀድሞ የተጫነ ምስል (Buffer)
-  if (preloadedBanner) {
-    try {
-      const msg = await ctx.replyWithPhoto(
-        { source: preloadedBanner, filename: "banner.jpg" },
-        extra
-      );
-      if (!bannerFileId && msg && Array.isArray(msg.photo) && msg.photo.length) {
-        bannerFileId = msg.photo[msg.photo.length - 1].file_id;
-        console.log(`[bot] ✅ banner file_id cached (from preloaded buffer)`);
-      }
-      return true;
-    } catch (err) {
-      console.error("[/start] preloaded banner failed:", err.message);
-    }
-  }
-
-  // ✅ 3. የአካባቢያዊ ፋይል (አስቀድሞ ካልተጫነ)
-  if (!preloadedBanner && fs.existsSync(LOCAL_BANNER_PATH)) {
-    try {
-      const msg = await ctx.replyWithPhoto(
-        { source: fs.createReadStream(LOCAL_BANNER_PATH) },
-        extra
-      );
-      if (!bannerFileId && msg && Array.isArray(msg.photo) && msg.photo.length) {
-        bannerFileId = msg.photo[msg.photo.length - 1].file_id;
-        console.log(`[bot] ✅ banner file_id cached (from local file)`);
-      }
-      return true;
-    } catch (err) {
-      console.error("[/start] local banner failed:", err.message);
-    }
-  }
-
-  // ✅ 4. ከ URL (የመጨረሻ አማራጭ)
+  // 2. ከ URL ላክ (ለመጀመሪያ ጊዜ ብቻ ይዘገያል)
   const url = bannerUrlIfValid();
   if (url) {
     try {
       const msg = await ctx.replyWithPhoto(url, extra);
       if (!bannerFileId && msg && Array.isArray(msg.photo) && msg.photo.length) {
         bannerFileId = msg.photo[msg.photo.length - 1].file_id;
-        console.log(`[bot] ✅ banner file_id cached (from URL)`);
+        console.log(`[bot] ✅ banner file_id cached (from URL): ${bannerFileId}`);
+        console.log(`[bot] ⚠️ ACTION REQUIRED: ይህንን file_id ኮፒ አድርገው Render ውስጥ BOT_BANNER_FILE_ID በሚል ስም ያስገቡት!`);
       }
       return true;
     } catch (err) {
@@ -147,7 +72,7 @@ async function sendWelcome(ctx) {
     }
   }
 
-  // ✅ 5. ጽሑፍ ብቻ
+  // 3. ጽሑፍ ብቻ (ምስሉ ሙሉ በሙሉ ካልተሳካ)
   await ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {});
   return false;
 }
@@ -337,7 +262,7 @@ bot.start(async (ctx) => {
 
     clearStep(telegramId);
 
-    // ✅ 1. ወዲያውኑ ምስሉን ላክ (await ሳያዘገይ)
+    // ✅ 1. ወዲያውኑ ምስሉንና ጽሑፉን ላክ
     sendWelcome(ctx).catch((err) =>
       console.error("[/start] welcome failed:", err.message)
     );
@@ -347,7 +272,6 @@ bot.start(async (ctx) => {
       getOrCreateUser(ctx, referredBy)
         .then((user) => {
           if (user && referredBy) {
-            // የሪፈራል ቦነስ በ background
             processReferralBonus(telegramId).catch((err) =>
               console.error("[/start] referral error:", err.message)
             );
@@ -999,11 +923,9 @@ bot.catch((err, ctx) => {
 // MAIN
 // ═══════════════════════════════════════════════════════
 async function setupBotProfile() {
-  // ✅ ማሻሻያ 1: ሁሉንም የቴሌግራም ጥሪዎች በአንድ ጊዜ (Parallel) መላክ
-  const tasks = [];
-
-  tasks.push(
-    bot.telegram.setMyCommands([
+  try {
+    // ✅ ማሻሻያ: በቅደም ተከተል (Sequential) እንዲሆን እና የቴሌግራም Rate Limit እንዳይከሰት ተደርጓል
+    await bot.telegram.setMyCommands([
       { command: "start", description: "Start" },
       { command: "register", description: "Register" },
       { command: "play", description: "Play" },
@@ -1012,54 +934,44 @@ async function setupBotProfile() {
       { command: "withdraw", description: "Withdraw" },
       { command: "invite", description: "Invite" },
       { command: "instruction", description: "Instruction" },
-    ]).then(() => console.log("[bot] ✅ Commands set"))
-      .catch(err => console.error("Menu setup error:", err.message))
-  );
+    ]);
+    console.log("[bot] ✅ Commands set");
+    await new Promise((r) => setTimeout(r, 500));
 
-  tasks.push(
-    bot.telegram.setMyDescription(
+    await bot.telegram.setMyDescription(
       "🎉 እንኳን ወደ Fetan Bingo በደህና መጡ!\n\n" +
-      "🎰 ይጫወቱ፣ ያሸንፉ እና እውነተኛ ገንዘብ ያግኙ\n" +
-      "⚡ ፈጣን ዲፖዚት እና ወጪ\n" +
-      "🎁 ለአዲስ ተጠቃሚዎች ቦነስ\n\n" +
-      "🎮 ለመጀመር Play ን ይጫኑ!"
-    ).then(() => console.log("[bot] ✅ Description set"))
-      .catch(err => console.error("[bot] setMyDescription failed:", err.message))
-  );
+        "🎰 ይጫወቱ፣ ያሸንፉ እና እውነተኛ ገንዘብ ያግኙ\n" +
+        "⚡ ፈጣን ዲፖዚት እና ወጪ\n" +
+        "🎁 ለአዲስ ተጠቃሚዎች ቦነስ\n\n" +
+        "🎮 ለመጀመር Play ን ይጫኑ!"
+    );
+    console.log("[bot] ✅ Description set");
+    await new Promise((r) => setTimeout(r, 500));
 
-  tasks.push(
-    bot.telegram.setMyShortDescription(
+    await bot.telegram.setMyShortDescription(
       "🎰 Fetan Bingo — ይጫወቱ እና ያሸንፉ!"
-    ).then(() => console.log("[bot] ✅ Short description set"))
-      .catch(err => console.error("[bot] setMyShortDescription failed:", err.message))
-  );
+    );
+    console.log("[bot] ✅ Short description set");
+    await new Promise((r) => setTimeout(r, 500));
 
-  if (WEBAPP_URL) {
-    tasks.push(
-      bot.telegram.setChatMenuButton({
+    if (WEBAPP_URL) {
+      await bot.telegram.setChatMenuButton({
         type: "web_app",
         text: "Play Bingo",
         web_app: { url: WEBAPP_URL },
-      }).then(() => console.log("[bot] ✅ Menu button set"))
-        .catch(err => console.error("[bot] Menu button error:", err.message))
-    );
+      });
+      console.log("[bot] ✅ Menu button set");
+    }
+  } catch (err) {
+    console.error("[bot] profile setup failed:", err.message);
   }
-
-  await Promise.all(tasks);
 }
 
 async function main(app) {
-  // ✅ webhook ራውት ወዲያውኑ ይመዘገባል
   const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
   app.use(bot.webhookCallback(webhookPath));
   console.log("[bot] Fetan bingo bot registered (webhook mode)");
 
-  // ✅ ማሻሻያ 2: ምስሉን አስቀድሞ ጫን (preload) — እና እስኪጨርስ እዚህ ጠብቅ
-  await preloadBanner().catch((err) =>
-    console.error("[bot] banner preload failed:", err.message)
-  );
-
-  // ✅ የ commands/description/menu ማዋቀር በ background (አሁን በ Parallel ይሠራል)
   setupBotProfile().catch((err) =>
     console.error("[bot] profile setup failed:", err.message)
   );
