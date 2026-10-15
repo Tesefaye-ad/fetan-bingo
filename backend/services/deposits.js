@@ -137,6 +137,25 @@ async function notifyAdminsOfDeposit(tx, user, extra = {}) {
 
   lines.push(`🔖 Ref: ${tx.reference || tx._id}`);
 
+  // 🔎 ለምን በእጅ ማረጋገጫ እንደመጣ (ከዚህ በፊት አይታይም ነበር)
+  const why = tx.meta?.verificationReason;
+  if (why) {
+    const HINT = {
+      awaiting_merchant_sms:
+        "የመርቻንት ስልክ SMS ወደ ሲስተሙ አልደረሰም → /smsstatus እና /smscheck ይጠቀሙ",
+      fetch_failed: "የኢትዮ ቴሌኮም ደረሰኝ ማምጣት አልተቻለም",
+      exceeds_auto_limit: "ከራስ-ሰር ገደብ በላይ ነው",
+      auto_approve_disabled: "Auto-approve ጠፍቷል",
+      amount_mismatch: "መጠኑ አልተመሳሰለም",
+      stale: "ክፍያው ከ24 ሰዓት በላይ አሮጌ ነው",
+      duplicate: "ድርብ ግብይት",
+    };
+    lines.push(`📌 ምክንያት: ${why}${HINT[why] ? ` — ${HINT[why]}` : ""}`);
+    if (tx.meta?.verificationDetail) {
+      lines.push(`ℹ️ ${String(tx.meta.verificationDetail).slice(0, 200)}`);
+    }
+  }
+
   const smsRaw = tx.meta?.smsRaw || tx.meta?.sms;
   if (smsRaw) {
     lines.push("", "📩 SMS:", String(smsRaw).slice(0, SMS_MAX_CHARS));

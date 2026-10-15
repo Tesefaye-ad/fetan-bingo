@@ -624,6 +624,34 @@ function isBotAdmin(ctx) {
   return ADMIN_TELEGRAM_IDS.includes(id) || isAdminChatId(id);
 }
 
+// ═══════════════════════════════════════════════════════
+// ADMIN: SMS FORWARDER ምርመራ
+//   /smsstatus            — forwarder እየላከ ነው? ቅንብሩ በርቷል?
+//   /smscheck DJF5T7GTM7  — ይህ ግብይት በዳታቤዝ አለ?
+// ═══════════════════════════════════════════════════════
+bot.command("smsstatus", async (ctx) => {
+  if (!isBotAdmin(ctx)) return;
+  try {
+    const d = require("./services/telebirr/smsDiagnostics");
+    await ctx.reply(d.formatStatus(await d.smsStatus()));
+  } catch (err) {
+    console.error("[/smsstatus]", err.message);
+    await ctx.reply("❌ ስህተት: " + err.message).catch(() => {});
+  }
+});
+
+bot.command("smscheck", async (ctx) => {
+  if (!isBotAdmin(ctx)) return;
+  try {
+    const d = require("./services/telebirr/smsDiagnostics");
+    const arg = String(ctx.message?.text || "").split(/\s+/)[1];
+    await ctx.reply(d.formatCheck(await d.smsCheck(arg)));
+  } catch (err) {
+    console.error("[/smscheck]", err.message);
+    await ctx.reply("❌ ስህተት: " + err.message).catch(() => {});
+  }
+});
+
 async function adminDecision(ctx, kind, approve) {
   try {
     if (!isBotAdmin(ctx)) return ctx.answerCbQuery("❌ Admin only");
