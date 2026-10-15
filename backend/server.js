@@ -248,16 +248,20 @@ try {
     const RENDER_URL =
       process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-ra58.onrender.com`;
 
-    setTimeout(async () => {
-      try {
-        await bot.telegram.setWebhook(`${RENDER_URL}${webhookPath}`, {
-          drop_pending_updates: true,
-        });
-        console.log(`[bot] Webhook: ${RENDER_URL}${webhookPath}`);
-      } catch (err) {
-        console.error("[bot] setWebhook failed:", err.message);
+    // ✅ FIX: drop_pending_updates የለም (deploy ላይ የተጫኑ /start አይጠፉም) + እስከ 4 ጊዜ እንደገና ይሞክራል
+    (async () => {
+      const url = `${RENDER_URL}${webhookPath}`;
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        try {
+          await bot.telegram.setWebhook(url);
+          console.log(`[bot] Webhook: ${url}`);
+          return;
+        } catch (err) {
+          console.error(`[bot] setWebhook failed (try ${attempt}/4):`, err.message);
+          await new Promise((r) => setTimeout(r, attempt * 3000));
+        }
       }
-    }, 2000);
+    })();
   });
 } catch (err) {
   console.error("[server] Bot failed:", err.message);

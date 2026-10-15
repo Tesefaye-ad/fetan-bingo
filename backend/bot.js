@@ -32,26 +32,61 @@ if (ADMIN_TELEGRAM_IDS.length === 0) {
 const BANNER_IMAGE_URL = process.env.BOT_BANNER_URL || null;
 const LOCAL_BANNER_PATH = path.join(__dirname, "assets", "fb.jpg");
 
-function getBannerSource() {
-  // Telegram needs a DIRECT image link (e.g. https://i.ibb.co/xxx/pic.jpg),
-  // not an HTML page like https://ibb.co/xxxx — those always fail.
-  const isDirectImage =
-    BANNER_IMAGE_URL &&
+// Telegram ከውጫዊ URL ማውረድ ቀርፋፋ/የማይታመን ነው (በተለይ ibb.co)።
+// ስለዚህ ቅደም ተከተሉ፦ ① የተቀመጠ file_id (ቅጽበታዊ) → ② አካባቢያዊ ፋይል → ③ URL (የመጨረሻ አማራጭ) → ④ ጽሑፍ ብቻ
+let bannerFileId = null; // ከመጀመሪያው ስኬታማ መላክ በኋላ Telegram የሚሰጠው file_id
+
+function bannerUrlIfValid() {
+  return BANNER_IMAGE_URL &&
     /^https?:\/\//.test(BANNER_IMAGE_URL) &&
     (/\.(jpe?g|png|webp)(\?.*)?$/i.test(BANNER_IMAGE_URL) ||
-      /^https?:\/\/i\.ibb\.co\//i.test(BANNER_IMAGE_URL));
-  if (isDirectImage) {
-    return BANNER_IMAGE_URL;
+      /^https?:\/\/i\.ibb\.co\//i.test(BANNER_IMAGE_URL))
+    ? BANNER_IMAGE_URL
+    : null;
+}
+
+async function sendWelcome(ctx) {
+  const extra = { caption: MAIN_MENU_TEXT, ...mainKeyboard() };
+
+  const sendPhoto = async (photo, label) => {
+    const msg = await ctx.replyWithPhoto(photo, extra);
+    if (!bannerFileId && msg && Array.isArray(msg.photo) && msg.photo.length) {
+      bannerFileId = msg.photo[msg.photo.length - 1].file_id;
+      console.log(`[bot] banner file_id cached (via ${label})`);
+    }
+    return true;
+  };
+
+  if (bannerFileId) {
+    try {
+      return await sendPhoto(bannerFileId, "file_id");
+    } catch (err) {
+      bannerFileId = null; // ልክ ያልሆነ ሆኗል — እንደገና ከፋይሉ
+      console.error("[/start] cached banner failed:", err.message);
+    }
   }
-  if (fs.existsSync(LOCAL_BANNER_PATH, fs.constants.F_OK)) {
-    return { source: fs.createReadStream(LOCAL_BANNER_PATH) };
+
+  if (fs.existsSync(LOCAL_BANNER_PATH)) {
+    try {
+      return await sendPhoto({ source: fs.createReadStream(LOCAL_BANNER_PATH) }, "local file");
+    } catch (err) {
+      console.error("[/start] local banner failed:", err.message);
+    }
+  } else {
+    console.warn("[bot] ⚠️ Banner file not found:", LOCAL_BANNER_PATH);
   }
-  console.warn(
-    "[bot] ⚠️ Banner not found at:",
-    LOCAL_BANNER_PATH,
-    "— sending text only"
-  );
-  return null;
+
+  const url = bannerUrlIfValid();
+  if (url) {
+    try {
+      return await sendPhoto(url, "url");
+    } catch (err) {
+      console.error("[/start] URL banner failed:", err.message);
+    }
+  }
+
+  await ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {});
+  return false;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -239,20 +274,10 @@ bot.start(async (ctx) => {
 
     clearStep(telegramId);
 
-    const banner = getBannerSource();
-    if (banner) {
-      ctx
-        .replyWithPhoto(banner, {
-          caption: MAIN_MENU_TEXT,
-          ...mainKeyboard(),
-        })
-        .catch((err) => {
-          console.error("[/start] banner send failed:", err.message);
-          ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {});
-        });
-    } else {
-      ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {});
-    }
+    // ምላሹ ወዲያውኑ ይላካል (የ DB ስራ ከታች በ background ነው)
+    sendWelcome(ctx).catch((err) =>
+      console.error("[/start] welcome failed:", err.message)
+    );
 
     getOrCreateUser(ctx, referredBy)
       .then(() => (referredBy ? processReferralBonus(telegramId) : null))
@@ -874,7 +899,7 @@ bot.catch((err, ctx) => {
 // ═══════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════
-async function main(app) {
+async function setupBotProfile() {
   try {
     await bot.telegram.setMyCommands([
       { command: "start", description: "Start" },
@@ -925,10 +950,18 @@ async function main(app) {
       console.error("[bot] Menu button error:", err.message);
     }
   }
+}
+
+async function main(app) {
+  // ✅ FIX: webhook ራውት ወዲያውኑ ይመዘገባል — ከ Telegram ጥሪዎች መጠናቀቅ አይጠብቅም
   const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
   app.use(bot.webhookCallback(webhookPath));
-
   console.log("[bot] Fetan bingo bot registered (webhook mode)");
+
+  // የ commands/description/menu ማዋቀር በ background (ጅምሩን አያዘገይም)
+  setupBotProfile().catch((err) =>
+    console.error("[bot] profile setup failed:", err.message)
+  );
 }
 
 function startBot(app) {

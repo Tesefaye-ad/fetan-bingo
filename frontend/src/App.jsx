@@ -41,7 +41,6 @@ function Login({ onLoggedIn }) {
   const { initData, ready, telegramUser } = useTelegram();
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState("");
-  const [status, setStatus] = useState("በመግባት ላይ...");
 
   useEffect(() => {
     if (!ready) return;
@@ -72,13 +71,11 @@ function Login({ onLoggedIn }) {
     async function handleLogin() {
       // Render free-tier servers sleep; wake it up first, then try login
       // up to 3 times so a cold start never leaves the user on a blank page.
-      setStatus("ሰርቨሩን በማንቃት ላይ...");
       await warmUpServer();
       let lastErr = null;
       for (let i = 1; i <= 3; i++) {
         if (cancelled) return;
         try {
-          setStatus(i === 1 ? "በመግባት ላይ..." : `እንደገና በመሞከር ላይ (${i}/3)...`);
           const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error("Login timeout")), 30000)
           );
@@ -117,6 +114,10 @@ function Login({ onLoggedIn }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, initData, telegramUser?.id, attempt]);
 
+  // የመጫኛ ገጽ (አርማ/ስፒነር/"በመግባት ላይ...") ተወግዷል — በመግባት ላይ ምንም አይታይም።
+  // ስህተት ሲኖር ብቻ መልዕክቱ እና «እንደገና ሞክር» ቁልፍ ይታያሉ።
+  if (!error) return null;
+
   return (
     <div
       style={{
@@ -131,45 +132,24 @@ function Login({ onLoggedIn }) {
         color: "#fff",
       }}
     >
-      <style>{"@keyframes fbspin{to{transform:rotate(360deg)}}"}</style>
       <div style={{ fontSize: 28, fontWeight: 900 }}>🎰 Fetan Bingo</div>
-      {error ? (
-        <>
-          <div style={{ maxWidth: 320, lineHeight: 1.5, opacity: 0.9 }}>
-            {error}
-          </div>
-          {initData && (
-            <button
-              onClick={() => setAttempt((n) => n + 1)}
-              style={{
-                background: "linear-gradient(135deg,#27ae60,#1e8449)",
-                color: "#fff",
-                border: "none",
-                borderRadius: 12,
-                padding: "12px 28px",
-                fontSize: 16,
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-            >
-              🔄 እንደገና ሞክር
-            </button>
-          )}
-        </>
-      ) : (
-        <>
-          <div
-            style={{
-              width: 36,
-              height: 36,
-              border: "4px solid rgba(255,255,255,0.2)",
-              borderTopColor: "#fff",
-              borderRadius: "50%",
-              animation: "fbspin 0.9s linear infinite",
-            }}
-          />
-          <div style={{ opacity: 0.8 }}>{status}</div>
-        </>
+      <div style={{ maxWidth: 320, lineHeight: 1.5, opacity: 0.9 }}>{error}</div>
+      {initData && (
+        <button
+          onClick={() => setAttempt((n) => n + 1)}
+          style={{
+            background: "linear-gradient(135deg,#27ae60,#1e8449)",
+            color: "#fff",
+            border: "none",
+            borderRadius: 12,
+            padding: "12px 28px",
+            fontSize: 16,
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          🔄 እንደገና ሞክር
+        </button>
       )}
     </div>
   );

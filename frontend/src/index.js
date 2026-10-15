@@ -2,6 +2,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import "./index.css";
+import { warmUpServer } from "./api";
+
+// ሰርቨሩን (Render) ወዲያውኑ ማንቃት ጀምር — ማያ ገጹ ሳይጫን
+warmUpServer();
 
 // Shows the real error instead of a blank screen if anything crashes at runtime.
 class ErrorBoundary extends React.Component {

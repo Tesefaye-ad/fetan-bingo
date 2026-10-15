@@ -140,12 +140,19 @@ export function useTelegram() {
 // ═══════════════════════════════════════════════════════
 // SERVER WARM-UP (Render free tier sleeps after inactivity)
 // ═══════════════════════════════════════════════════════
-export async function warmUpServer() {
-  try {
-    await axios.get(`${API_BASE_URL}/health`, { timeout: 45000 });
-  } catch (e) {
-    /* ignore — login will report the real error */
+// ✅ አንድ ጊዜ ብቻ ይላካል (memoized) — index.js ቀድሞ ሲጠራው ሰርቨሩ
+// ገና Telegram SDK ሳይዘጋጅ መንቃት ይጀምራል፤ ስለዚህ መግባት ፈጣን ይሆናል።
+let warmUpPromise = null;
+export function warmUpServer() {
+  if (!warmUpPromise) {
+    warmUpPromise = axios
+      .get(`${API_BASE_URL}/health`, { timeout: 45000 })
+      .then(() => undefined)
+      .catch(() => {
+        /* ignore — login will report the real error */
+      });
   }
+  return warmUpPromise;
 }
 
 // ═══════════════════════════════════════════════════════
