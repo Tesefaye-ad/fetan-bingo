@@ -14,10 +14,11 @@ require("dotenv").config();
   ];
   const opt = [{ name: "MERCHANT_SMS_TOKEN", minLen: 24 }];
 
+  // 🔒 FIX: ዋናውን ስም (MONGO_URI) እና ሁሉንም aliases (MONGODB_URI) ይፈትሻል
   const pick = (r) =>
-    r.aliases
-      ? r.aliases.map((a) => process.env[a]).find(Boolean)
-      : process.env[r.name];
+    [r.name, ...(r.aliases || [])]
+      .map((n) => (process.env[n] || "").trim())
+      .find(Boolean);
 
   for (const r of req) {
     const v = pick(r);
@@ -42,7 +43,10 @@ require("dotenv").config();
     console.error("\n❌ ENV VALIDATION FAILED:");
     for (const e of errors) console.error("  • " + e);
     console.error("");
-  
+    console.error("[env] ⚠️ Fix the variables above in Render → Environment.");
+    if (process.env.NODE_ENV !== "test") process.exit(1); // ❗ ሳይስተካከል አይነሳም
+  } else {
+    console.log("[env] ✅ Validation passed");
   }
 
   const mask = (v) =>
@@ -50,7 +54,6 @@ require("dotenv").config();
       ? "****"
       : String(v).slice(0, 4) + "…" + String(v).slice(-4);
 
-  console.log("[env] ✅ Validation passed");
   console.log(`[env] ADMIN_TELEGRAM_IDS = ${process.env.ADMIN_TELEGRAM_IDS}`);
   console.log(`[env] JWT_SECRET = ${mask(process.env.JWT_SECRET)}`);
   console.log(`[env] TELEGRAM_BOT_TOKEN = ${mask(process.env.TELEGRAM_BOT_TOKEN)}`);
@@ -243,7 +246,7 @@ try {
   startBot(app).then(() => {
     const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
     const RENDER_URL =
-      process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-he4x.onrender.com`;
+      process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-ra58.onrender.com`;
 
     setTimeout(async () => {
       try {
@@ -268,4 +271,6 @@ process.on("unhandledRejection", (r) =>
 );
 process.on("uncaughtException", (e) => {
   console.error("[uncaughtException]", e);
+  // ሰርቨሩ በተበላሸ ሁኔታ እንዳይቀጥል — Render በራሱ እንደገና ያስነሳዋል
+  setTimeout(() => process.exit(1), 1000).unref();
 });

@@ -3,7 +3,7 @@ import { syncClock } from "./serverClock";
 import { io } from "socket.io-client";
 import { useState, useEffect, useRef, useMemo } from "react";
 
-const API_BASE_URL =
+export const API_BASE_URL =
   process.env.REACT_APP_API_URL || "https://fetan-bingo-ra58.onrender.com";
 
 // ═══════════════════════════════════════════════════════
@@ -135,6 +135,17 @@ export function useTelegram() {
 
   const webApp = useMemo(() => getTg(), []);
   return { telegramUser, initData, isTelegram, ready, webApp };
+}
+
+// ═══════════════════════════════════════════════════════
+// SERVER WARM-UP (Render free tier sleeps after inactivity)
+// ═══════════════════════════════════════════════════════
+export async function warmUpServer() {
+  try {
+    await axios.get(`${API_BASE_URL}/health`, { timeout: 45000 });
+  } catch (e) {
+    /* ignore — login will report the real error */
+  }
 }
 
 // ═══════════════════════════════════════════════════════

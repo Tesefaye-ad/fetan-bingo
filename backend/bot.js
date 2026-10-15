@@ -33,7 +33,14 @@ const BANNER_IMAGE_URL = process.env.BOT_BANNER_URL || null;
 const LOCAL_BANNER_PATH = path.join(__dirname, "assets", "fb.jpg");
 
 function getBannerSource() {
-  if (BANNER_IMAGE_URL && BANNER_IMAGE_URL.startsWith("http")) {
+  // Telegram needs a DIRECT image link (e.g. https://i.ibb.co/xxx/pic.jpg),
+  // not an HTML page like https://ibb.co/xxxx — those always fail.
+  const isDirectImage =
+    BANNER_IMAGE_URL &&
+    /^https?:\/\//.test(BANNER_IMAGE_URL) &&
+    (/\.(jpe?g|png|webp)(\?.*)?$/i.test(BANNER_IMAGE_URL) ||
+      /^https?:\/\/i\.ibb\.co\//i.test(BANNER_IMAGE_URL));
+  if (isDirectImage) {
     return BANNER_IMAGE_URL;
   }
   if (fs.existsSync(LOCAL_BANNER_PATH, fs.constants.F_OK)) {
