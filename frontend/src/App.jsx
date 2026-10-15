@@ -117,23 +117,9 @@ function Login({ onLoggedIn }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, initData, telegramUser?.id, attempt]);
 
-  // ✅ FIX: Loading spinner ተጨምሯል (ባዶ ገጽ ሳይሆን)
+  // ✅ FIX: አሁን ባዶ ገጽ ሳይሆን ቀጥታ የGameLobby ገጽ ያሳያል (ቁልፎቹ ጊዜያዊ እንዳይሰሩ ተደርገዋል)
   if (loading && !error) {
-    return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          background:
-            "linear-gradient(180deg, #0a0a14 0%, #150a2e 50%, #0a0a14 100%)",
-        }}
-      >
-        {/* 🎰 ኢሞጂ፣ Fetan Bingo ጽሑፍ፣ Spinner እና "በመግባት ላይ..." ተወግደዋል */}
-      </div>
-    );
+    return <GameLobby onPlayStake={() => {}} isLoading={true} />;
   }
 
   if (!error) return null;
@@ -207,10 +193,11 @@ function Login({ onLoggedIn }) {
 // ═══════════════════════════════════════════════════════
 // GAME LOBBY
 // ═══════════════════════════════════════════════════════
-function GameButton({ fee, color1, color2, glowColor, onPlay }) {
+function GameButton({ fee, color1, color2, glowColor, onPlay, isLoading }) {
   return (
     <button
-      onClick={() => onPlay(fee)}
+      onClick={() => !isLoading && onPlay(fee)}
+      disabled={isLoading}
       style={{
         width: "100%",
         background: `linear-gradient(135deg, ${color1} 0%, ${color2} 100%)`,
@@ -218,7 +205,7 @@ function GameButton({ fee, color1, color2, glowColor, onPlay }) {
         border: "none",
         borderRadius: 14,
         padding: "18px 24px",
-        cursor: "pointer",
+        cursor: isLoading ? "not-allowed" : "pointer",
         boxShadow: `0 8px 24px ${glowColor}66, 0 4px 12px ${glowColor}44, inset 0 1px 0 rgba(255,255,255,0.2)`,
         display: "flex",
         alignItems: "center",
@@ -226,20 +213,21 @@ function GameButton({ fee, color1, color2, glowColor, onPlay }) {
         gap: 10,
         position: "relative",
         overflow: "hidden",
-        transition: "transform 0.1s ease",
+        transition: "transform 0.1s ease, opacity 0.2s ease",
         fontFamily: "inherit",
+        opacity: isLoading ? 0.6 : 1,
       }}
       onMouseDown={(e) => {
-        e.currentTarget.style.transform = "scale(0.98)";
+        if (!isLoading) e.currentTarget.style.transform = "scale(0.98)";
       }}
       onMouseUp={(e) => {
-        e.currentTarget.style.transform = "scale(1)";
+        if (!isLoading) e.currentTarget.style.transform = "scale(1)";
       }}
       onTouchStart={(e) => {
-        e.currentTarget.style.transform = "scale(0.98)";
+        if (!isLoading) e.currentTarget.style.transform = "scale(0.98)";
       }}
       onTouchEnd={(e) => {
-        e.currentTarget.style.transform = "scale(1)";
+        if (!isLoading) e.currentTarget.style.transform = "scale(1)";
       }}
     >
       <div
@@ -251,7 +239,7 @@ function GameButton({ fee, color1, color2, glowColor, onPlay }) {
           height: "100%",
           background:
             "linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)",
-          animation: "shine 3s infinite",
+          animation: isLoading ? "none" : "shine 3s infinite",
           pointerEvents: "none",
         }}
       />
@@ -280,7 +268,7 @@ function GameButton({ fee, color1, color2, glowColor, onPlay }) {
   );
 }
 
-function GameLobby({ onPlayStake }) {
+function GameLobby({ onPlayStake, isLoading }) {
   function play(fee) {
     onPlayStake(fee, SHARED_ROOMS[fee] || `ROOM${fee}`);
   }
@@ -368,6 +356,7 @@ function GameLobby({ onPlayStake }) {
             color1="#10b981"
             color2="#059669"
             glowColor="#10b981"
+            isLoading={isLoading}
           />
           <GameButton
             onPlay={play}
@@ -375,6 +364,7 @@ function GameLobby({ onPlayStake }) {
             color1="#06b6d4"
             color2="#0891b2"
             glowColor="#06b6d4"
+            isLoading={isLoading}
           />
         </div>
       </div>
@@ -423,6 +413,7 @@ function GameLobby({ onPlayStake }) {
             color1="#8b5cf6"
             color2="#7c3aed"
             glowColor="#8b5cf6"
+            isLoading={isLoading}
           />
           <GameButton
             onPlay={play}
@@ -430,6 +421,7 @@ function GameLobby({ onPlayStake }) {
             color1="#f59e0b"
             color2="#d97706"
             glowColor="#f59e0b"
+            isLoading={isLoading}
           />
         </div>
       </div>
