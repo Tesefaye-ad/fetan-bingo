@@ -220,23 +220,29 @@ setTimeout(runCleanup, 60000);
 
 // 👈 ከዚያ በየቀኑ (2 ሳምንት ሳይሆን)
 setInterval(runCleanup, ONE_DAY);
+
 // ═══════════════════════════════════════════════════════
 // KEEP-ALIVE (Render cold start)
 // ═══════════════════════════════════════════════════════
-const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+// ✅ FIX: የራስን አድራሻ ማስተካከል — localhost ሳይሆን የ Render URL መጠቀም አለበት
+// ምክንያቱም localhost ማለት ሰርቨሩ ራሱን በውስጥ ብቻ ይጎበኛል፣ ይህ ደግሞ Render እንዳይተኛ አያደርገውም
+const SELF_URL = process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-ra58.onrender.com`;
 
+// ✅ FIX: ከ 10 ደቂቃ ወደ 4 ደቂቃ ቀንሷል — Render ከ15 ደቂቃ በኋላ ስለሚተኛ
 setInterval(async () => {
   try {
     await fetch(`${SELF_URL}/health`);
+    console.log("[keep-alive] Ping sent"); // ለማረጋገጫ
   } catch (err) {}
-}, 10 * 60 * 1000);
+}, 4 * 60 * 1000);
 
+// ✅ FIX: ከ 10 ሰከንድ ወደ 5 ሰከንድ ቀንሷል
 setTimeout(async () => {
   try {
     await fetch(`${SELF_URL}/health`);
     console.log("[keep-alive] Initial ping");
   } catch (err) {}
-}, 10000);
+}, 5000);
 
 // ═══════════════════════════════════════════════════════
 // TELEGRAM BOT WEBHOOK
