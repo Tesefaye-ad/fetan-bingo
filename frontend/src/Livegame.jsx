@@ -452,6 +452,7 @@ function UserCard({ card, marked, cardId, lastNumber, cardCount = 1 }) {
 // ═══════════════════════════════════════════════════════
 // CURRENT NUMBER — Beautiful Animated Display
 // ✅ FIX: flashNumber prop ተወግዷል (ጥቅም ላይ አይውልም)
+// ✅ FIX: የክቡ መጠን ወደ 64 ተመልሷል (ሳጥኑ 68 ስለሚሆን)
 // ═══════════════════════════════════════════════════════
 function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey }) {
   if (!lastInfo) {
@@ -1111,6 +1112,7 @@ export default function LiveGame({
               minHeight: 0,
             }}
           >
+            {/* ✅ FIX: ይህ ሳጥን ነው ቁመቱ 68 የሆነው (ክቡን እና ድምጹን የያዘው) */}
             <div
               style={{
                 background: lastInfo
@@ -1120,8 +1122,10 @@ export default function LiveGame({
                   ? `2px solid ${lastInfo?.color || "#ffd43b"}`
                   : "2px solid #f39c12",
                 borderRadius: 12,
-                padding: "12px 6px 10px",
-                textAlign: "center",
+                height: 68,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
                 position: "relative",
                 overflow: "visible",
                 boxShadow: flashNumber
@@ -1152,7 +1156,6 @@ export default function LiveGame({
               >
                 {soundOn ? "🔊" : "🔇"}
               </button>
-
               {/* ✅ FIX: flashNumber prop ተወግዷል */}
               <CurrentNumber
                 lastInfo={lastInfo}
@@ -1718,7 +1721,6 @@ export default function LiveGame({
     </>
   );
 }
-
 function Stat({ icon, label, value, color = "#fff", size = 16 }) {
   return (
     <div style={{ textAlign: "center", padding: "2px 0" }}>
