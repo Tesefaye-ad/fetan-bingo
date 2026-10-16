@@ -40,7 +40,6 @@ function buildBoard() {
   return out;
 }
 
-// ✅ FIX: buildBoard በየ render አዲስ array እንዳይፈጥር — አንድ ጊዜ ብቻ
 const BOARD = buildBoard();
 
 // ═══════════════════════════════════════════════════════
@@ -448,7 +447,7 @@ function UserCard({ card, marked, cardId, lastNumber, cardCount = 1 }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// CURRENT NUMBER — Beautiful Animated Display (FIXED)
+// CURRENT NUMBER — Beautiful Animated Display
 // ═══════════════════════════════════════════════════════
 function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey }) {
   if (!lastInfo) {
@@ -963,6 +962,36 @@ export default function LiveGame({
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
   const cardCount = cards.length || 1;
 
+  // ✅ FIX: የአሸናፊዎችን ብዛት በራስ-ሰር ማስላት (ከ winningCartelas በመነሳት)
+  const uniqueWinners = useMemo(() => {
+    if (!bingoPopup) return [];
+    
+    // አስቀድመን bingoPopup.winners ካለ እንጠቀምበት
+    if (bingoPopup.winners && bingoPopup.winners.length > 0) {
+      return bingoPopup.winners;
+    }
+    
+    // ካሌለ ከ winningCartelas በመሰብሰብ እንፍጠር
+    const map = new Map();
+    (bingoPopup.winningCartelas || []).forEach(wc => {
+      const key = wc.telegramId || wc.name || Math.random().toString();
+      if (!map.has(key)) {
+        map.set(key, { 
+          name: wc.name || "User", 
+          telegramId: wc.telegramId, 
+          cartelas: [], 
+          prize: 0, 
+          newBalance: wc.newBalance 
+        });
+      }
+      const w = map.get(key);
+      w.cartelas.push(wc.cardId);
+      w.prize += (wc.prize || 0);
+      if (wc.newBalance !== undefined) w.newBalance = wc.newBalance;
+    });
+    return Array.from(map.values());
+  }, [bingoPopup]);
+
   const animationStyles = `
     @keyframes popIn {
       0% { transform: scale(0); opacity: 0; }
@@ -1032,12 +1061,15 @@ export default function LiveGame({
   `;
 
   const findWinnerByCartela = (wc) => {
-    if (!bingoPopup?.winners) return null;
-    return bingoPopup.winners.find(
-      (w) =>
-        (w.telegramId && wc.telegramId && w.telegramId === wc.telegramId) ||
-        (Array.isArray(w.cartelas) && w.cartelas.includes(wc.cardId))
-    );
+    if (!bingoPopup) return null;
+    if (bingoPopup.winners && bingoPopup.winners.length > 0) {
+      return bingoPopup.winners.find(
+        (w) =>
+          (w.telegramId && wc.telegramId && w.telegramId === wc.telegramId) ||
+          (Array.isArray(w.cartelas) && w.cartelas.includes(wc.cardId))
+      );
+    }
+    return wc;
   };
 
   return (
@@ -1101,7 +1133,6 @@ export default function LiveGame({
               minHeight: 0,
             }}
           >
-            {/* ✅ FIX: ይህ ሳጥን ነው ቁመቱ ከፍ የተደረገው (ክቡን እና ድምጹን የያዘው) */}
             <div
               style={{
                 background: lastInfo
@@ -1111,13 +1142,13 @@ export default function LiveGame({
                   ? `2px solid ${lastInfo?.color || "#ffd43b"}`
                   : "2px solid #f39c12",
                 borderRadius: 16,
-                minHeight: 100, // ✅ ቁመቱ ተጨምሯል
+                minHeight: 100,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 position: "relative",
                 overflow: "visible",
-                padding: "8px 0", // ✅ ክፍተት ተፈጥሯል
+                padding: "12px 0",
                 boxShadow: flashNumber
                   ? `0 0 25px ${lastInfo?.color || "#ffd43b"}99`
                   : `0 0 15px ${lastInfo?.color || "#f39c12"}44`,
@@ -1394,6 +1425,7 @@ export default function LiveGame({
                   >
                     BINGO!
                   </h2>
+                  {/* ✅ FIX: የአሸናፊዎች ብዛት በራስ-ሰር ይሰላል */}
                   <div
                     style={{
                       color: "#fff",
@@ -1402,8 +1434,7 @@ export default function LiveGame({
                       fontWeight: "bold",
                     }}
                   >
-                    🎉 {bingoPopup.winners.length} winner
-                    {bingoPopup.winners.length > 1 ? "s" : ""}!
+                    🎉 {uniqueWinners.length} {uniqueWinners.length === 1 ? "Winner" : "Winners"}!
                   </div>
                 </div>
               </div>
@@ -1432,97 +1463,86 @@ export default function LiveGame({
                 </span>
               </div>
 
-              <div
-                style={{
-                  background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
-                  border: "2px solid #f39c12",
-                  borderRadius: 12,
-                  padding: 8,
-                  width: "100%",
-                  maxWidth: 360,
-                  marginBottom: 10,
-                  flexShrink: 0,
-                }}
-              >
+              {/* ✅ FIX: የአሸናፊዎች ዝርዝር (ስም፣ ካርቴላ፣ ደራሽ) */}
+              {uniqueWinners.length > 0 && (
                 <div
                   style={{
-                    color: "#f39c12",
-                    fontSize: 10,
-                    fontWeight: "bold",
-                    textAlign: "center",
-                    marginBottom: 6,
-                    letterSpacing: 1,
+                    background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
+                    border: "2px solid #f39c12",
+                    borderRadius: 12,
+                    padding: 8,
+                    width: "100%",
+                    maxWidth: 360,
+                    marginBottom: 10,
+                    flexShrink: 0,
                   }}
                 >
-                  🏆 WINNERS
-                </div>
-                {bingoPopup.winners.slice(0, 3).map((w, i) => (
                   <div
-                    key={i}
                     style={{
-                      background: "#0f1420",
-                      border: "1px solid #2a2a40",
-                      borderRadius: 8,
-                      padding: "6px 8px",
-                      marginBottom:
-                        i < Math.min(bingoPopup.winners.length, 3) - 1
-                          ? 5
-                          : 0,
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
+                      color: "#f39c12",
+                      fontSize: 10,
+                      fontWeight: "bold",
+                      textAlign: "center",
+                      marginBottom: 6,
+                      letterSpacing: 1,
                     }}
                   >
-                    <div>
-                      <div
-                        style={{
-                          color: "#fff",
-                          fontSize: 12,
-                          fontWeight: "bold",
-                        }}
-                      >
-                        👤 {w.name}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 9,
-                          color: "#888",
-                          marginTop: 1,
-                        }}
-                      >
-                        🎴 #{w.cartelas.join(", #")} • 💰 {w.newBalance} ETB
-                      </div>
-                    </div>
+                    🏆 አሸናፊዎች (WINNERS)
+                  </div>
+                  {uniqueWinners.map((w, i) => (
                     <div
+                      key={i}
                       style={{
-                        background: "rgba(46,204,113,0.2)",
-                        color: "#2ecc71",
-                        borderRadius: 20,
-                        padding: "3px 8px",
-                        fontSize: 11,
-                        fontWeight: "bold",
-                        flexShrink: 0,
-                        marginLeft: 6,
+                        background: "#0f1420",
+                        border: "1px solid #2a2a40",
+                        borderRadius: 8,
+                        padding: "6px 8px",
+                        marginBottom: i < uniqueWinners.length - 1 ? 5 : 0,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
                       }}
                     >
-                      +{w.prize}
+                      <div>
+                        <div
+                          style={{
+                            color: "#fff",
+                            fontSize: 12,
+                            fontWeight: "bold",
+                          }}
+                        >
+                          👤 {w.name}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 9,
+                            color: "#888",
+                            marginTop: 1,
+                          }}
+                        >
+                          🎴 #{w.cartelas.join(", #")}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          background: "rgba(46,204,113,0.2)",
+                          color: "#2ecc71",
+                          borderRadius: 20,
+                          padding: "3px 8px",
+                          fontSize: 11,
+                          fontWeight: "bold",
+                          flexShrink: 0,
+                          marginLeft: 6,
+                        }}
+                      >
+                        +{w.prize} ETB
+                      </div>
                     </div>
-                  </div>
-                ))}
-                {bingoPopup.winners.length > 3 && (
-                  <div
-                    style={{
-                      textAlign: "center",
-                      color: "#888",
-                      fontSize: 10,
-                      marginTop: 4,
-                    }}
-                  >
-                    +{bingoPopup.winners.length - 3} ተጨማሪ
-                  </div>
-                )}
-              </div>
+                  ))}
+                </div>
+              )}
 
+              {/* WINNING CARTELAS */}
               {bingoPopup.winningCartelas?.length > 0 && (
                 <div
                   style={{
@@ -1551,7 +1571,7 @@ export default function LiveGame({
 
                   {bingoPopup.winningCartelas.slice(0, 2).map((wc, idx) => {
                     const owner = findWinnerByCartela(wc);
-                    const prizeAmount = owner?.prize ?? null;
+                    const prizeAmount = owner?.prize ?? wc.prize ?? null;
 
                     return (
                       <div key={idx} style={{ marginBottom: 10 }}>

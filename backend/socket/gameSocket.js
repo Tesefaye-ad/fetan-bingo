@@ -21,12 +21,12 @@ const { notifyWinnersGroup } = require("../services/winnerNotify");
 const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 1500);
 const FIRST_CALL_DELAY_MS = Number(process.env.FIRST_CALL_DELAY_MS || 1500);
 const WINNER_DISPLAY_MS = 6000;
-const RECONCILE_MS = 2000;             // 👈 500 → 2000
+const RECONCILE_MS = 2000;
 const ARM_WINDOW_MS = 1500;
 const PRIZE_SHARE = Number(process.env.PRIZE_SHARE || 0.8);
 const MAX_ACTIVE_USERS = 20000;
 const MIN_PLAYERS = Math.max(1, Number(process.env.MIN_PLAYERS || 2));
-const CARD_BATCH_MS = 250;             // 👈 new — card select batching window
+const CARD_BATCH_MS = 250;
 
 const runtimes = new Map();
 const startTimers = new Map();
@@ -35,10 +35,10 @@ const lockTails = new Map();
 const activeUserIds = new Set();
 
 // ═══════════════════════════════════════════════════════
-// 👈 NEW: card-selection batching per room
-//    90 selections/sec → 4 emits/sec (250x reduction)
+// Card-selection batching per room
+// 90 selections/sec → 4 emits/sec (250x reduction)
 // ═══════════════════════════════════════════════════════
-const cardBatches = new Map(); // roomCode -> { cardIds: Set, timer }
+const cardBatches = new Map();
 
 // User -> Set<Socket>
 const userSockets = new Map();
@@ -117,7 +117,7 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // 👈 NEW: batched card broadcast helper
+  // Batched card broadcast helper
   // ═══════════════════════════════════════════════════════
   function queueCardBroadcast(roomCode, cardId) {
     let b = cardBatches.get(roomCode);
@@ -384,11 +384,6 @@ function initGameSocket(io) {
         candidates.add(hit.player);
       }
 
-      // ═══════════════════════════════════════════════════════
-      // 👈 OPTIMIZED: only send the NEW number (40 bytes)
-      //    Old: calledNumbers array ~500 bytes (92% cut)
-      //    Client rebuilds the array itself.
-      // ═══════════════════════════════════════════════════════
       io.to(rt.roomCode).emit("number_called", {
         number: num,
         letter: letterFor(num),
@@ -431,12 +426,14 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // WINNERS
+  // WINNERS — ✅ ደራሹ ለእያንዳንዱ ተጠቃሚ በእኩል ይከፈላል
   // ═══════════════════════════════════════════════════════
   async function processWinners(rt, winners) {
     clearTimeout(rt.timer);
     try {
+      // ✅ 1. ልዩ ተጠቃሚዎችን (unique users) መለየት
       const userIds = [...new Set(winners.map((w) => w.player.userId))];
+      
       const users = await User.find({ _id: { $in: userIds } }).select(
         "username firstName telegramId"
       );
@@ -451,14 +448,17 @@ function initGameSocket(io) {
         marked: player.marked,
       }));
 
-      const prizePerCartela = Math.floor(
-        rt.prizePool / winningCartelas.length
-      );
+      // ✅ 2. ደራሹን በልዩ ተጠቃሚዎች ብዛት እኩል መከፋፈል
+      // (በካርቴላ ብዛት አይደለም — አንድ ሰው ብዙ ካርቴላ ቢያሸንፍም እኩል ይወስዳል)
+      const prizePerUser = Math.floor(rt.prizePool / userIds.length);
 
       const panel = [];
       for (const userId of userIds) {
         const mine = winners.filter((w) => w.player.userId === userId);
-        const prize = prizePerCartela * mine.length;
+        
+        // ✅ ሁሉም ተጠቃሚ እኩል ይወስዳል (የካርቴላ ብዛት ምንም ለውጥ አያመጣም)
+        const prize = prizePerUser;
+        
         let prizeTx;
         try {
           prizeTx = await Transaction.create({
@@ -474,6 +474,7 @@ function initGameSocket(io) {
           if (e.code === 11000) continue;
           throw e;
         }
+        
         const updated = await User.findByIdAndUpdate(
           userId,
           {
@@ -512,12 +513,16 @@ function initGameSocket(io) {
         { $set: { winners: userIds, winningCartelas } }
       );
 
+      // ✅ በደራሽ ቅደም ተከተል (እኩል ስለሆኑ በስም ማደርደር)
+      const sortedPanel = [...panel].sort((a, b) => b.prize - a.prize);
+
       const payload = {
         winPattern: rt.pattern,
         prizePool: rt.prizePool,
-        prizePerCartela,
+        prizePerUser, // ✅ አዲስ (per user)
         totalCartelas: winningCartelas.length,
-        winners: panel,
+        winnerCount: sortedPanel.length,
+        winners: sortedPanel,
         winningCartelas: winningCartelas.map((w) => ({
           telegramId: w.telegramId,
           name: w.name,
@@ -529,7 +534,16 @@ function initGameSocket(io) {
         displayMs: WINNER_DISPLAY_MS,
         serverTime: Date.now(),
       };
+
       rt.result = { payload, shownAt: Date.now() };
+
+      console.log(
+        `[winners:${rt.roomCode}] ✅ ${sortedPanel.length} user(s) — ` +
+          `prizePool=${rt.prizePool}ETB, perUser=${prizePerUser}ETB, ` +
+          `cartelas=${winningCartelas.length} — ` +
+          sortedPanel.map((w) => `${w.name}(${w.prize}ETB)`).join(", ")
+      );
+
       io.to(rt.roomCode).emit("bingo_claimed", payload);
     } catch (err) {
       console.error(`[processWinners:${rt.roomCode}]`, err);
@@ -593,6 +607,7 @@ function initGameSocket(io) {
       io.to(roomCode).emit("game_over", {
         winners: winningCartelas,
         totalWinners: winningCartelas.length,
+        winnerCount: panel.length,
         prizePool: rt.prizePool,
         winPattern: rt.pattern,
         nextGame: fresh ? rooms.publicState(fresh) : null,
@@ -790,7 +805,6 @@ function initGameSocket(io) {
       reconciling = false;
     }
   }
-  // 👈 OPTIMIZED: 500ms → 2000ms
   setInterval(reconcile, RECONCILE_MS);
 
   (async function boot() {
@@ -905,7 +919,6 @@ function initGameSocket(io) {
         const deadline = deadlineOf(game);
         if (deadline <= Date.now()) return fail("⏱ ሰዓቱ አልቋል");
 
-        // 👈 NEW: room cap check
         const totalCards =
           (game.reservedCards?.length || 0) + (game.players?.length || 0);
         if (totalCards >= rooms.MAX_CARDS_PER_ROOM) {
@@ -967,10 +980,6 @@ function initGameSocket(io) {
           meta: { action: "reserve", cardId },
         });
 
-        // ═══════════════════════════════════════════════════════
-        // 👈 OPTIMIZED: batched broadcast instead of immediate
-        //    90 selections/s → 4 emits/s (250x reduction)
-        // ═══════════════════════════════════════════════════════
         queueCardBroadcast(roomCode, cardId);
         socket.emit("balance_update", { balance: user.balance });
       } catch (err) {
@@ -1009,7 +1018,6 @@ function initGameSocket(io) {
           cardId,
         });
 
-        // 👈 renamed from card_deselected to card_released
         io.to(roomCode).emit("card_released", { cardId });
       } catch (err) {
         console.error("[deselect_card]", err);
