@@ -121,7 +121,6 @@ function PatternPreview({ pattern, size = 70 }) {
 
 // ═══════════════════════════════════════════════════════
 // CONFETTI
-// ✅ FIX: Math.random በ useMemo ውስጥ — በየ render አይቀየርም
 // ═══════════════════════════════════════════════════════
 function Confetti() {
   const pieces = useMemo(() => {
@@ -270,7 +269,6 @@ function NumberTracker({ calledNumbers, lastNumber }) {
           gap: 2,
         }}
       >
-        {/* ✅ FIX: BOARD (memoized) ተጠቅመናል */}
         {BOARD.map((n) => {
           const info = getLetter(n);
           const called = calledNumbers.includes(n);
@@ -450,9 +448,7 @@ function UserCard({ card, marked, cardId, lastNumber, cardCount = 1 }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// CURRENT NUMBER — Beautiful Animated Display
-// ✅ FIX: flashNumber prop ተወግዷል (ጥቅም ላይ አይውልም)
-// ✅ FIX: የክቡ መጠን ወደ 64 ተመልሷል (ሳጥኑ 68 ስለሚሆን)
+// CURRENT NUMBER — Beautiful Animated Display (FIXED)
 // ═══════════════════════════════════════════════════════
 function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey }) {
   if (!lastInfo) {
@@ -469,7 +465,7 @@ function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey }) {
         <div
           style={{
             position: "absolute",
-            inset: 0,
+            inset: -2,
             borderRadius: "50%",
             border: "2px solid #f39c12",
             animation: "pulseRing1 2s ease-in-out infinite",
@@ -479,7 +475,7 @@ function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey }) {
         <div
           style={{
             position: "absolute",
-            inset: 0,
+            inset: -4,
             borderRadius: "50%",
             border: "2px solid #f39c12",
             animation: "pulseRing2 2s ease-in-out 0.5s infinite",
@@ -524,18 +520,18 @@ function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey }) {
       <div
         style={{
           position: "absolute",
-          inset: 0,
+          inset: -2,
           borderRadius: "50%",
           border: `2px solid ${lastInfo.color}`,
           animation: "pulseRing1 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite",
           pointerEvents: "none",
-          boxShadow: `0 0 15px ${lastInfo.color}`,
+          boxShadow: `0 0 10px ${lastInfo.color}`,
         }}
       />
       <div
         style={{
           position: "absolute",
-          inset: 0,
+          inset: -5,
           borderRadius: "50%",
           border: `2px solid ${lastInfo.color}cc`,
           animation:
@@ -546,7 +542,7 @@ function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey }) {
       <div
         style={{
           position: "absolute",
-          inset: 0,
+          inset: -8,
           borderRadius: "50%",
           border: `2px solid ${lastInfo.color}99`,
           animation:
@@ -567,7 +563,7 @@ function CurrentNumber({ lastInfo, lastLetter, lastNumber, numberAnimKey }) {
       <div
         style={{
           position: "absolute",
-          inset: -12,
+          inset: -6,
           borderRadius: "50%",
           background: `radial-gradient(circle, 
                        ${lastInfo.color}33 0%, 
@@ -685,9 +681,7 @@ export default function LiveGame({
   const soundOnRef = useRef(true);
   const cardsReceivedRef = useRef(false);
   const retryTimerRef = useRef(null);
-  // ✅ FIX: ሁሉንም retry timers ለማጽዳት
   const retryTimersRef = useRef([]);
-  // ✅ FIX: unmount የተረጋገጠ ነው?
   const mountedRef = useRef(true);
   const onConnectOnceRef = useRef(null);
 
@@ -710,7 +704,6 @@ export default function LiveGame({
   const fallbackTimerRef = useRef(null);
   const countdownTimerRef = useRef(null);
 
-  // ✅ FIX: mountedRef ለ unmount ይዘጋጃል
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -737,7 +730,6 @@ export default function LiveGame({
     const socket = getSocket();
     socketRef.current = socket;
 
-    // ✅ FIX: mountedRef ጥበቃ
     const emitJoin = (reason = "initial") => {
       if (!mountedRef.current) return;
       if (!socket.connected) return;
@@ -931,8 +923,6 @@ export default function LiveGame({
         socket.once("connect", onConnectOnce);
       }
 
-      // ✅ FIX: ሁሉንም retry timers በ array ውስጥ ያስቀምጡ
-      // (ከዚህ በፊት 3s/5s timers አልተቀመጡም → ከ unmount በኋላ ይቀጥሉ ነበር)
       retryTimersRef.current = [
         setTimeout(() => emitJoin("retry-1.5s"), 1500),
         setTimeout(() => emitJoin("retry-3s"), 3000),
@@ -941,7 +931,6 @@ export default function LiveGame({
     }
 
     return () => {
-      // ✅ FIX: ሁሉንም retry timers አጽዳ
       retryTimersRef.current.forEach(clearTimeout);
       retryTimersRef.current = [];
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
@@ -1008,15 +997,15 @@ export default function LiveGame({
     }
     @keyframes pulseRing1 {
       0%   { transform: scale(1);    opacity: 0.8; }
-      100% { transform: scale(1.9);  opacity: 0; }
+      100% { transform: scale(1.5);  opacity: 0; }
     }
     @keyframes pulseRing2 {
       0%   { transform: scale(1);    opacity: 0.7; }
-      100% { transform: scale(2.2);  opacity: 0; }
+      100% { transform: scale(1.7);  opacity: 0; }
     }
     @keyframes pulseRing3 {
       0%   { transform: scale(1);    opacity: 0.6; }
-      100% { transform: scale(2.5);  opacity: 0; }
+      100% { transform: scale(1.9);  opacity: 0; }
     }
     @keyframes shimmer {
       0%   { background-position: -200% center; }
@@ -1024,11 +1013,11 @@ export default function LiveGame({
     }
     @keyframes blink {
       0%, 100% {
-        box-shadow: 0 0 18px currentColor, 0 0 32px currentColor;
+        box-shadow: 0 0 15px currentColor, 0 0 25px currentColor;
         opacity: 0.92;
       }
       50% {
-        box-shadow: 0 0 22px currentColor, 0 0 38px currentColor;
+        box-shadow: 0 0 20px currentColor, 0 0 35px currentColor;
         opacity: 1;
       }
     }
@@ -1112,51 +1101,53 @@ export default function LiveGame({
               minHeight: 0,
             }}
           >
-            {/* ✅ FIX: ይህ ሳጥን ነው ቁመቱ 68 የሆነው (ክቡን እና ድምጹን የያዘው) */}
+            {/* ✅ FIX: ይህ ሳጥን ነው ቁመቱ ከፍ የተደረገው (ክቡን እና ድምጹን የያዘው) */}
             <div
               style={{
                 background: lastInfo
-                  ? `linear-gradient(135deg, ${lastInfo.color}33 0%, #1a1a2e 40%, #0f1420 100%)`
+                  ? `linear-gradient(135deg, ${lastInfo.color}22 0%, #1a1a2e 40%, #0f1420 100%)`
                   : "linear-gradient(135deg, #1a1a2e, #0f1420)",
                 border: flashNumber
                   ? `2px solid ${lastInfo?.color || "#ffd43b"}`
                   : "2px solid #f39c12",
-                borderRadius: 12,
-                height: 68,
+                borderRadius: 16,
+                minHeight: 100, // ✅ ቁመቱ ተጨምሯል
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 position: "relative",
                 overflow: "visible",
+                padding: "8px 0", // ✅ ክፍተት ተፈጥሯል
                 boxShadow: flashNumber
                   ? `0 0 25px ${lastInfo?.color || "#ffd43b"}99`
-                  : `0 0 12px ${lastInfo?.color || "#f39c12"}55`,
+                  : `0 0 15px ${lastInfo?.color || "#f39c12"}44`,
                 transition: "all 0.3s ease",
                 flexShrink: 0,
+                marginBottom: 6,
               }}
             >
               <button
                 onClick={() => setSoundOn((s) => !s)}
                 style={{
                   position: "absolute",
-                  top: 4,
-                  right: 4,
+                  top: 6,
+                  right: 6,
                   background: soundOn
                     ? "linear-gradient(135deg, #2ecc71, #27ae60)"
                     : "#555",
                   color: "#fff",
                   border: "none",
-                  borderRadius: 5,
-                  padding: "2px 5px",
-                  fontSize: 10,
+                  borderRadius: 6,
+                  padding: "3px 6px",
+                  fontSize: 12,
                   fontWeight: "bold",
                   cursor: "pointer",
                   zIndex: 20,
+                  boxShadow: "0 2px 5px rgba(0,0,0,0.5)",
                 }}
               >
                 {soundOn ? "🔊" : "🔇"}
               </button>
-              {/* ✅ FIX: flashNumber prop ተወግዷል */}
               <CurrentNumber
                 lastInfo={lastInfo}
                 lastLetter={lastLetter}

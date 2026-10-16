@@ -344,7 +344,7 @@ function GameLobby({ onPlayStake, isLoading }) {
               textShadow: "0 0 12px rgba(46,204,113,0.5)",
             }}
           >
-            INSTANT GAMES
+            INSTANT BINGO
           </span>
           <span style={{ fontSize: 16, color: "#2ecc71" }}>⚡</span>
         </div>
