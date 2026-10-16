@@ -962,33 +962,55 @@ export default function LiveGame({
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
   const cardCount = cards.length || 1;
 
-  // ✅ FIX: የአሸናፊዎችን ብዛት በራስ-ሰር ማስላት (ከ winningCartelas በመነሳት)
+  // ✅ FIX: የአሸናፊዎችን ዝርዝር ማስላት — ደራሹን በራስ-ሰር ያሰላል
   const uniqueWinners = useMemo(() => {
     if (!bingoPopup) return [];
-    
-    // አስቀድመን bingoPopup.winners ካለ እንጠቀምበት
+
+    // 1️⃣ bingoPopup.winners ካለ እና የ prize ዋጋ ካለው እንጠቀምበት
     if (bingoPopup.winners && bingoPopup.winners.length > 0) {
-      return bingoPopup.winners;
+      const hasValidPrize = bingoPopup.winners.some(
+        (w) => Number(w.prize) > 0
+      );
+      if (hasValidPrize) {
+        return bingoPopup.winners;
+      }
     }
-    
-    // ካሌለ ከ winningCartelas በመሰብሰብ እንፍጠር
+
+    // 2️⃣ Fallback: ከ winningCartelas በመነሳት በራስ-ሰር እናሰላ
+    const cartelas = bingoPopup.winningCartelas || [];
+    if (cartelas.length === 0) return [];
+
+    // ልዩ ተጠቃሚዎችን (unique users) መለየት
+    const uniqueUserKeys = new Set();
+    cartelas.forEach((wc) => {
+      const key = wc.telegramId || wc.name || "unknown";
+      uniqueUserKeys.add(key);
+    });
+    const uniqueUserCount = uniqueUserKeys.size || 1;
+
+    // ደራሹን በእኩል መከፋፈል
+    const prizePool = Number(bingoPopup.prizePool || 0);
+    const prizePerUser = Math.floor(prizePool / uniqueUserCount);
+
+    // በተጠቃሚ ማሰባሰብ
     const map = new Map();
-    (bingoPopup.winningCartelas || []).forEach(wc => {
-      const key = wc.telegramId || wc.name || Math.random().toString();
+    cartelas.forEach((wc) => {
+      const key = wc.telegramId || wc.name || "unknown";
       if (!map.has(key)) {
-        map.set(key, { 
-          name: wc.name || "User", 
-          telegramId: wc.telegramId, 
-          cartelas: [], 
-          prize: 0, 
-          newBalance: wc.newBalance 
+        map.set(key, {
+          name: wc.name || "User",
+          telegramId: wc.telegramId,
+          cartelas: [],
+          prize: prizePerUser, // ✅ የተሰላው ደራሽ
+          newBalance: wc.newBalance,
         });
       }
       const w = map.get(key);
-      w.cartelas.push(wc.cardId);
-      w.prize += (wc.prize || 0);
-      if (wc.newBalance !== undefined) w.newBalance = wc.newBalance;
+      if (!w.cartelas.includes(wc.cardId)) {
+        w.cartelas.push(wc.cardId);
+      }
     });
+
     return Array.from(map.values());
   }, [bingoPopup]);
 
@@ -1062,6 +1084,14 @@ export default function LiveGame({
 
   const findWinnerByCartela = (wc) => {
     if (!bingoPopup) return null;
+    // በ uniqueWinners ውስጥ ፈልግ
+    const found = uniqueWinners.find(
+      (w) =>
+        (w.telegramId && wc.telegramId && w.telegramId === wc.telegramId) ||
+        (Array.isArray(w.cartelas) && w.cartelas.includes(wc.cardId))
+    );
+    if (found) return found;
+    // በ bingoPopup.winners ውስጥ ፈልግ
     if (bingoPopup.winners && bingoPopup.winners.length > 0) {
       return bingoPopup.winners.find(
         (w) =>
@@ -1069,7 +1099,7 @@ export default function LiveGame({
           (Array.isArray(w.cartelas) && w.cartelas.includes(wc.cardId))
       );
     }
-    return wc;
+    return null;
   };
 
   return (
@@ -1425,7 +1455,6 @@ export default function LiveGame({
                   >
                     BINGO!
                   </h2>
-                  {/* ✅ FIX: የአሸናፊዎች ብዛት በራስ-ሰር ይሰላል */}
                   <div
                     style={{
                       color: "#fff",
@@ -1434,7 +1463,8 @@ export default function LiveGame({
                       fontWeight: "bold",
                     }}
                   >
-                    🎉 {uniqueWinners.length} {uniqueWinners.length === 1 ? "Winner" : "Winners"}!
+                    🎉 {uniqueWinners.length}{" "}
+                    {uniqueWinners.length === 1 ? "Winner" : "Winners"}!
                   </div>
                 </div>
               </div>
@@ -1463,7 +1493,7 @@ export default function LiveGame({
                 </span>
               </div>
 
-              {/* ✅ FIX: የአሸናፊዎች ዝርዝር (ስም፣ ካርቴላ፣ ደራሽ) */}
+              {/* ✅ የአሸናፊዎች ዝርዝር (ስም፣ ካርቴላ፣ ደራሽ) */}
               {uniqueWinners.length > 0 && (
                 <div
                   style={{
@@ -1497,7 +1527,8 @@ export default function LiveGame({
                         border: "1px solid #2a2a40",
                         borderRadius: 8,
                         padding: "6px 8px",
-                        marginBottom: i < uniqueWinners.length - 1 ? 5 : 0,
+                        marginBottom:
+                          i < uniqueWinners.length - 1 ? 5 : 0,
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
@@ -1525,17 +1556,26 @@ export default function LiveGame({
                       </div>
                       <div
                         style={{
-                          background: "rgba(46,204,113,0.2)",
-                          color: "#2ecc71",
+                          background:
+                            Number(w.prize) > 0
+                              ? "rgba(46,204,113,0.2)"
+                              : "rgba(231,76,60,0.2)",
+                          color:
+                            Number(w.prize) > 0 ? "#2ecc71" : "#e74c3c",
+                          border: `1px solid ${
+                            Number(w.prize) > 0
+                              ? "rgba(46,204,113,0.5)"
+                              : "rgba(231,76,60,0.5)"
+                          }`,
                           borderRadius: 20,
-                          padding: "3px 8px",
+                          padding: "3px 10px",
                           fontSize: 11,
                           fontWeight: "bold",
                           flexShrink: 0,
                           marginLeft: 6,
                         }}
                       >
-                        +{w.prize} ETB
+                        +{w.prize || 0} ETB
                       </div>
                     </div>
                   ))}
