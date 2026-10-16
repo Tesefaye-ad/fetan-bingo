@@ -24,7 +24,7 @@ if (ADMIN_TELEGRAM_IDS.length === 0) {
 }
 
 // ═══════════════════════════════════════════════════════
-// BANNER — ✅ ፈጣን ምላሽ ለማግኘት የተሻሻለ (fs ተወግዷል)
+// BANNER
 // ═══════════════════════════════════════════════════════
 const BANNER_IMAGE_URL =
   process.env.BOT_BANNER_URL ||
@@ -41,22 +41,19 @@ function bannerUrlIfValid() {
     : null;
 }
 
-// ✅ ፈጣን የእንኳን ደህና መጡ መልዕክት (ምስል + ጽሑፍ በአንድ ላይ)
 async function sendWelcome(ctx) {
   const extra = { caption: MAIN_MENU_TEXT, ...mainKeyboard() };
 
-  // 1. file_id ካለ ወዲያውኑ ላክ (በጣም ፈጣኑ መንገድ — ሚሊሰከንዶች)
   if (bannerFileId) {
     try {
       await ctx.replyWithPhoto(bannerFileId, extra);
       return true;
     } catch (err) {
-      bannerFileId = null; // ልክ ያልሆነ ሆኗል — እንደገና ከURL
+      bannerFileId = null;
       console.error("[/start] cached banner failed:", err.message);
     }
   }
 
-  // 2. ከ URL ላክ (ለመጀመሪያ ጊዜ ብቻ ይዘገያል)
   const url = bannerUrlIfValid();
   if (url) {
     try {
@@ -72,7 +69,6 @@ async function sendWelcome(ctx) {
     }
   }
 
-  // 3. ጽሑፍ ብቻ (ምስሉ ሙሉ በሙሉ ካልተሳካ)
   await ctx.reply(MAIN_MENU_TEXT, mainKeyboard()).catch(() => {});
   return false;
 }
@@ -89,6 +85,7 @@ const DEPOSIT_NAME = process.env.DEPOSIT_TELEBIRR_NAME || "";
 const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 20);
 const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 50);
 const REFERRAL_BONUS = Number(process.env.REFERRAL_BONUS || 5);
+const REGISTRATION_BONUS = 10;
 
 if (!BOT_TOKEN) {
   console.error("[bot] TELEGRAM_BOT_TOKEN is missing. Aborting.");
@@ -252,7 +249,7 @@ async function processReferralBonus(telegramId) {
 }
 
 // ═══════════════════════════════════════════════════════
-// /start — ✅ ፈጣን ምላሽ (DB ሥራ ወደ background)
+// /start
 // ═══════════════════════════════════════════════════════
 bot.start(async (ctx) => {
   try {
@@ -262,12 +259,10 @@ bot.start(async (ctx) => {
 
     clearStep(telegramId);
 
-    // ✅ 1. ወዲያውኑ ምስሉንና ጽሑፉን ላክ
     sendWelcome(ctx).catch((err) =>
       console.error("[/start] welcome failed:", err.message)
     );
 
-    // ✅ 2. DB ሥራ በ background — ምላሹን አያዘገይ
     setImmediate(() => {
       getOrCreateUser(ctx, referredBy)
         .then((user) => {
@@ -331,16 +326,35 @@ bot.on("contact", async (ctx) => {
     if (contact.user_id !== ctx.from.id) {
       return ctx.reply("❌ እባክዎ የራስዎን ስልክ ቁጥር ብቻ ያጋሩ።");
     }
+
     const user = await getOrCreateUser(ctx);
     if (!user) return;
-    await User.updateOne(
-      { telegramId: user.telegramId },
-      { $set: { phone: contact.phone_number } }
-    );
-    await ctx.reply(
-      `✅ ስልክ ቁጥርዎ በተሳካ ሁኔታ ተመዝግቧል!\n📞 Phone: ${contact.phone_number}`,
-      Markup.removeKeyboard()
-    );
+
+    const isNewRegistration = !user.phone;
+
+    const updateData = {
+      $set: { phone: contact.phone_number },
+    };
+
+    if (isNewRegistration) {
+      updateData.$inc = { balance: REGISTRATION_BONUS };
+    }
+
+    await User.updateOne({ telegramId: user.telegramId }, updateData);
+
+    let replyText = `✅ ስልክ ቁጥርዎ በተሳካ ሁኔታ ተመዝግቧል!\n📞 Phone: ${contact.phone_number}`;
+
+    if (isNewRegistration) {
+      replyText += `\n\n🎉 አዲስ ተመዝጋቢ ስለሆኑ ${REGISTRATION_BONUS} ብር ቦነስ ተሰጥቶዎታል!`;
+      await notifyAdmin(
+        `🆕 <b>New Registration</b>\n\n` +
+          `👤 ${esc(user.firstName || "User")} (${user.telegramId})\n` +
+          `📱 ${contact.phone_number}\n` +
+          `🎁 Bonus: +${REGISTRATION_BONUS} ETB`
+      );
+    }
+
+    await ctx.reply(replyText, Markup.removeKeyboard());
     await ctx.reply(MAIN_MENU_TEXT, mainKeyboard());
   } catch (err) {
     console.error("[contact handler] error:", err.message);
@@ -614,18 +628,13 @@ bot.action("cancel_action", async (ctx) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// ADMIN DECISION
+// ADMIN DECISION — ✅ የድርብ ክሬዲት መከላከያ ተጨምሯል
 // ═══════════════════════════════════════════════════════
 function isBotAdmin(ctx) {
   const id = String(ctx.from?.id || "");
   return ADMIN_TELEGRAM_IDS.includes(id) || isAdminChatId(id);
 }
 
-// ═══════════════════════════════════════════════════════
-// ADMIN: SMS FORWARDER ምርመራ
-//   /smsstatus            — forwarder እየላከ ነው? ቅንብሩ በርቷል?
-//   /smscheck DJF5T7GTM7  — ይህ ግብይት በዳታቤዝ አለ?
-// ═══════════════════════════════════════════════════════
 bot.command("smsstatus", async (ctx) => {
   if (!isBotAdmin(ctx)) return;
   try {
@@ -658,6 +667,25 @@ async function adminDecision(ctx, kind, approve) {
     if (!/^[a-f0-9]{24}$/i.test(txId)) {
       return ctx.editMessageText("❌ Invalid transaction id");
     }
+
+    // ✅ የድርብ ክሬዲት መከላከያ: ግብይቱ አስቀድሞ መጠናቀቁን ማረጋገጥ
+    const existingTx = await Transaction.findById(txId);
+    if (!existingTx) {
+      return ctx.editMessageText("❌ Transaction not found");
+    }
+    if (existingTx.status === "completed") {
+      return ctx.editMessageText(
+        `✅ <b>ማስታወሻ</b>\n\nይህ ግብይት አስቀድሞ በራስ-ሰር ተጸድቋል (Auto-Approved)።\nምንም ተጨማሪ እርምጃ አያስፈልግም።`,
+        { parse_mode: "HTML" }
+      );
+    }
+    if (existingTx.status === "failed") {
+      return ctx.editMessageText(
+        `❌ <b>ማስታወሻ</b>\n\nይህ ግብይት አስቀድሞ ውድቅ ተደርጓል።`,
+        { parse_mode: "HTML" }
+      );
+    }
+
     const r = approve
       ? await approveTransaction(txId)
       : await rejectTransaction(txId, "Rejected by admin");
@@ -689,7 +717,7 @@ bot.action(/^dep_ok:(.+)$/, (ctx) => adminDecision(ctx, "dep", true));
 bot.action(/^dep_no:(.+)$/, (ctx) => adminDecision(ctx, "dep", false));
 
 // ═══════════════════════════════════════════════════════
-// DEPOSIT SMS
+// DEPOSIT SMS — ✅ የተሻሻለ (Auto-Approved vs Manual Review)
 // ═══════════════════════════════════════════════════════
 async function handleDepositSms(ctx, smsText) {
   const userId = String(ctx.from.id);
@@ -728,6 +756,7 @@ async function handleDepositSms(ctx, smsText) {
       .catch(() => {});
   }
 
+  // ✅ 1. ሲስተሙ በራስ-ሰር ካጸደቀ — ለአድሚኑ ያለ ቁልፍ የመረጃ መልዕክት
   if (result.ok) {
     clearStep(userId);
     await ctx.reply(
@@ -737,14 +766,18 @@ async function handleDepositSms(ctx, smsText) {
         `🎮 አሁን መጫወት ይችላሉ!`,
       { parse_mode: "HTML", ...mainKeyboard() }
     );
+
+    // ✅ ለአድሚኑ የመረጃ መልዕክት ብቻ (Approve/Reject ቁልፎች የሉትም)
     await notifyAdmin(
-      `✅ <b>Approved Deposit</b>\n\n` +
+      `✅ <b>Auto-Approved Deposit</b>\n\n` +
         `👤 ${esc(user.firstName || "User")} (${user.telegramId})\n` +
-        `💰 <b>${result.amount} ETB</b>\n` 
+        `💰 <b>${result.amount} ETB</b>\n` +
+        `⚡ ሲስተሙ በራስ-ሰር አጽድቆታል — ምንም እርምጃ አያስፈልግም።`
     );
     return;
   }
 
+  // ✅ 2. Manual Review የሚያስፈልገው — ለአድሚኑ በ Approve/Reject ቁልፎች (በ depositVerifier.js ይላካል)
   if (result.status === "manual_review") {
     clearStep(userId);
     return ctx.reply(result.message, mainKeyboard());
@@ -838,7 +871,7 @@ bot.on("text", async (ctx, next) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// INVITE — ✅ ያለ Main Keyboard (ቁልፎች ተወግደዋል)
+// INVITE
 // ═══════════════════════════════════════════════════════
 const handleInvite = async (ctx) => {
   try {
@@ -850,7 +883,6 @@ const handleInvite = async (ctx) => {
       user.telegramId
     }`;
 
-    // ✅ የእንኳን ደህና መጡ መልዕክት + የግብዣ ሊንክ ብቻ (Main Keyboard የለም)
     const inviteText =
       `${MAIN_MENU_TEXT}\n\n` +
       `🎁 <b>Invite & Earn ${REFERRAL_BONUS} ETB</b>\n\n` +
@@ -858,10 +890,8 @@ const handleInvite = async (ctx) => {
       `<code>${link}</code>\n\n` +
       `👥 የጋበዟቸው ሰዎች: <b>${user.referralCount || 0}</b>`;
 
-    // Main Keyboard አልተካተተም
     const extra = { caption: inviteText, parse_mode: "HTML" };
 
-    // 1. ምስሉ (Banner) ካለ አብሮ ላክ
     if (bannerFileId) {
       try {
         await ctx.replyWithPhoto(bannerFileId, extra);
@@ -871,7 +901,6 @@ const handleInvite = async (ctx) => {
       }
     }
 
-    // 2. ከ URL ላክ (ለመጀመሪያ ጊዜ)
     const url = bannerUrlIfValid();
     if (url) {
       try {
@@ -882,7 +911,6 @@ const handleInvite = async (ctx) => {
       }
     }
 
-    // 3. ምስሉ ካልተሳካ ጽሑፉን ብቻ ላክ
     await ctx.reply(inviteText, { parse_mode: "HTML" });
   } catch (err) {
     console.error("[handleInvite]", err.message);

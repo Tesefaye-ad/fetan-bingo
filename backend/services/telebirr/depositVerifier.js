@@ -21,7 +21,6 @@ const cents = (n) => Math.round(Number(n) * 100);
 
 function config() {
   return {
-    // 👈 FIX: no hardcoded fallback — validated by server.js env validator
     merchantPhone: process.env.DEPOSIT_TELEBIRR_PHONE,
     merchantName: process.env.DEPOSIT_TELEBIRR_NAME || "",
     minDeposit: Number(process.env.MIN_DEPOSIT || 20),
@@ -38,10 +37,8 @@ function config() {
     maxFailsPer10Min: Number(process.env.MAX_FAILED_DEPOSITS_10MIN || 5),
     manualOnFetchFail:
       String(process.env.MANUAL_REVIEW_ON_FETCH_FAIL).toLowerCase() !== "false",
-    // የመርቻንት ስልክ SMS ማረጋገጫ (MERCHANT_SMS_TOKEN ሲኖር ይነቃል)
     merchantSmsEnabled: (process.env.MERCHANT_SMS_TOKEN || "").length >= 24,
     merchantSmsWaitSec: Number(process.env.MERCHANT_SMS_WAIT_SECONDS ?? 15),
-    // RECEIPT_CHECK_ENABLED=false → የኢትዮ ቴሌኮም ድረ-ገጽ ጭራሽ አይጠራም
     receiptCheckEnabled:
       String(process.env.RECEIPT_CHECK_ENABLED ?? "true").toLowerCase() !== "false",
     manualOnReject:
@@ -56,7 +53,6 @@ const SMS_ERROR_MESSAGES = {
   amount_missing: "ሙሉውን SMS ይለጥፉ",
 };
 
-// 👈 FIX: filled in (was empty string → produced message ending with "— ")
 const DUP_MSG = "ይህ ደረሰኝ ቀድሞ ጥቅም ላይ ውሏል";
 
 function rejected(reason, message, httpStatus = 422) {
@@ -252,7 +248,7 @@ async function queueManualReview({ user, sms, amount, pending, reason, receipt }
   }
 }
 
-// ─── ክፍያው መድረሱን ማረጋገጥ: (1) የመርቻንት SMS → (2) የኢትዮ ቴሌኮም ደረሰኝ ───
+// ─── ክፍያው መድረሱን ማረጋገጥ ───
 async function verifyPayment({ sms, expectedAmount, user, cfg }) {
   if (cfg.merchantSmsEnabled) {
     let rec = await findMerchantSms(sms.txnId);
