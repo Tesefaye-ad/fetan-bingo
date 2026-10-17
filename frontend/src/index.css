@@ -13,7 +13,12 @@ html,
 body {
   margin: 0;
   padding: 0;
+  width: 100%;
+  min-height: 100%;
+  /* ✅ FIX: መሸብለል እንዲሰራ */
   overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch; 
 }
 
 body {
@@ -26,6 +31,13 @@ body {
   overscroll-behavior-y: contain;
 }
 
+/* ✅ FIX: #root መሸብለል እንዲችል ማድረግ */
+#root {
+  min-height: 100dvh; /* Dynamic viewport height for mobile */
+  display: flex;
+  flex-direction: column;
+}
+
 /* ═══════════════════════════════════════════════════════
    APP CONTAINER
    ═══════════════════════════════════════════════════════ */
@@ -33,10 +45,16 @@ body {
   max-width: 480px;
   margin: 0 auto;
   padding: 12px;
-  padding-bottom: 110px;
-  min-height: 100vh;
+  padding-bottom: 120px; /* ✅ ለታችኛው ምናሌ ክፍተት */
+  min-height: 100dvh;
+  width: 100%;
   background: linear-gradient(180deg, #0a0a14 0%, #150a2e 50%, #0a0a14 100%);
   position: relative;
+  flex: 1;
+  /* ✅ FIX: ውስጣዊ መሸብለል */
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .app::before {
@@ -130,7 +148,7 @@ button:disabled {
   -webkit-backdrop-filter: blur(20px);
   border-top: 1px solid rgba(243, 156, 18, 0.2);
   padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
-  z-index: 100;
+  z-index: 1000;
   box-shadow: 0 -4px 30px rgba(0, 0, 0, 0.5);
 }
 
@@ -203,55 +221,28 @@ button:disabled {
    ANIMATIONS
    ═══════════════════════════════════════════════════════ */
 @keyframes shine {
-  0% {
-    left: -100%;
-  }
-  50%,
-  100% {
-    left: 200%;
-  }
+  0% { left: -100%; }
+  50%, 100% { left: 200%; }
 }
 
 @keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 @keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.6;
-    transform: scale(1.05);
-  }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.05); }
 }
 
 @keyframes float {
-  0%,
-  100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-6px);
-  }
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
 }
 
 /* Utility classes */

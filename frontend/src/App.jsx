@@ -274,9 +274,9 @@ function GameLobby({ onPlayStake, isLoading }) {
         padding: "20px 15px",
         maxWidth: 450,
         margin: "0 auto",
-        paddingBottom: 100,
-        minHeight: "100vh",
-        background: "linear-gradient(180deg, #0f1420 0%, #1a0f2e 100%)",
+        paddingBottom: 20, // ✅ .app ውስጥ ስለሆነ እዚህ መጨመር አያስፈልግም
+        minHeight: "100%",
+        background: "transparent",
       }}
     >
       <div style={{ textAlign: "center", marginBottom: 20, marginTop: 10 }}>
@@ -433,7 +433,6 @@ function GameLobby({ onPlayStake, isLoading }) {
 
 // ═══════════════════════════════════════════════════════
 // HISTORY PAGE
-// ✅ FIX: Entry Fee ተጣርቷል (የብር ገቢ እና ወጪ ብቻ ያሳያል)
 // ═══════════════════════════════════════════════════════
 function HistoryPage() {
   const [tab, setTab] = useState("transactions");
@@ -451,7 +450,6 @@ function HistoryPage() {
       ]);
       if (cancelled) return;
 
-      // ✅ FIX: የጨዋታ መግቢያ (entry_fee) ግብይቶችን ማጣራት
       const filteredTxs = (txs || []).filter((tx) => tx.type !== "entry_fee");
 
       setTransactions(filteredTxs);
@@ -472,8 +470,7 @@ function HistoryPage() {
     transfer_out: "📨",
   };
 
-  const isOut = (tx) =>
-    ["withdrawal", "transfer_out"].includes(tx.type);
+  const isOut = (tx) => ["withdrawal", "transfer_out"].includes(tx.type);
 
   return (
     <div
@@ -482,9 +479,8 @@ function HistoryPage() {
         maxWidth: 480,
         margin: "0 auto",
         color: "#fff",
-        paddingBottom: 100,
-        background: "linear-gradient(180deg, #0a0a14 0%, #150a2e 100%)",
-        minHeight: "100vh",
+        minHeight: "100%",
+        background: "transparent",
       }}
     >
       <h2
@@ -754,7 +750,6 @@ function HistoryPage() {
 
 // ═══════════════════════════════════════════════════════
 // PROFILE
-// ✅ FIX: "Notifications" ታብ ሙሉ በሙሉ ተወግዷል
 // ═══════════════════════════════════════════════════════
 function Profile({ user, balance, onUserUpdate }) {
   const [tab, setTab] = useState("Stats");
@@ -809,7 +804,8 @@ function Profile({ user, balance, onUserUpdate }) {
         maxWidth: 480,
         margin: "0 auto",
         color: "#fff",
-        paddingBottom: 100,
+        minHeight: "100%",
+        background: "transparent",
       }}
     >
       <div style={{ textAlign: "center", marginBottom: 20 }}>
@@ -849,7 +845,6 @@ function Profile({ user, balance, onUserUpdate }) {
           overflowX: "auto",
         }}
       >
-        {/* ✅ Notifications ተወግዷል፣ Stats እና Invite ብቻ ቀርተዋል */}
         {["Stats", "Invite"].map((t) => (
           <button
             key={t}
@@ -1015,10 +1010,8 @@ function App() {
   const [activeTab, setActiveTab] = useState("Game");
   const [gameStatus, setGameStatus] = useState("waiting");
 
-  // ✅ FIX: Admin ከ backend ብቻ ይወሰናል (client hardcoded የለም)
   const isAdmin = user?.isAdmin === true;
 
-  // ✅ FIX: tabs useMemo
   const tabs = useMemo(() => {
     const base = [
       { id: "Game", label: "Game", icon: "🎮" },
@@ -1106,7 +1099,16 @@ function App() {
   };
 
   return (
-    <div className="app" style={{ paddingBottom: 80 }}>
+    // ✅ FIX: ይህ ዋናው ኮንቴይነር ነው ስክሮል እንዲሰራ የተስተካከለው
+    <div 
+      className="app" 
+      style={{ 
+        paddingBottom: 120, // ለታችኛው ምናሌ ክፍተት
+        minHeight: "100vh", 
+        overflowY: "auto", 
+        WebkitOverflowScrolling: "touch" 
+      }}
+    >
       {activeTab === "Game" && (
         <>
           {showCartela && gameStatus === "waiting" ? (

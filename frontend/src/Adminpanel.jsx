@@ -72,9 +72,11 @@ export default function AdminPanel() {
         maxWidth: "520px",
         margin: "0 auto",
         color: C.text,
-        paddingBottom: 100,
+        paddingBottom: 120, // ✅ ለታችኛው ምናሌ ክፍተት ተሰጥቷል
         background: C.bg,
         minHeight: "100vh",
+        overflowY: "auto", // ✅ ስክሮል እንዲሰራ
+        WebkitOverflowScrolling: "touch", // ✅ በ iOS ላይ ለስላሳ ስክሮል
       }}
     >
       {/* Toast */}
@@ -1172,11 +1174,10 @@ function ForceWinTab({ showToast }) {
     }
     setLoading(true);
     try {
-      // ✅ እዚህ ጋር የ API ጥሪው ይደረጋል (api.js ላይ መጨመር ይኖርብዎታል)
       const res = await axios.post(
         `${process.env.REACT_APP_API_URL || ""}/api/admin/force-win`,
         { roomCode, cardId: Number(cardId) },
-        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } } // ወይም እንደ እርስዎ api ሴታፕ
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
       );
       showToast(`✅ ካርቴላ #${cardId} እንዲያሸንፍ ተደርጓል!`, "success");
       setCardId("");
