@@ -98,8 +98,16 @@ function deadlineOf(game) {
   return d ? new Date(d).getTime() : 0;
 }
 
+// ✅ FIX: firstName እና lastName ካለው ሁለቱንም ያሳያል፣ ከሌለው firstName
 function displayName(u) {
-  return u?.username || u?.firstName || "Player";
+  if (!u) return "Player";
+  const first = u.firstName ? String(u.firstName).trim() : "";
+  const last = u.lastName ? String(u.lastName).trim() : "";
+
+  if (first && last) return `${first} ${last}`;
+  if (first) return first;
+  if (u.username) return `@${u.username}`;
+  return "Player";
 }
 
 function parseCardId(v) {
@@ -455,14 +463,15 @@ function initGameSocket(io) {
     try {
       const userIds = [...new Set(winners.map((w) => w.player.userId))];
       
+      // ✅ FIX: lastName እንዲመጣ ተጨምሯል
       const users = await User.find({ _id: { $in: userIds } }).select(
-        "username firstName telegramId"
+        "username firstName lastName telegramId"
       );
       const userById = new Map(users.map((u) => [String(u._id), u]));
 
       const winningCartelas = winners.map(({ player, pattern }) => ({
         telegramId: player.telegramId,
-        name: displayName(userById.get(player.userId)),
+        name: displayName(userById.get(player.userId)), // firstName + lastName
         cardId: player.cardId,
         pattern,
         card: player.card,
@@ -518,7 +527,7 @@ function initGameSocket(io) {
         panel.push({
           userId,
           telegramId: updated.telegramId,
-          name: displayName(updated),
+          name: displayName(updated), // firstName + lastName
           cartelas: mine.map((w) => w.player.cardId),
           prize,
           newBalance: updated.balance,
@@ -651,8 +660,9 @@ function initGameSocket(io) {
     if (prizeTxs.length === 0) return;
 
     const userIds = [...new Set(prizeTxs.map((t) => String(t.user)))];
+    // ✅ FIX: lastName እንዲመጣ ተጨምሯል
     const users = await User.find({ _id: { $in: userIds } })
-      .select("username firstName telegramId")
+      .select("username firstName lastName telegramId")
       .lean();
     const userById = new Map(users.map((u) => [String(u._id), u]));
 
