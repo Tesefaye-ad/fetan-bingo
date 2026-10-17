@@ -10,7 +10,7 @@ router.use(requireAuth);
 
 const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 20);
 const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 50);
-const MAX_PENDING_DEPOSITS = 5; // በሰዓት ውስጥ — spam መከላከያ
+const MAX_PENDING_DEPOSITS = 5; 
 
 // ብር መጠን: ውሱን ቁጥር፣ ከ 0 በላይ፣ ቢበዛ 2 ዲጂት ከነጥብ በኋላ
 function parseAmount(v) {
@@ -43,6 +43,18 @@ router.get("/history", async (req, res) => {
   }
 });
 
+// ✅ አዲስ የተጨመረ፦ የታሪክ ማጽጃ
+router.delete("/history/clear", async (req, res) => {
+  try {
+    // የተጠቃሚውን ትራንዛክሽኖች በሙሉ ማጥፋት
+    await Transaction.deleteMany({ user: req.userId });
+    res.json({ ok: true, message: "ታሪክ በተሳካ ሁኔታ ጸድቷል" });
+  } catch (err) {
+    console.error("[wallet/history/clear]", err.message);
+    res.status(500).json({ error: "ታሪክን ማጽዳት አልተቻለም" });
+  }
+});
+
 router.post("/deposit/initiate", async (req, res) => {
   try {
     const amount = parseAmount(req.body.amount);
@@ -57,7 +69,6 @@ router.post("/deposit/initiate", async (req, res) => {
       status: "pending",
       "meta.gateway": "telebirr",
       "meta.transactionId": { $exists: false },
-      // ባለፈው ሰዓት ውስጥ ብቻ — የድሮ ያልተጠናቀቁ ጥያቄዎች ተጠቃሚውን ለዘላለም እንዳይቆልፉ
       createdAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) },
     });
     if (pendingCount >= MAX_PENDING_DEPOSITS) {
@@ -100,7 +111,6 @@ router.post("/withdraw", async (req, res) => {
       return res.status(400).json({ error: "Valid Ethiopian phone required" });
     }
 
-    // atomic: ቀሪ ሂሳብ በቂ ከሆነ ብቻ ይቀነሳል (ሁለት ጥያቄ በአንድ ጊዜ ቢላክ አይደገምም)
     const user = await User.findOneAndUpdate(
       { _id: req.userId, balance: { $gte: amount }, isBanned: { $ne: true } },
       { $inc: { balance: -amount } },
@@ -120,7 +130,6 @@ router.post("/withdraw", async (req, res) => {
         meta: { phone: cleanPhone, method: method || "telebirr" },
       });
     } catch (txErr) {
-      // መዝገብ ካልተፈጠረ ብሩን መልስ — ያለ ምንም ዱካ እንዳይጠፋ
       await User.updateOne({ _id: user._id }, { $inc: { balance: amount } });
       throw txErr;
     }
@@ -131,27 +140,57 @@ router.post("/withdraw", async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// ✅ በስልክ ቁጥር ገንዘብ መላክ (የተሻሻለ)
+// ═══════════════════════════════════════════════════════
 router.post("/transfer", async (req, res) => {
   try {
     const amount = parseAmount(req.body.amount);
-    const { toTelegramId } = req.body;
+    const { phone } = req.body;
+
     if (!amount) {
       return res.status(400).json({ error: "Invalid amount" });
     }
-    if (!toTelegramId) {
-      return res.status(400).json({ error: "Recipient required" });
+    if (!phone) {
+      return res.status(400).json({ error: "Recipient phone number required" });
     }
 
+    // የስልክ ቁጥሩን ማጽዳት
+    let cleanPhone = String(phone || "").replace(/[^\d+]/g, "");
+    
+    if (!PHONE_RE.test(cleanPhone)) {
+      return res.status(400).json({ error: "Valid Ethiopian phone required (e.g. 0911223344)" });
+    }
+
+    // ✅ የስልክ ቁጥር ቅርጸት ልዩነትን ማስተካከል (09..., +2519..., 2519...)
+    let searchPhone = cleanPhone;
+    if (searchPhone.startsWith("+251")) {
+      searchPhone = "0" + searchPhone.slice(4);
+    } else if (searchPhone.startsWith("251")) {
+      searchPhone = "0" + searchPhone.slice(3);
+    }
+    
+    const phoneVariants = [
+      searchPhone, // 09...
+      "+251" + searchPhone.slice(1), // +2519...
+      "251" + searchPhone.slice(1)   // 2519...
+    ];
+
+    // ተቀባዩን በስልክ ቁጥር መፈለግ
     const recipient = await User.findOne({
-      telegramId: String(toTelegramId),
+      phone: { $in: phoneVariants },
       isBanned: { $ne: true },
-    }).select("_id telegramId");
-    if (!recipient) return res.status(404).json({ error: "Recipient not found" });
+    }).select("_id telegramId phone");
+
+    if (!recipient) {
+      return res.status(404).json({ error: "Recipient not found with this phone number" });
+    }
+    
     if (String(recipient._id) === String(req.userId)) {
       return res.status(400).json({ error: "Cannot transfer to yourself" });
     }
 
-    // atomic: ላኪ ሂሳብ በቂ ከሆነ ብቻ ይቀነሳል
+    // ላኪ ሂሳብ በቂ ከሆነ ብቻ ይቀነሳል
     const sender = await User.findOneAndUpdate(
       { _id: req.userId, balance: { $gte: amount }, isBanned: { $ne: true } },
       { $inc: { balance: -amount } },
@@ -164,8 +203,8 @@ router.post("/transfer", async (req, res) => {
       { $inc: { balance: amount } },
       { new: true }
     );
+    
     if (!recipientUpdated) {
-      // ተቀባይ ጠፍቷል — መልስ
       await User.updateOne({ _id: sender._id }, { $inc: { balance: amount } });
       return res.status(404).json({ error: "Recipient not found" });
     }
@@ -177,6 +216,7 @@ router.post("/transfer", async (req, res) => {
         amount,
         balanceAfter: sender.balance,
         counterparty: recipientUpdated._id,
+        meta: { recipientPhone: searchPhone }
       },
       {
         user: recipientUpdated._id,
@@ -184,6 +224,7 @@ router.post("/transfer", async (req, res) => {
         amount,
         balanceAfter: recipientUpdated.balance,
         counterparty: sender._id,
+        meta: { senderPhone: sender.phone }
       },
     ]);
 

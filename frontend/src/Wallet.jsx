@@ -10,8 +10,11 @@ function Wallet({ balance, setBalance }) {
   const [amount, setAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawPhone, setWithdrawPhone] = useState("");
-  const [transferId, setTransferId] = useState("");
+  
+  // ✅ FIX: transferId ተቀይሮ ወደ transferPhone ሆኗል
+  const [transferPhone, setTransferPhone] = useState("");
   const [transferAmount, setTransferAmount] = useState("");
+  
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -69,22 +72,24 @@ function Wallet({ balance, setBalance }) {
     }
   };
 
+  // ✅ FIX: አሁን በስልክ ቁጥር ይላካል
   const handleTransfer = async (e) => {
     e.preventDefault();
-    if (!transferId || !transferAmount || Number(transferAmount) <= 0) {
-      setMessage("እባክዎ የተቀባይ ID እና ትክክለኛ መጠን ያስገቡ።");
+    if (!transferPhone || !transferAmount || Number(transferAmount) <= 0) {
+      setMessage("እባክዎ የተቀባይ ስልክ ቁጥር እና ትክክለኛ መጠን ያስገቡ።");
       return;
     }
     setLoading(true);
     setMessage("");
     try {
+      // በ api.js ውስጥ ያለው transferApi ፈንክሽን በስልክ ቁጥር እንዲሰራ መስተካከል አለበት (ከታች ማስታወሻ አለ)
       const newBalance = await transferApi(
-        transferId,
+        transferPhone,
         Number(transferAmount)
       );
       setMessage("✅ ገንዘቡ በተሳካ ሁኔታ ተላልፏል!");
       if (newBalance !== undefined) setBalance(newBalance);
-      setTransferId("");
+      setTransferPhone("");
       setTransferAmount("");
     } catch (err) {
       setMessage(`❌ ${err?.response?.data?.error || err.message}`);
@@ -99,10 +104,9 @@ function Wallet({ balance, setBalance }) {
         padding: "15px",
         maxWidth: "450px",
         margin: "0 auto",
-        minHeight: "100%", // ✅ 100vh ሳይሆን 100% ሆኗል
-        paddingBottom: 120, // ✅ ለታችኛው ምናሌ ክፍተት
+        minHeight: "100%",
+        paddingBottom: 120,
         background: "transparent", 
-        // ✅ overflowY: "auto" ተወግዷል
       }}
     >
       {/* 💳 Balance Card */}
@@ -268,10 +272,10 @@ function Wallet({ balance, setBalance }) {
       >
         <form onSubmit={handleTransfer}>
           <input
-            type="text"
-            value={transferId}
-            onChange={(e) => setTransferId(e.target.value)}
-            placeholder="Recipient Telegram ID"
+            type="tel"
+            value={transferPhone}
+            onChange={(e) => setTransferPhone(e.target.value)}
+            placeholder="Recipient Phone (09xxxxxxxx)" // ✅ ፕሌስሆልደር ተቀይሯል
             style={inputStyle}
           />
           <input

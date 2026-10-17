@@ -6,6 +6,9 @@ import { useState, useEffect, useRef } from "react";
 export const API_BASE_URL =
   process.env.REACT_APP_API_URL || "https://fetan-bingo-ra58.onrender.com";
 
+  // ✅ በ api.js ውስጥ ይህንን ይጨምሩ
+export const clearHistory = () => api.delete("/wallet/history/clear").then((r) => r.data);
+
 // ═══════════════════════════════════════════════════════
 // AXIOS
 // ═══════════════════════════════════════════════════════
@@ -24,6 +27,7 @@ api.interceptors.response.use(
     // ✅ ለ idempotent methods ብቻ retry ያደርጋል (POST ድርብ ክፍያ እንዳያስከትል)
     const method = String(config.method || "get").toLowerCase();
     const isIdempotent = ["get", "head", "options"].includes(method);
+    
 
     const isNetwork =
       !error.response ||

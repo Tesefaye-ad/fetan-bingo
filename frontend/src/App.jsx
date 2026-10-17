@@ -10,11 +10,39 @@ import {
   getReferralInfo,
   getGameHistory,
   getWalletHistory,
+  clearHistory, // ✅ አዲስ የተጨመረ
   useTelegram,
-  warmUpServer,
 } from "./api";
 
-const LOGIN_TIMEOUT_MS = 30000;
+// ✅ FIX: Cache Helpers — ፈጣን ምላሽ ለማግኘት
+const CACHE_KEY = "fb_user_cache";
+const LOGIN_TIMEOUT_MS = 15000;
+const LOGIN_MAX_RETRIES = 2;
+const LOGIN_RETRY_DELAY_MS = 1000;
+
+function getCachedUser() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed._cachedAt && Date.now() - parsed._cachedAt > 24 * 60 * 60 * 1000) {
+      localStorage.removeItem(CACHE_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function setCachedUser(user) {
+  try {
+    localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({ ...user, _cachedAt: Date.now() })
+    );
+  } catch {}
+}
 
 const SHARED_ROOMS = {
   10: "ROOM10",
@@ -28,15 +56,12 @@ const SHARED_ROOMS = {
 // ═══════════════════════════════════════════════════════
 function Login({ onLoggedIn }) {
   const { initData, ready, telegramUser } = useTelegram();
-  const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
     setError("");
-    setLoading(true);
 
     if (!initData) {
       if (process.env.NODE_ENV === "development") {
@@ -55,16 +80,14 @@ function Login({ onLoggedIn }) {
         setError(
           "ይህን ጨዋታ ከ Telegram ቦት ውስጥ ባለው «Play 🎮» ቁልፍ ብቻ ይክፈቱ።"
         );
-        setLoading(false);
       }
       return;
     }
 
     async function handleLogin() {
-      await warmUpServer();
       let lastErr = null;
 
-      for (let i = 1; i <= 3; i++) {
+      for (let i = 1; i <= LOGIN_MAX_RETRIES; i++) {
         if (cancelled) return;
         let timerId = null;
         try {
@@ -81,6 +104,7 @@ function Login({ onLoggedIn }) {
           if (timerId) clearTimeout(timerId);
           if (cancelled) return;
           localStorage.setItem("telegramId", user.telegramId);
+          setCachedUser(user);
           onLoggedIn(user);
           return;
         } catch (err) {
@@ -89,11 +113,12 @@ function Login({ onLoggedIn }) {
           console.warn("[Login] attempt", i, "failed:", err?.message);
           const code = err?.response?.status;
           if (code === 401 || code === 403) break;
-          await new Promise((r) => setTimeout(r, 2000));
+          if (i < LOGIN_MAX_RETRIES) {
+            await new Promise((r) => setTimeout(r, LOGIN_RETRY_DELAY_MS));
+          }
         }
       }
       if (cancelled) return;
-      setLoading(false);
       const code = lastErr?.response?.status;
       if (code === 403) setError("አካውንትዎ ታግዷል። ድጋፍ ያግኙ።");
       else if (code === 401)
@@ -110,18 +135,16 @@ function Login({ onLoggedIn }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, initData, telegramUser?.id, attempt]);
-
-  if (loading && !error) {
-    return <GameLobby onPlayStake={() => {}} isLoading={true} />;
-  }
+  }, [ready, initData, telegramUser?.id]);
 
   if (!error) return null;
 
   return (
     <div
       style={{
-        minHeight: "100vh",
+        position: "fixed",
+        top: 0, left: 0, right: 0, bottom: 0,
+        zIndex: 9999,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
@@ -130,8 +153,7 @@ function Login({ onLoggedIn }) {
         padding: 24,
         textAlign: "center",
         color: "#fff",
-        background:
-          "linear-gradient(180deg, #0a0a14 0%, #150a2e 50%, #0a0a14 100%)",
+        background: "linear-gradient(180deg, #0a0a14 0%, #150a2e 50%, #0a0a14 100%)",
       }}
     >
       <div style={{ fontSize: 48 }}>🎰</div>
@@ -139,8 +161,7 @@ function Login({ onLoggedIn }) {
         style={{
           fontSize: 28,
           fontWeight: 900,
-          background:
-            "linear-gradient(135deg, #f39c12 0%, #ffd43b 50%, #f39c12 100%)",
+          background: "linear-gradient(135deg, #f39c12 0%, #ffd43b 50%, #f39c12 100%)",
           WebkitBackgroundClip: "text",
           WebkitTextFillColor: "transparent",
           backgroundClip: "text",
@@ -148,22 +169,14 @@ function Login({ onLoggedIn }) {
       >
         Fetan Bingo
       </div>
-      <div
-        style={{
-          maxWidth: 320,
-          lineHeight: 1.5,
-          opacity: 0.9,
-          fontSize: 13,
-        }}
-      >
+      <div style={{ maxWidth: 320, lineHeight: 1.5, opacity: 0.9, fontSize: 13 }}>
         {error}
       </div>
       {initData && (
         <button
           onClick={() => {
-            setAttempt((n) => n + 1);
             setError("");
-            setLoading(true);
+            window.location.reload();
           }}
           style={{
             background: "linear-gradient(135deg,#27ae60,#1e8449)",
@@ -211,51 +224,22 @@ function GameButton({ fee, color1, color2, glowColor, onPlay, isLoading }) {
         fontFamily: "inherit",
         opacity: isLoading ? 0.6 : 1,
       }}
-      onMouseDown={(e) => {
-        if (!isLoading) e.currentTarget.style.transform = "scale(0.98)";
-      }}
-      onMouseUp={(e) => {
-        if (!isLoading) e.currentTarget.style.transform = "scale(1)";
-      }}
-      onTouchStart={(e) => {
-        if (!isLoading) e.currentTarget.style.transform = "scale(0.98)";
-      }}
-      onTouchEnd={(e) => {
-        if (!isLoading) e.currentTarget.style.transform = "scale(1)";
-      }}
+      onMouseDown={(e) => { if (!isLoading) e.currentTarget.style.transform = "scale(0.98)"; }}
+      onMouseUp={(e) => { if (!isLoading) e.currentTarget.style.transform = "scale(1)"; }}
+      onTouchStart={(e) => { if (!isLoading) e.currentTarget.style.transform = "scale(0.98)"; }}
+      onTouchEnd={(e) => { if (!isLoading) e.currentTarget.style.transform = "scale(1)"; }}
     >
       <div
         style={{
           position: "absolute",
-          top: 0,
-          left: "-100%",
-          width: "100%",
-          height: "100%",
-          background:
-            "linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)",
+          top: 0, left: "-100%", width: "100%", height: "100%",
+          background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)",
           animation: isLoading ? "none" : "shine 3s infinite",
           pointerEvents: "none",
         }}
       />
-      <span
-        style={{
-          fontSize: 14,
-          opacity: 0.95,
-          textShadow: "0 1px 2px rgba(0,0,0,0.3)",
-          zIndex: 1,
-        }}
-      >
-        ▶
-      </span>
-      <span
-        style={{
-          fontSize: 18,
-          fontWeight: "900",
-          letterSpacing: 0.3,
-          textShadow: "0 2px 4px rgba(0,0,0,0.3)",
-          zIndex: 1,
-        }}
-      >
+      <span style={{ fontSize: 14, opacity: 0.95, textShadow: "0 1px 2px rgba(0,0,0,0.3)", zIndex: 1 }}>▶</span>
+      <span style={{ fontSize: 18, fontWeight: "900", letterSpacing: 0.3, textShadow: "0 2px 4px rgba(0,0,0,0.3)", zIndex: 1 }}>
         Play {fee} ETB
       </span>
     </button>
@@ -273,8 +257,7 @@ function GameLobby({ onPlayStake, isLoading }) {
         padding: "20px 15px",
         maxWidth: 450,
         margin: "0 auto",
-        paddingBottom: 20,
-        minHeight: "100%",
+        minHeight: "100%", 
         background: "transparent",
       }}
     >
@@ -293,8 +276,7 @@ function GameLobby({ onPlayStake, isLoading }) {
           Welcome to{" "}
           <span
             style={{
-              background:
-                "linear-gradient(135deg, #f39c12 0%, #ffd43b 50%, #f39c12 100%)",
+              background: "linear-gradient(135deg, #f39c12 0%, #ffd43b 50%, #f39c12 100%)",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
               backgroundClip: "text",
@@ -308,14 +290,12 @@ function GameLobby({ onPlayStake, isLoading }) {
 
       <div
         style={{
-          background:
-            "linear-gradient(135deg, rgba(26,26,46,0.7) 0%, rgba(15,20,32,0.9) 100%)",
+          background: "linear-gradient(135deg, rgba(26,26,46,0.7) 0%, rgba(15,20,32,0.9) 100%)",
           border: "1px solid rgba(46,204,113,0.3)",
           borderRadius: 20,
           padding: "20px 16px 18px",
           marginBottom: 16,
-          boxShadow:
-            "0 4px 20px rgba(46,204,113,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
+          boxShadow: "0 4px 20px rgba(46,204,113,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
         }}
       >
         <div
@@ -329,50 +309,25 @@ function GameLobby({ onPlayStake, isLoading }) {
           }}
         >
           <span style={{ fontSize: 16, color: "#2ecc71" }}>⚡</span>
-          <span
-            style={{
-              color: "#2ecc71",
-              fontSize: 14,
-              fontWeight: "900",
-              letterSpacing: 3,
-              textShadow: "0 0 12px rgba(46,204,113,0.5)",
-            }}
-          >
+          <span style={{ color: "#2ecc71", fontSize: 14, fontWeight: "900", letterSpacing: 3, textShadow: "0 0 12px rgba(46,204,113,0.5)" }}>
             INSTANT BINGO
           </span>
           <span style={{ fontSize: 16, color: "#2ecc71" }}>⚡</span>
         </div>
-
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <GameButton
-            onPlay={play}
-            fee={10}
-            color1="#10b981"
-            color2="#059669"
-            glowColor="#10b981"
-            isLoading={isLoading}
-          />
-          <GameButton
-            onPlay={play}
-            fee={20}
-            color1="#06b6d4"
-            color2="#0891b2"
-            glowColor="#06b6d4"
-            isLoading={isLoading}
-          />
+          <GameButton onPlay={play} fee={10} color1="#10b981" color2="#059669" glowColor="#10b981" isLoading={isLoading} />
+          <GameButton onPlay={play} fee={20} color1="#06b6d4" color2="#0891b2" glowColor="#06b6d4" isLoading={isLoading} />
         </div>
       </div>
 
       <div
         style={{
-          background:
-            "linear-gradient(135deg, rgba(26,26,46,0.7) 0%, rgba(15,20,32,0.9) 100%)",
+          background: "linear-gradient(135deg, rgba(26,26,46,0.7) 0%, rgba(15,20,32,0.9) 100%)",
           border: "1px solid rgba(243,156,18,0.3)",
           borderRadius: 20,
           padding: "20px 16px 18px",
           marginBottom: 16,
-          boxShadow:
-            "0 4px 20px rgba(243,156,18,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
+          boxShadow: "0 4px 20px rgba(243,156,18,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
         }}
       >
         <div
@@ -386,37 +341,14 @@ function GameLobby({ onPlayStake, isLoading }) {
           }}
         >
           <span style={{ fontSize: 16 }}>🏆</span>
-          <span
-            style={{
-              color: "#f39c12",
-              fontSize: 14,
-              fontWeight: "900",
-              letterSpacing: 3,
-              textShadow: "0 0 12px rgba(243,156,18,0.5)",
-            }}
-          >
+          <span style={{ color: "#f39c12", fontSize: 14, fontWeight: "900", letterSpacing: 3, textShadow: "0 0 12px rgba(243,156,18,0.5)" }}>
             DAILY BINGO
           </span>
           <span style={{ fontSize: 16 }}>🏆</span>
         </div>
-
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <GameButton
-            onPlay={play}
-            fee={50}
-            color1="#8b5cf6"
-            color2="#7c3aed"
-            glowColor="#8b5cf6"
-            isLoading={isLoading}
-          />
-          <GameButton
-            onPlay={play}
-            fee={100}
-            color1="#f59e0b"
-            color2="#d97706"
-            glowColor="#f59e0b"
-            isLoading={isLoading}
-          />
+          <GameButton onPlay={play} fee={50} color1="#8b5cf6" color2="#7c3aed" glowColor="#8b5cf6" isLoading={isLoading} />
+          <GameButton onPlay={play} fee={100} color1="#f59e0b" color2="#d97706" glowColor="#f59e0b" isLoading={isLoading} />
         </div>
       </div>
 
@@ -432,12 +364,14 @@ function GameLobby({ onPlayStake, isLoading }) {
 
 // ═══════════════════════════════════════════════════════
 // HISTORY PAGE
+// ✅ ኢንትሪ ፊ ተጣርቷል + ማጽጃ ቁልፍ ተጨምሯል
 // ═══════════════════════════════════════════════════════
 function HistoryPage() {
   const [tab, setTab] = useState("transactions");
   const [transactions, setTransactions] = useState([]);
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [clearing, setClearing] = useState(false); // ✅ አዲስ
 
   useEffect(() => {
     let cancelled = false;
@@ -449,7 +383,7 @@ function HistoryPage() {
       ]);
       if (cancelled) return;
 
-      // ✅ FIX: Entry Fee የሚሉ ግብይቶችን ማጣራት (የብር ገቢ እና ወጪ ብቻ እንዲታይ)
+      // ✅ Entry Fee የሚሉ ግብይቶችን ማጣራት
       const filteredTxs = (txs || []).filter((tx) => tx.type !== "entry_fee");
 
       setTransactions(filteredTxs);
@@ -460,6 +394,21 @@ function HistoryPage() {
       cancelled = true;
     };
   }, []);
+
+  // ✅ ታሪክ የማጽዳት ፈንክሽን
+  const handleClearHistory = async () => {
+    if (!window.confirm("እርግጠኛ ነዎት? ሁሉም የታሪክ መዝገቦችዎ ይሰረዛሉ።")) return;
+    setClearing(true);
+    try {
+      await clearHistory();
+      setTransactions([]); // ዝርዝሩን ባዶ ማድረግ
+      alert("✅ ታሪኩ በተሳካ ሁኔታ ጸድቷል!");
+    } catch (err) {
+      alert("❌ ታሪኩን ማጽዳት አልተቻለም። እባክዎ እንደገና ይሞክሩ።");
+    } finally {
+      setClearing(false);
+    }
+  };
 
   const typeIcon = {
     deposit: "📥",
@@ -479,52 +428,60 @@ function HistoryPage() {
         maxWidth: 480,
         margin: "0 auto",
         color: "#fff",
-        minHeight: "100%",
+        minHeight: "100%", 
         background: "transparent",
       }}
     >
-      <h2
-        style={{
-          color: "#f39c12",
-          margin: "0 0 16px",
-          fontSize: 22,
-          fontWeight: "900",
-          letterSpacing: 1,
-          textAlign: "center",
-          background: "linear-gradient(135deg, #f39c12, #ffd43b, #f39c12)",
-          WebkitBackgroundClip: "text",
-          WebkitTextFillColor: "transparent",
-          backgroundClip: "text",
-        }}
-      >
-        📜 HISTORY
-      </h2>
+      {/* ✅ ርዕስ እና ማጽጃ ቁልፍ */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <h2
+          style={{
+            color: "#f39c12",
+            margin: 0,
+            fontSize: 22,
+            fontWeight: "900",
+            letterSpacing: 1,
+            background: "linear-gradient(135deg, #f39c12, #ffd43b, #f39c12)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+          }}
+        >
+          📜 HISTORY
+        </h2>
+        
+        {transactions.length > 0 && (
+          <button
+            onClick={handleClearHistory}
+            disabled={clearing}
+            style={{
+              background: "rgba(231, 76, 60, 0.2)",
+              color: "#e74c3c",
+              border: "1px solid #e74c3c",
+              padding: "6px 12px",
+              borderRadius: 8,
+              fontSize: 11,
+              fontWeight: "bold",
+              cursor: clearing ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 5
+            }}
+          >
+            {clearing ? "በማጽዳት ላይ..." : "🗑️ አጽዳ"}
+          </button>
+        )}
+      </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 8,
-          marginBottom: 16,
-        }}
-      >
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
         <button
           onClick={() => setTab("transactions")}
           style={{
             background: tab === "transactions" ? "#f39c12" : "#1a1a2e",
             color: tab === "transactions" ? "#111" : "#fff",
-            border: `1px solid ${
-              tab === "transactions" ? "#f39c12" : "#2a2a40"
-            }`,
-            borderRadius: 10,
-            padding: "10px",
-            fontSize: 13,
-            fontWeight: "bold",
-            cursor: "pointer",
-            boxShadow:
-              tab === "transactions"
-                ? "0 0 15px rgba(243,156,18,0.4)"
-                : "none",
+            border: `1px solid ${tab === "transactions" ? "#f39c12" : "#2a2a40"}`,
+            borderRadius: 10, padding: "10px", fontSize: 13, fontWeight: "bold", cursor: "pointer",
+            boxShadow: tab === "transactions" ? "0 0 15px rgba(243,156,18,0.4)" : "none",
           }}
         >
           💰 Transactions ({transactions.length})
@@ -532,44 +489,23 @@ function HistoryPage() {
         <button
           onClick={() => setTab("games")}
           style={{
-            background: tab === "games" ? "#3498db" : "#1a1a2e",
-            color: "#fff",
+            background: tab === "games" ? "#3498db" : "#1a1a2e", color: "#fff",
             border: `1px solid ${tab === "games" ? "#3498db" : "#2a2a40"}`,
-            borderRadius: 10,
-            padding: "10px",
-            fontSize: 13,
-            fontWeight: "bold",
-            cursor: "pointer",
-            boxShadow:
-              tab === "games" ? "0 0 15px rgba(52,152,219,0.4)" : "none",
+            borderRadius: 10, padding: "10px", fontSize: 13, fontWeight: "bold", cursor: "pointer",
+            boxShadow: tab === "games" ? "0 0 15px rgba(52,152,219,0.4)" : "none",
           }}
         >
           🎮 Games ({games.length})
         </button>
       </div>
 
-      {loading && (
-        <div style={{ textAlign: "center", color: "#888", padding: 40 }}>
-          Loading...
-        </div>
-      )}
+      {loading && <div style={{ textAlign: "center", color: "#888", padding: 40 }}>Loading...</div>}
 
       {!loading && tab === "transactions" && (
         <>
           {transactions.length === 0 ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: 40,
-                color: "#666",
-                border: "1px dashed #2a2a40",
-                borderRadius: 12,
-                fontSize: 13,
-              }}
-            >
-              <div style={{ fontSize: 40, marginBottom: 10, opacity: 0.5 }}>
-                📭
-              </div>
+            <div style={{ textAlign: "center", padding: 40, color: "#666", border: "1px dashed #2a2a40", borderRadius: 12, fontSize: 13 }}>
+              <div style={{ fontSize: 40, marginBottom: 10, opacity: 0.5 }}>📭</div>
               <div style={{ fontWeight: "700" }}>No transactions yet</div>
             </div>
           ) : (
@@ -579,93 +515,43 @@ function HistoryPage() {
                 <div
                   key={tx._id}
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    background:
-                      "linear-gradient(135deg, rgba(26,26,46,0.9), rgba(15,20,32,0.9))",
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    background: "linear-gradient(135deg, rgba(26,26,46,0.9), rgba(15,20,32,0.9))",
                     border: `1px solid ${
-                      tx.status === "completed"
-                        ? out
-                          ? "rgba(231,76,60,0.3)"
-                          : "rgba(46,204,113,0.3)"
-                        : tx.status === "pending"
-                        ? "rgba(243,156,18,0.4)"
-                        : "rgba(42,42,64,0.6)"
+                      tx.status === "completed" ? (out ? "rgba(231,76,60,0.3)" : "rgba(46,204,113,0.3)")
+                      : tx.status === "pending" ? "rgba(243,156,18,0.4)" : "rgba(42,42,64,0.6)"
                     }`,
-                    borderRadius: 12,
-                    padding: "12px 14px",
-                    marginBottom: 8,
+                    borderRadius: 12, padding: "12px 14px", marginBottom: 8,
                   }}
                 >
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: 10 }}
-                  >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <div
                       style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 10,
-                        background: out
-                          ? "rgba(231,76,60,0.15)"
-                          : "rgba(46,204,113,0.15)",
-                        border: `1px solid ${
-                          out
-                            ? "rgba(231,76,60,0.4)"
-                            : "rgba(46,204,113,0.4)"
-                        }`,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 18,
+                        width: 36, height: 36, borderRadius: 10,
+                        background: out ? "rgba(231,76,60,0.15)" : "rgba(46,204,113,0.15)",
+                        border: `1px solid ${out ? "rgba(231,76,60,0.4)" : "rgba(46,204,113,0.4)"}`,
+                        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
                       }}
                     >
                       {typeIcon[tx.type] || "💰"}
                     </div>
                     <div>
-                      <div
-                        style={{
-                          fontWeight: "700",
-                          textTransform: "capitalize",
-                          fontSize: 12,
-                          marginBottom: 2,
-                        }}
-                      >
+                      <div style={{ fontWeight: "700", textTransform: "capitalize", fontSize: 12, marginBottom: 2 }}>
                         {tx.type.replace("_", " ")}
                       </div>
                       <div style={{ color: "#666", fontSize: 10 }}>
-                        {new Date(tx.createdAt).toLocaleString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {new Date(tx.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                       </div>
                     </div>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <div
-                      style={{
-                        color: out ? "#e74c3c" : "#2ecc71",
-                        fontWeight: "900",
-                        fontSize: 14,
-                      }}
-                    >
-                      {out ? "-" : "+"}
-                      {tx.amount} ETB
+                    <div style={{ color: out ? "#e74c3c" : "#2ecc71", fontWeight: "900", fontSize: 14 }}>
+                      {out ? "-" : "+"}{tx.amount} ETB
                     </div>
                     <div
                       style={{
-                        color:
-                          tx.status === "pending"
-                            ? "#f39c12"
-                            : tx.status === "failed"
-                            ? "#e74c3c"
-                            : "#666",
-                        fontSize: 9,
-                        fontWeight: "700",
-                        textTransform: "uppercase",
-                        marginTop: 2,
+                        color: tx.status === "pending" ? "#f39c12" : tx.status === "failed" ? "#e74c3c" : "#666",
+                        fontSize: 9, fontWeight: "700", textTransform: "uppercase", marginTop: 2,
                       }}
                     >
                       {tx.status}
@@ -681,63 +567,23 @@ function HistoryPage() {
       {!loading && tab === "games" && (
         <>
           {games.length === 0 ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: 40,
-                color: "#666",
-                border: "1px dashed #2a2a40",
-                borderRadius: 12,
-                fontSize: 13,
-              }}
-            >
-              <div style={{ fontSize: 40, marginBottom: 10, opacity: 0.5 }}>
-                🎮
-              </div>
+            <div style={{ textAlign: "center", padding: 40, color: "#666", border: "1px dashed #2a2a40", borderRadius: 12, fontSize: 13 }}>
+              <div style={{ fontSize: 40, marginBottom: 10, opacity: 0.5 }}>🎮</div>
               <div style={{ fontWeight: "700" }}>No games yet</div>
             </div>
           ) : (
             games.map((g, i) => (
-              <div
-                key={i}
-                style={{
-                  background: "#1a1a2e",
-                  border: `1px solid ${g.won ? "#2ecc71" : "#2a2a40"}`,
-                  borderRadius: 10,
-                  padding: 12,
-                  marginBottom: 8,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    marginBottom: 4,
-                  }}
-                >
-                  <div
-                    style={{
-                      fontWeight: "bold",
-                      fontSize: 13,
-                      color: "#fff",
-                    }}
-                  >
+              <div key={i} style={{ background: "#1a1a2e", border: `1px solid ${g.won ? "#2ecc71" : "#2a2a40"}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <div style={{ fontWeight: "bold", fontSize: 13, color: "#fff" }}>
                     {g.roomCode} {g.won && "🏆"}
                   </div>
-                  <div
-                    style={{
-                      color: g.won ? "#2ecc71" : "#888",
-                      fontSize: 12,
-                      fontWeight: "bold",
-                    }}
-                  >
+                  <div style={{ color: g.won ? "#2ecc71" : "#888", fontSize: 12, fontWeight: "bold" }}>
                     {g.won ? `+${g.prizePool} ETB` : `-${g.entryFee} ETB`}
                   </div>
                 </div>
                 <div style={{ fontSize: 11, color: "#888" }}>
-                  {g.finishedAt
-                    ? new Date(g.finishedAt).toLocaleString()
-                    : "—"}
+                  {g.finishedAt ? new Date(g.finishedAt).toLocaleString() : "—"}
                 </div>
               </div>
             ))
@@ -750,6 +596,7 @@ function HistoryPage() {
 
 // ═══════════════════════════════════════════════════════
 // PROFILE
+// ✅ Achievements እና Notifications ተወግደዋል
 // ═══════════════════════════════════════════════════════
 function Profile({ user, balance, onUserUpdate }) {
   const [tab, setTab] = useState("Stats");
@@ -764,26 +611,17 @@ function Profile({ user, balance, onUserUpdate }) {
         getReferralInfo().catch(() => null),
       ]);
       if (cancelled) return;
-      if (me) {
-        setProfile(me);
-        onUserUpdate?.(me);
-      }
+      if (me) { setProfile(me); onUserUpdate?.(me); }
       if (ref) setReferral(ref);
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const copyLink = async () => {
     if (!referral?.link) return;
-    try {
-      await navigator.clipboard.writeText(referral.link);
-      alert("✅ Link copied!");
-    } catch {
-      alert(referral.link);
-    }
+    try { await navigator.clipboard.writeText(referral.link); alert("✅ Link copied!"); }
+    catch { alert(referral.link); }
   };
 
   const shareLink = () => {
@@ -793,36 +631,18 @@ function Profile({ user, balance, onUserUpdate }) {
     else copyLink();
   };
 
-  const initial = (profile?.firstName || profile?.username || "U")
-    .charAt(0)
-    .toUpperCase();
+  const initial = (profile?.firstName || profile?.username || "U").charAt(0).toUpperCase();
 
   return (
-    <div
-      style={{
-        padding: 15,
-        maxWidth: 480,
-        margin: "0 auto",
-        color: "#fff",
-        minHeight: "100%",
-        background: "transparent",
-      }}
-    >
+    <div style={{ padding: 15, maxWidth: 480, margin: "0 auto", color: "#fff", minHeight: "100%", background: "transparent" }}>
       <div style={{ textAlign: "center", marginBottom: 20 }}>
         <div
           style={{
-            width: 80,
-            height: 80,
-            borderRadius: "50%",
+            width: 80, height: 80, borderRadius: "50%",
             background: "linear-gradient(135deg,#3498db,#2980b9)",
-            color: "#fff",
-            fontSize: 36,
-            fontWeight: "bold",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            margin: "0 auto 10px",
-            border: "2px solid #f39c12",
+            color: "#fff", fontSize: 36, fontWeight: "bold",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            margin: "0 auto 10px", border: "2px solid #f39c12",
           }}
         >
           {initial}
@@ -831,37 +651,19 @@ function Profile({ user, balance, onUserUpdate }) {
           {profile?.firstName || "User"} {profile?.lastName || ""}
         </h2>
         <p style={{ color: "#f39c12", margin: 0 }}>
-          {profile?.username
-            ? `@${profile.username}`
-            : `@id_${profile?.telegramId}`}
+          {profile?.username ? `@${profile.username}` : `@id_${profile?.telegramId}`}
         </p>
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          gap: 4,
-          marginBottom: 15,
-          overflowX: "auto",
-        }}
-      >
-        {/* ✅ Notifications ታብ ተወግዷል፣ Stats እና Invite ብቻ ቀርተዋል */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 15, overflowX: "auto" }}>
         {["Stats", "Invite"].map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             style={{
-              flex: 1,
-              minWidth: 75,
-              background: tab === t ? "#f39c12" : "#1a1a2e",
-              color: tab === t ? "#111" : "#fff",
-              border: "none",
-              borderRadius: 8,
-              padding: "8px 4px",
-              fontSize: 11,
-              fontWeight: "bold",
-              cursor: "pointer",
-              position: "relative",
+              flex: 1, minWidth: 75, background: tab === t ? "#f39c12" : "#1a1a2e",
+              color: tab === t ? "#111" : "#fff", border: "none", borderRadius: 8,
+              padding: "8px 4px", fontSize: 11, fontWeight: "bold", cursor: "pointer", position: "relative",
             }}
           >
             {t}
@@ -870,68 +672,25 @@ function Profile({ user, balance, onUserUpdate }) {
       </div>
 
       {tab === "Stats" && (
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
-        >
-          <Card
-            icon="💳"
-            label="Balance"
-            value={`${balance} ETB`}
-            color="#2ecc71"
-          />
-          <Card
-            icon="🏆"
-            label="Wins"
-            value={profile?.gamesWon || 0}
-            color="#f39c12"
-          />
-          <Card
-            icon="🎮"
-            label="Games"
-            value={profile?.gamesPlayed || 0}
-            color="#3498db"
-          />
-          <Card
-            icon="💰"
-            label="Total Won"
-            value={`${profile?.totalWinnings || 0} ETB`}
-            color="#e67e22"
-          />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Card icon="💳" label="Balance" value={`${balance} ETB`} color="#2ecc71" />
+          <Card icon="🏆" label="Wins" value={profile?.gamesWon || 0} color="#f39c12" />
+          <Card icon="🎮" label="Games" value={profile?.gamesPlayed || 0} color="#3498db" />
+          <Card icon="💰" label="Total Won" value={`${profile?.totalWinnings || 0} ETB`} color="#e67e22" />
         </div>
       )}
 
       {tab === "Invite" && (
-        <div
-          style={{
-            background: "linear-gradient(135deg,#1a1a2e,#0f1420)",
-            border: "2px solid #f39c12",
-            borderRadius: 14,
-            padding: 16,
-            textAlign: "center",
-          }}
-        >
+        <div style={{ background: "linear-gradient(135deg,#1a1a2e,#0f1420)", border: "2px solid #f39c12", borderRadius: 14, padding: 16, textAlign: "center" }}>
           <div style={{ fontSize: 40 }}>🎁</div>
-          <div
-            style={{
-              color: "#f39c12",
-              fontSize: 16,
-              fontWeight: "bold",
-              marginBottom: 8,
-            }}
-          >
+          <div style={{ color: "#f39c12", fontSize: 16, fontWeight: "bold", marginBottom: 8 }}>
             Invite & Earn 5 ETB
           </div>
           <div
             style={{
-              background: "#0f1420",
-              border: "1px solid #2a2a40",
-              borderRadius: 8,
-              padding: 10,
-              fontSize: 11,
-              color: "#2ecc71",
-              wordBreak: "break-all",
-              marginBottom: 12,
-              fontFamily: "monospace",
+              background: "#0f1420", border: "1px solid #2a2a40", borderRadius: 8,
+              padding: 10, fontSize: 11, color: "#2ecc71", wordBreak: "break-all",
+              marginBottom: 12, fontFamily: "monospace",
             }}
           >
             {referral?.link || "Loading..."}
@@ -939,33 +698,13 @@ function Profile({ user, balance, onUserUpdate }) {
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={copyLink}
-              style={{
-                flex: 1,
-                background: "#3498db",
-                color: "#fff",
-                border: "none",
-                borderRadius: 10,
-                padding: 12,
-                fontWeight: "bold",
-                fontSize: 13,
-                cursor: "pointer",
-              }}
+              style={{ flex: 1, background: "#3498db", color: "#fff", border: "none", borderRadius: 10, padding: 12, fontWeight: "bold", fontSize: 13, cursor: "pointer" }}
             >
               📋 Copy
             </button>
             <button
               onClick={shareLink}
-              style={{
-                flex: 1,
-                background: "linear-gradient(135deg,#f39c12,#e67e22)",
-                color: "#fff",
-                border: "none",
-                borderRadius: 10,
-                padding: 12,
-                fontWeight: "bold",
-                fontSize: 13,
-                cursor: "pointer",
-              }}
+              style={{ flex: 1, background: "linear-gradient(135deg,#f39c12,#e67e22)", color: "#fff", border: "none", borderRadius: 10, padding: 12, fontWeight: "bold", fontSize: 13, cursor: "pointer" }}
             >
               📤 Share
             </button>
@@ -978,20 +717,10 @@ function Profile({ user, balance, onUserUpdate }) {
 
 function Card({ icon, label, value, color }) {
   return (
-    <div
-      style={{
-        background: "#1a1a2e",
-        border: `1px solid ${color}40`,
-        borderRadius: 12,
-        padding: 14,
-        textAlign: "center",
-      }}
-    >
+    <div style={{ background: "#1a1a2e", border: `1px solid ${color}40`, borderRadius: 12, padding: 14, textAlign: "center" }}>
       <div style={{ fontSize: 24 }}>{icon}</div>
       <div style={{ color: "#aaa", fontSize: 11, marginTop: 4 }}>{label}</div>
-      <div style={{ color, fontSize: 16, fontWeight: "bold", marginTop: 2 }}>
-        {value}
-      </div>
+      <div style={{ color, fontSize: 16, fontWeight: "bold", marginTop: 2 }}>{value}</div>
     </div>
   );
 }
@@ -1002,8 +731,12 @@ function Card({ icon, label, value, color }) {
 function App() {
   useTelegram();
 
-  const [user, setUser] = useState(null);
-  const [balance, setBalance] = useState(0);
+  const [user, setUser] = useState(() => getCachedUser());
+  const [balance, setBalance] = useState(() => {
+    const cached = getCachedUser();
+    return cached?.balance || 0;
+  });
+  
   const [roomCode, setRoomCode] = useState(null);
   const [cardIds, setCardIds] = useState([]);
   const [showCartela, setShowCartela] = useState(false);
@@ -1020,32 +753,36 @@ function App() {
       { id: "History", label: "History", icon: "📜" },
       { id: "Profile", label: "Profile", icon: "👤" },
     ];
-    return isAdmin
-      ? [...base, { id: "Admin", label: "Admin", icon: "⚙️" }]
-      : base;
+    return isAdmin ? [...base, { id: "Admin", label: "Admin", icon: "⚙️" }] : base;
   }, [isAdmin]);
 
   const handleLoggedIn = useCallback((u) => {
     if (!u) return;
     setUser(u);
     setBalance(u.balance || 0);
+    setCachedUser(u);
   }, []);
 
   useEffect(() => {
     if (!user?.telegramId) return;
     let cancelled = false;
 
-    getMe()
-      .then((fresh) => {
-        if (cancelled || !fresh) return;
-        setUser((prev) => ({ ...prev, ...fresh }));
-        if (fresh.balance !== undefined) setBalance(fresh.balance);
-      })
-      .catch((err) => console.warn("[App] getMe failed:", err?.message));
+    const timer = setTimeout(() => {
+      getMe()
+        .then((fresh) => {
+          if (cancelled || !fresh) return;
+          setUser((prev) => ({ ...prev, ...fresh }));
+          if (fresh.balance !== undefined) setBalance(fresh.balance);
+          setCachedUser(fresh);
+        })
+        .catch((err) => console.warn("[App] getMe failed:", err?.message));
+    }, 2000);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.telegramId]);
 
   const handleCartelaConfirm = useCallback((ids) => {
@@ -1075,11 +812,11 @@ function App() {
     setGameStatus("waiting");
   }, []);
 
-  if (!user) {
-    return <Login onLoggedIn={handleLoggedIn} />;
-  }
-
-  const handlePlayStake = async (fee, code) => {
+  const handlePlayStake = useCallback(async (fee, code) => {
+    if (!user) {
+      alert("⏳ እባክዎ ትንሽ ይጠብቁ — በመግባት ላይ ነው።");
+      return;
+    }
     setStakeAmount(fee);
     setRoomCode(code);
     let live = false;
@@ -1097,10 +834,9 @@ function App() {
       setShowCartela(true);
       setGameStatus("waiting");
     }
-  };
+  }, [user]);
 
   return (
-    // ✅ FIX: Inline style ላይ የነበረው overflowY እና minHeight ተወግደዋል (index.css ላይ ስላለ ብቻ)
     <div className="app">
       {activeTab === "Game" && (
         <>
@@ -1118,12 +854,12 @@ function App() {
               roomCode={roomCode}
               cardIds={cardIds}
               setBalance={setBalance}
-              telegramId={user.telegramId}
+              telegramId={user?.telegramId || ""}
               onExit={handleLeave}
               onGameEnded={handleGameEnded}
             />
           ) : (
-            <GameLobby onPlayStake={handlePlayStake} />
+            <GameLobby onPlayStake={handlePlayStake} isLoading={!user} />
           )}
         </>
       )}
@@ -1136,11 +872,12 @@ function App() {
 
       {activeTab === "Profile" && (
         <Profile
-          user={user}
+          user={user || {}}
           balance={balance}
           onUserUpdate={(u) => {
             setUser((prev) => ({ ...prev, ...u }));
             if (u.balance !== undefined) setBalance(u.balance);
+            setCachedUser({ ...(user || {}), ...u });
           }}
         />
       )}
@@ -1162,6 +899,8 @@ function App() {
           ))}
         </nav>
       )}
+
+      {!user && <Login onLoggedIn={handleLoggedIn} />}
     </div>
   );
 }

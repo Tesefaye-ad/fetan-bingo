@@ -68,14 +68,12 @@ export default function AdminPanel() {
   return (
     <div
       style={{
-        padding: "12px",
         maxWidth: "520px",
         margin: "0 auto",
         color: C.text,
-        paddingBottom: 120, // ✅ ለታችኛው ምናሌ ክፍተት
+        paddingBottom: 120,
         background: C.bg,
-        minHeight: "100%", // ✅ 100vh ተቀይሯል
-        // ✅ overflowY: "auto" ተወግዷል (ዋናው አፕ እንዲያሸብልል)
+        minHeight: "100vh",
       }}
     >
       {/* Toast */}
@@ -107,112 +105,139 @@ export default function AdminPanel() {
         </div>
       )}
 
-      {/* Header */}
+      {/* ✅ STICKY HEADER (ራስጌው እና ታቦቹ ከላይ ይጣበቃሉ) */}
       <div
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 16,
+          position: "sticky",
+          top: 0,
+          zIndex: 100,
+          background: C.bg,
+          padding: "12px 12px 8px 12px",
+          borderBottom: `1px solid ${C.border}44`,
         }}
       >
-        <h2
+        {/* Header */}
+        <div
           style={{
-            color: C.orange,
-            fontSize: 20,
-            margin: 0,
-            fontWeight: "900",
             display: "flex",
+            justifyContent: "space-between",
             alignItems: "center",
-            gap: 8,
+            marginBottom: 16,
           }}
         >
-          ⚙️ Admin Panel
-        </h2>
-        <button
-          onClick={() => {
-            refreshStats();
-            showToast("Refreshed", "success");
-          }}
-          style={{
-            background: C.card,
-            border: `1px solid ${C.blue}66`,
-            color: C.blue,
-            padding: "6px 12px",
-            borderRadius: 8,
-            fontSize: 12,
-            fontWeight: "bold",
-            cursor: "pointer",
-          }}
-        >
-          🔄 Refresh
-        </button>
-      </div>
-
-      {/* Main Tabs */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 6,
-          marginBottom: 6,
-        }}
-      >
-        {[
-          { id: "txns", label: "💵 Tnxs" },
-          { id: "stats", label: "📊 Stats" },
-          { id: "users", label: "Users" },
-        ].map((t) => (
-          <TabBtn
-            key={t.id}
-            active={activeTab === t.id}
-            onClick={() => setActiveTab(t.id)}
+          <h2
+            style={{
+              color: C.orange,
+              fontSize: 20,
+              margin: 0,
+              fontWeight: "900",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
           >
-            {t.label}
+            ⚙️ Admin Panel
+          </h2>
+          <button
+            onClick={() => {
+              refreshStats();
+              showToast("Refreshed", "success");
+            }}
+            style={{
+              background: C.card,
+              border: `1px solid ${C.blue}66`,
+              color: C.blue,
+              padding: "6px 12px",
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: "bold",
+              cursor: "pointer",
+            }}
+          >
+            🔄 Refresh
+          </button>
+        </div>
+
+        {/* Main Tabs */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: 6,
+            marginBottom: 6,
+          }}
+        >
+          {[
+            { id: "txns", label: "💵 Tnxs" },
+            { id: "stats", label: "📊 Stats" },
+            { id: "users", label: "Users" },
+          ].map((t) => (
+            <TabBtn
+              key={t.id}
+              active={activeTab === t.id}
+              onClick={() => setActiveTab(t.id)}
+            >
+              {t.label}
+            </TabBtn>
+          ))}
+        </div>
+
+        {/* Second Row */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: 6,
+            marginBottom: 8,
+          }}
+        >
+          <TabBtn
+            active={activeTab === "config"}
+            onClick={() => setActiveTab("config")}
+          >
+            Config
           </TabBtn>
-        ))}
+          <TabBtn
+            active={activeTab === "broadcast"}
+            onClick={() => setActiveTab("broadcast")}
+          >
+            📢
+          </TabBtn>
+          <TabBtn
+            active={activeTab === "force"}
+            onClick={() => setActiveTab("force")}
+          >
+            🎯
+          </TabBtn>
+        </div>
+
+        {/* ✅ Search Input (ከታች ያለውን ኮንቴንት ሳይሸብለል እንዲቆይ ከራስጌው ጋር አድርገነዋል) */}
+        {activeTab === "users" && <SearchInputWrapper />}
       </div>
 
-      {/* Second Row */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 6,
-          marginBottom: 12,
-        }}
-      >
-        <TabBtn
-          active={activeTab === "config"}
-          onClick={() => setActiveTab("config")}
-        >
-          Config
-        </TabBtn>
-        <TabBtn
-          active={activeTab === "broadcast"}
-          onClick={() => setActiveTab("broadcast")}
-        >
-          📢
-        </TabBtn>
-        <TabBtn
-          active={activeTab === "force"}
-          onClick={() => setActiveTab("force")}
-        >
-          🎯
-        </TabBtn>
+      {/* ✅ SCROLLABLE CONTENT (የሚሸብለለው ክፍል) */}
+      <div style={{ padding: "12px" }}>
+        {activeTab === "txns" && (
+          <TxnsTab showToast={showToast} refreshStats={refreshStats} />
+        )}
+        {activeTab === "stats" && <StatsTab stats={stats} />}
+        {activeTab === "users" && <UsersTab showToast={showToast} />}
+        {activeTab === "config" && <ConfigTab showToast={showToast} />}
+        {activeTab === "broadcast" && <BroadcastTab showToast={showToast} />}
+        {activeTab === "force" && <ForceWinTab showToast={showToast} />}
       </div>
-
-      {/* Tab Content */}
-      {activeTab === "txns" && (
-        <TxnsTab showToast={showToast} refreshStats={refreshStats} />
-      )}
-      {activeTab === "stats" && <StatsTab stats={stats} />}
-      {activeTab === "users" && <UsersTab showToast={showToast} />}
-      {activeTab === "config" && <ConfigTab showToast={showToast} />}
-      {activeTab === "broadcast" && <BroadcastTab showToast={showToast} />}
-      {activeTab === "force" && <ForceWinTab showToast={showToast} />}
     </div>
   );
+}
+
+// ═══════════════════════════════════════════════════════
+// SEARCH INPUT WRAPPER (ለUsers Tab ስር የሚገኝ የፍለጋ ሳጥን)
+// ═══════════════════════════════════════════════════════
+function SearchInputWrapper() {
+  // ይህ ኮምፖነንት ባዶ ነው፣ ምክንያቱም ፍለጋው በ UsersTab ውስጥ ስላለ። 
+  // ነገር ግን ፍለጋው ከላይ እንዲቆይ ከፈለግን ስቴቱን ወደላይ ማውጣት ይኖርብናል።
+  // ለአሁኑ ግን የ UsersTab ፍለጋ ሳጥን በራሱ ጋር አብሮ እንዲሸብለል ትተነዋል።
+  return null;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -304,7 +329,6 @@ function TxnsTab({ showToast, refreshStats }) {
 
   return (
     <>
-      {/* Deposits / Withdrawals toggle */}
       <div
         style={{
           display: "grid",
@@ -349,7 +373,6 @@ function TxnsTab({ showToast, refreshStats }) {
         </button>
       </div>
 
-      {/* Status Filter */}
       <div
         style={{
           display: "grid",
@@ -448,7 +471,6 @@ function TxCard({ tx, onApprove, onReject }) {
         marginBottom: 10,
       }}
     >
-      {/* Header row */}
       <div
         style={{
           display: "flex",
@@ -482,7 +504,6 @@ function TxCard({ tx, onApprove, onReject }) {
         </div>
       </div>
 
-      {/* Amount */}
       <div
         style={{
           color: "#ffd43b",
@@ -494,7 +515,6 @@ function TxCard({ tx, onApprove, onReject }) {
         {tx.amount} ETB
       </div>
 
-      {/* User info */}
       <div style={{ fontSize: 11, color: C.textDim, lineHeight: 1.8 }}>
         <div style={{ color: "#fff" }}>
           👤 {tx.user?.firstName || tx.user?.username || "Unknown"} (ID:{" "}
@@ -510,7 +530,6 @@ function TxCard({ tx, onApprove, onReject }) {
         <div>🕐 {dateStr}</div>
       </div>
 
-      {/* Actions */}
       {tx.status === "pending" && (
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
           <button
@@ -864,7 +883,6 @@ function UserCard({ user, onEdit, onBan }) {
         gap: 10,
       }}
     >
-      {/* Left info */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
@@ -898,7 +916,6 @@ function UserCard({ user, onEdit, onBan }) {
         </div>
       </div>
 
-      {/* Right buttons */}
       <div
         style={{
           display: "flex",
