@@ -7,6 +7,17 @@
 * {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
+  
+  /* ✅ FIX: ስክሮል መስመርን ሙሉ በሙሉ ለመደበቅ (Firefox & IE/Edge) */
+  -ms-overflow-style: none;  
+  scrollbar-width: none;  
+}
+
+/* ✅ FIX: ስክሮል መስመርን ሙሉ በሙሉ ለመደበቅ (Chrome, Safari, Opera) */
+::-webkit-scrollbar {
+  display: none;
+  width: 0px;
+  height: 0px;
 }
 
 /* ✅ FIX: ዋናው መሸብለያ በ #root ላይ ብቻ እንዲሆን ተደርጓል */
@@ -15,8 +26,8 @@ body {
   margin: 0;
   padding: 0;
   width: 100%;
-  height: 100%; /* 100vh ሳይሆን 100% */
-  overflow: hidden; /* ዋናው ገጽ እንዳይንቀሳቀስ */
+  height: 100%;
+  overflow: hidden; 
   background: #0a0a14;
 }
 
@@ -34,7 +45,7 @@ body {
   height: 100%; 
   overflow-y: auto;
   overflow-x: hidden;
-  -webkit-overflow-scrolling: touch; /* በ iOS ላይ ለስላሳ መሸብለል */
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -44,7 +55,7 @@ body {
   max-width: 480px;
   margin: 0 auto;
   padding: 12px;
-  padding-bottom: 120px; /* ✅ ለታችኛው ምናሌ ክፍተት */
+  padding-bottom: 120px;
   min-height: 100vh;
   width: 100%;
   background: linear-gradient(180deg, #0a0a14 0%, #150a2e 50%, #0a0a14 100%);
@@ -187,28 +198,6 @@ button:disabled {
   height: 3px;
   background: linear-gradient(90deg, transparent, #f39c12, transparent);
   border-radius: 3px;
-}
-
-/* ═══════════════════════════════════════════════════════
-   SCROLLBAR
-   ═══════════════════════════════════════════════════════ */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: rgba(26, 26, 46, 0.4);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #f39c12, #e67e22);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #ffd43b, #f39c12);
 }
 
 /* ═══════════════════════════════════════════════════════
