@@ -14,7 +14,6 @@ import {
   warmUpServer,
 } from "./api";
 
-// ✅ FIX: Hardcoded admin IDs ተወግዷል — backend ብቻ ይወስናል
 const LOGIN_TIMEOUT_MS = 30000;
 
 const SHARED_ROOMS = {
@@ -274,7 +273,7 @@ function GameLobby({ onPlayStake, isLoading }) {
         padding: "20px 15px",
         maxWidth: 450,
         margin: "0 auto",
-        paddingBottom: 20, // ✅ .app ውስጥ ስለሆነ እዚህ መጨመር አያስፈልግም
+        paddingBottom: 20,
         minHeight: "100%",
         background: "transparent",
       }}
@@ -450,6 +449,7 @@ function HistoryPage() {
       ]);
       if (cancelled) return;
 
+      // ✅ FIX: Entry Fee የሚሉ ግብይቶችን ማጣራት (የብር ገቢ እና ወጪ ብቻ እንዲታይ)
       const filteredTxs = (txs || []).filter((tx) => tx.type !== "entry_fee");
 
       setTransactions(filteredTxs);
@@ -845,6 +845,7 @@ function Profile({ user, balance, onUserUpdate }) {
           overflowX: "auto",
         }}
       >
+        {/* ✅ Notifications ታብ ተወግዷል፣ Stats እና Invite ብቻ ቀርተዋል */}
         {["Stats", "Invite"].map((t) => (
           <button
             key={t}
@@ -1099,16 +1100,8 @@ function App() {
   };
 
   return (
-    // ✅ FIX: ይህ ዋናው ኮንቴይነር ነው ስክሮል እንዲሰራ የተስተካከለው
-    <div 
-      className="app" 
-      style={{ 
-        paddingBottom: 120, // ለታችኛው ምናሌ ክፍተት
-        minHeight: "100vh", 
-        overflowY: "auto", 
-        WebkitOverflowScrolling: "touch" 
-      }}
-    >
+    // ✅ FIX: Inline style ላይ የነበረው overflowY እና minHeight ተወግደዋል (index.css ላይ ስላለ ብቻ)
+    <div className="app">
       {activeTab === "Game" && (
         <>
           {showCartela && gameStatus === "waiting" ? (

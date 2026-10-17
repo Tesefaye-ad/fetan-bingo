@@ -72,11 +72,10 @@ export default function AdminPanel() {
         maxWidth: "520px",
         margin: "0 auto",
         color: C.text,
-        paddingBottom: 120, // ✅ ለታችኛው ምናሌ ክፍተት ተሰጥቷል
+        paddingBottom: 120, // ✅ ለታችኛው ምናሌ ክፍተት
         background: C.bg,
-        minHeight: "100vh",
-        overflowY: "auto", // ✅ ስክሮል እንዲሰራ
-        WebkitOverflowScrolling: "touch", // ✅ በ iOS ላይ ለስላሳ ስክሮል
+        minHeight: "100%", // ✅ 100vh ተቀይሯል
+        // ✅ overflowY: "auto" ተወግዷል (ዋናው አፕ እንዲያሸብልል)
       }}
     >
       {/* Toast */}
@@ -572,7 +571,6 @@ function StatsTab({ stats }) {
         📊 Financial Dashboard
       </div>
 
-      {/* Deposits / Withdrawals */}
       <div
         style={{
           display: "grid",
@@ -634,7 +632,6 @@ function StatsTab({ stats }) {
         </div>
       </div>
 
-      {/* House Commission */}
       <div
         style={{
           background: `${C.orange}11`,
@@ -669,7 +666,6 @@ function StatsTab({ stats }) {
         </div>
       </div>
 
-      {/* Other stats */}
       <div
         style={{
           display: "grid",
@@ -1161,7 +1157,7 @@ function BroadcastTab({ showToast }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// FORCE WIN TAB (አዲስ)
+// FORCE WIN TAB
 // ═══════════════════════════════════════════════════════
 function ForceWinTab({ showToast }) {
   const [roomCode, setRoomCode] = useState("ROOM10");

@@ -9,33 +9,32 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* ✅ FIX: ዋናው መሸብለያ በ #root ላይ ብቻ እንዲሆን ተደርጓል */
 html,
 body {
   margin: 0;
   padding: 0;
   width: 100%;
-  min-height: 100%;
-  /* ✅ FIX: መሸብለል እንዲሰራ */
-  overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch; 
+  height: 100%; /* 100vh ሳይሆን 100% */
+  overflow: hidden; /* ዋናው ገጽ እንዳይንቀሳቀስ */
+  background: #0a0a14;
 }
 
 body {
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     sans-serif;
-  background: #0a0a14;
   color: #f2f2f2;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overscroll-behavior-y: contain;
+  overscroll-behavior-y: none;
 }
 
-/* ✅ FIX: #root መሸብለል እንዲችል ማድረግ */
+/* ✅ FIX: ስክሮሉ የሚሠራው በዚህ #root ላይ ብቻ ነው */
 #root {
-  min-height: 100dvh; /* Dynamic viewport height for mobile */
-  display: flex;
-  flex-direction: column;
+  height: 100%; 
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch; /* በ iOS ላይ ለስላሳ መሸብለል */
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -46,15 +45,10 @@ body {
   margin: 0 auto;
   padding: 12px;
   padding-bottom: 120px; /* ✅ ለታችኛው ምናሌ ክፍተት */
-  min-height: 100dvh;
+  min-height: 100vh;
   width: 100%;
   background: linear-gradient(180deg, #0a0a14 0%, #150a2e 50%, #0a0a14 100%);
   position: relative;
-  flex: 1;
-  /* ✅ FIX: ውስጣዊ መሸብለል */
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
 }
 
 .app::before {

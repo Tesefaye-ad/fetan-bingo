@@ -99,11 +99,10 @@ function Wallet({ balance, setBalance }) {
         padding: "15px",
         maxWidth: "450px",
         margin: "0 auto",
-        minHeight: "100%", // ✅ ከ 100vh ወደ 100% ተቀይሯል
-        paddingBottom: 120, // ✅ ለታችኛው ምናሌ ክፍተት ተሰጥቷል
-        background: "transparent", // ✅ ዳራው ከ App.jsx እንዲመጣ
-        overflowY: "auto", // ✅ ስክሮል እንዲሰራ
-        WebkitOverflowScrolling: "touch",
+        minHeight: "100%", // ✅ 100vh ሳይሆን 100% ሆኗል
+        paddingBottom: 120, // ✅ ለታችኛው ምናሌ ክፍተት
+        background: "transparent", 
+        // ✅ overflowY: "auto" ተወግዷል
       }}
     >
       {/* 💳 Balance Card */}
