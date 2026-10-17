@@ -34,6 +34,9 @@ const starting = new Map();
 const lockTails = new Map();
 const activeUserIds = new Set();
 
+// ✅ አዲስ የተጨመረ፦ አድሚን የሚገድበውን ካርቴላ ለማስቀመጥ
+const forcedWinners = new Map(); // Map<roomCode, cardId>
+
 // ═══════════════════════════════════════════════════════
 // Card-selection batching per room
 // 90 selections/sec → 4 emits/sec (250x reduction)
@@ -369,7 +372,26 @@ function initGameSocket(io) {
     if (rt.done) return;
     try {
       const max = 75;
-      const num = randomUncalled(rt.calledSet, max);
+      let num = null;
+
+      // ✅ የተገደደ አሸናፊ ካለ (Admin forced win)
+      const forcedCardId = forcedWinners.get(rt.roomCode);
+      if (forcedCardId) {
+        const targetPlayer = rt.players.find(p => p.cardId === forcedCardId);
+        if (targetPlayer) {
+          const uncalledOnCard = targetPlayer.card.flat().filter(n => n !== 0 && !rt.calledSet.has(n));
+          if (uncalledOnCard.length > 0) {
+            num = uncalledOnCard[crypto.randomInt(uncalledOnCard.length)];
+            console.log(`[force-win:${rt.roomCode}] ለካርቴላ #${forcedCardId} ቁጥር ${num} ተመርጧል`);
+          }
+        }
+      }
+
+      // የተገደደ ቁጥር ካልተገኘ በተለመደው መንገድ ይምረጥ
+      if (num === null) {
+        num = randomUncalled(rt.calledSet, max);
+      }
+
       if (num === null) {
         rt.done = true;
         return finishRound(rt, [], []);
@@ -426,12 +448,11 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // WINNERS — ✅ ደራሹ ለእያንዳንዱ ተጠቃሚ በእኩል ይከፈላል
+  // WINNERS
   // ═══════════════════════════════════════════════════════
   async function processWinners(rt, winners) {
     clearTimeout(rt.timer);
     try {
-      // ✅ 1. ልዩ ተጠቃሚዎችን (unique users) መለየት
       const userIds = [...new Set(winners.map((w) => w.player.userId))];
       
       const users = await User.find({ _id: { $in: userIds } }).select(
@@ -448,15 +469,11 @@ function initGameSocket(io) {
         marked: player.marked,
       }));
 
-      // ✅ 2. ደራሹን በልዩ ተጠቃሚዎች ብዛት እኩል መከፋፈል
-      // (በካርቴላ ብዛት አይደለም — አንድ ሰው ብዙ ካርቴላ ቢያሸንፍም እኩል ይወስዳል)
       const prizePerUser = Math.floor(rt.prizePool / userIds.length);
 
       const panel = [];
       for (const userId of userIds) {
         const mine = winners.filter((w) => w.player.userId === userId);
-        
-        // ✅ ሁሉም ተጠቃሚ እኩል ይወስዳል (የካርቴላ ብዛት ምንም ለውጥ አያመጣም)
         const prize = prizePerUser;
         
         let prizeTx;
@@ -513,13 +530,12 @@ function initGameSocket(io) {
         { $set: { winners: userIds, winningCartelas } }
       );
 
-      // ✅ በደራሽ ቅደም ተከተል (እኩል ስለሆኑ በስም ማደርደር)
       const sortedPanel = [...panel].sort((a, b) => b.prize - a.prize);
 
       const payload = {
         winPattern: rt.pattern,
         prizePool: rt.prizePool,
-        prizePerUser, // ✅ አዲስ (per user)
+        prizePerUser,
         totalCartelas: winningCartelas.length,
         winnerCount: sortedPanel.length,
         winners: sortedPanel,
@@ -539,9 +555,7 @@ function initGameSocket(io) {
 
       console.log(
         `[winners:${rt.roomCode}] ✅ ${sortedPanel.length} user(s) — ` +
-          `prizePool=${rt.prizePool}ETB, perUser=${prizePerUser}ETB, ` +
-          `cartelas=${winningCartelas.length} — ` +
-          sortedPanel.map((w) => `${w.name}(${w.prize}ETB)`).join(", ")
+          `prizePool=${rt.prizePool}ETB, perUser=${prizePerUser}ETB`
       );
 
       io.to(rt.roomCode).emit("bingo_claimed", payload);
@@ -564,6 +578,9 @@ function initGameSocket(io) {
   async function finishRound(rt, panel, winningCartelas, wasWin = false) {
     const { roomCode } = rt;
     try {
+      // ✅ ጨዋታው ሲያልቅ የተገደደውን አሸናፊ አጥፋ
+      forcedWinners.delete(roomCode);
+
       const isWeekly = rt.entryFee === 50 || rt.entryFee === 100;
       let notificationOk = true;
 
@@ -1100,4 +1117,14 @@ function initGameSocket(io) {
   });
 }
 
-module.exports = { initGameSocket, getActiveUserCount };
+// ✅ አድሚን የሚጠቀመው ፈንክሽን
+function setForcedWinner(roomCode, cardId) {
+  if (!roomCode) return;
+  if (cardId) {
+    forcedWinners.set(roomCode, Number(cardId));
+  } else {
+    forcedWinners.delete(roomCode);
+  }
+}
+
+module.exports = { initGameSocket, getActiveUserCount, setForcedWinner };

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import axios from "axios";
 import {
   adminGetStats,
   adminGetTransactions,
@@ -48,7 +49,7 @@ export default function AdminPanel() {
 
   const showToast = (msg, type = "info") => {
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 2500);
+    setTimeout(() => setToast(null), 3000);
   };
 
   const refreshStats = useCallback(async () => {
@@ -97,6 +98,8 @@ export default function AdminPanel() {
             fontWeight: "bold",
             fontSize: 13,
             boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+            textAlign: "center",
+            minWidth: "200px",
           }}
         >
           {toast.msg}
@@ -149,7 +152,7 @@ export default function AdminPanel() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
+          gridTemplateColumns: "repeat(3, 1fr)",
           gap: 6,
           marginBottom: 6,
         }}
@@ -173,7 +176,7 @@ export default function AdminPanel() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(2, 1fr)",
+          gridTemplateColumns: "repeat(3, 1fr)",
           gap: 6,
           marginBottom: 12,
         }}
@@ -190,6 +193,12 @@ export default function AdminPanel() {
         >
           📢
         </TabBtn>
+        <TabBtn
+          active={activeTab === "force"}
+          onClick={() => setActiveTab("force")}
+        >
+          🎯 Force Win
+        </TabBtn>
       </div>
 
       {/* Tab Content */}
@@ -200,6 +209,7 @@ export default function AdminPanel() {
       {activeTab === "users" && <UsersTab showToast={showToast} />}
       {activeTab === "config" && <ConfigTab showToast={showToast} />}
       {activeTab === "broadcast" && <BroadcastTab showToast={showToast} />}
+      {activeTab === "force" && <ForceWinTab showToast={showToast} />}
     </div>
   );
 }
@@ -741,17 +751,46 @@ function UsersTab({ showToast }) {
   };
 
   const editBalance = async (u) => {
-    const amount = window.prompt(
-      `Adjust balance for ${u.firstName || u.username}\nCurrent: ${u.balance} ETB\n\nEnter amount (use - for subtract):`
+    const amountStr = window.prompt(
+      `Adjust balance for ${u.firstName || u.username}\nCurrent: ${u.balance} ETB\n\n👉 ለመጨመር: 50 ብለው ያስገቡ\n👉 ለመቀነስ: -50 ብለው ያስገቡ (ከሚነሰው በፊት የመቀነስ ምልክት ያስፈልጋል)`
     );
-    if (!amount) return;
+
+    if (amountStr === null || amountStr.trim() === "") return;
+
+    const cleanInput = amountStr.replace(/[\s,]/g, "").replace(/ETB/gi, "");
+    const amount = Number(cleanInput);
+
+    if (!Number.isFinite(amount) || amount === 0) {
+      showToast("❌ እባክዎ ትክክለኛ ቁጥር ያስገቡ (ለምሳሌ 50 ወይም -50)", "error");
+      return;
+    }
+
     const note = window.prompt("Note (optional):") || "";
+
     try {
-      await adminAdjustBalance(u._id, Number(amount), note);
-      showToast("Balance adjusted", "success");
-      load();
+      const res = await adminAdjustBalance(u._id, amount, note);
+
+      if (res && res.user) {
+        setList((prev) =>
+          prev.map((item) =>
+            item._id === u._id ? { ...item, balance: res.user.balance } : item
+          )
+        );
+        showToast(
+          `✅ ተሳክቷል! አዲስ ባላንስ: ${res.user.balance} ETB`,
+          "success"
+        );
+      } else {
+        load();
+        showToast("✅ ተሳክቷል!", "success");
+      }
     } catch (e) {
-      showToast("Failed", "error");
+      const msg = e?.response?.data?.error || "Failed to update balance";
+      if (msg === "Insufficient balance") {
+        showToast("❌ ተጠቃሚው የሚቀነሰውን ያህል ብር የለውም!", "error");
+      } else {
+        showToast(`❌ ${msg}`, "error");
+      }
     }
   };
 
@@ -1115,6 +1154,140 @@ function BroadcastTab({ showToast }) {
       >
         {sending ? "Sending..." : "📤 መልእክት አስተላልፍ"}
       </button>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// FORCE WIN TAB (አዲስ)
+// ═══════════════════════════════════════════════════════
+function ForceWinTab({ showToast }) {
+  const [roomCode, setRoomCode] = useState("ROOM10");
+  const [cardId, setCardId] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleForceWin = async () => {
+    if (!cardId) {
+      return showToast("❌ እባክዎ የካርቴላ ቁጥር ያስገቡ", "error");
+    }
+    setLoading(true);
+    try {
+      // ✅ እዚህ ጋር የ API ጥሪው ይደረጋል (api.js ላይ መጨመር ይኖርብዎታል)
+      const res = await axios.post(
+        `${process.env.REACT_APP_API_URL || ""}/api/admin/force-win`,
+        { roomCode, cardId: Number(cardId) },
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } } // ወይም እንደ እርስዎ api ሴታፕ
+      );
+      showToast(`✅ ካርቴላ #${cardId} እንዲያሸንፍ ተደርጓል!`, "success");
+      setCardId("");
+    } catch (err) {
+      showToast(`❌ ስህተት: ${err.response?.data?.error || err.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClear = async () => {
+    setLoading(true);
+    try {
+      await axios.post(
+        `${process.env.REACT_APP_API_URL || ""}/api/admin/force-win`,
+        { roomCode, cardId: null },
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
+      );
+      showToast(`✅ የተገደደ አሸናፊ ተሰርዟል`, "success");
+    } catch (err) {
+      showToast(`❌ ስህተት: ${err.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        background: C.card,
+        border: `1px solid ${C.red}66`,
+        borderRadius: 14,
+        padding: 18,
+        boxShadow: `0 0 25px ${C.red}22`,
+      }}
+    >
+      <div
+        style={{
+          color: "#ffd43b",
+          fontSize: 16,
+          fontWeight: "900",
+          marginBottom: 14,
+        }}
+      >
+        🎯 አሸናፊ መወሰኛ (Force Winner)
+      </div>
+      <p style={{ fontSize: 12, color: C.textDim, marginTop: 0, marginBottom: 14 }}>
+        የሚፈልጉት ካርቴላ በሚቀጥለው ጨዋታ በራሱ እንዲያሸንፍ ያድርጉ።
+      </p>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div>
+          <label style={{ fontSize: 12, color: "#fff", display: "block", marginBottom: 6 }}>ክፍል (Room):</label>
+          <select
+            value={roomCode}
+            onChange={(e) => setRoomCode(e.target.value)}
+            style={{ width: "100%", padding: 12, background: "#000", color: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, outline: "none" }}
+          >
+            <option value="ROOM10">ROOM10 (10 ETB)</option>
+            <option value="ROOM20">ROOM20 (20 ETB)</option>
+            <option value="ROOM50">ROOM50 (50 ETB)</option>
+            <option value="ROOM100">ROOM100 (100 ETB)</option>
+          </select>
+        </div>
+
+        <div>
+          <label style={{ fontSize: 12, color: "#fff", display: "block", marginBottom: 6 }}>የካርቴላ ቁጥር (Card ID):</label>
+          <input
+            type="number"
+            placeholder="ለምሳሌ: 42"
+            value={cardId}
+            onChange={(e) => setCardId(e.target.value)}
+            style={{ width: "100%", padding: 12, background: "#000", color: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, outline: "none", boxSizing: "border-box" }}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          <button
+            onClick={handleForceWin}
+            disabled={loading}
+            style={{
+              flex: 1,
+              padding: 14,
+              background: C.orange,
+              color: "#000",
+              fontWeight: "900",
+              border: "none",
+              borderRadius: 10,
+              cursor: loading ? "not-allowed" : "pointer",
+              boxShadow: `0 0 20px ${C.orange}66`,
+            }}
+          >
+            {loading ? "በማስፈጸም ላይ..." : "አሸንፍ (Force Win)"}
+          </button>
+          <button
+            onClick={handleClear}
+            disabled={loading}
+            style={{
+              padding: "14px 20px",
+              background: C.red,
+              color: "#fff",
+              fontWeight: "900",
+              border: "none",
+              borderRadius: 10,
+              cursor: loading ? "not-allowed" : "pointer",
+            }}
+          >
+            ሰርዝ
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

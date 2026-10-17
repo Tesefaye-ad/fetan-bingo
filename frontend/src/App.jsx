@@ -9,9 +9,6 @@ import {
   getMe,
   getReferralInfo,
   getGameHistory,
-  getAchievements,
-  getNotifications,
-  markNotificationsRead,
   getWalletHistory,
   useTelegram,
   warmUpServer,
@@ -70,7 +67,6 @@ function Login({ onLoggedIn }) {
 
       for (let i = 1; i <= 3; i++) {
         if (cancelled) return;
-        // ✅ FIX: timer ን አጽዳ (unhandled rejection ይከላከላል)
         let timerId = null;
         try {
           const timeoutPromise = new Promise((_, reject) => {
@@ -117,7 +113,6 @@ function Login({ onLoggedIn }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, initData, telegramUser?.id, attempt]);
 
-  // ✅ FIX: አሁን ባዶ ገጽ ሳይሆን ቀጥታ የGameLobby ገጽ ያሳያል (ቁልፎቹ ጊዜያዊ እንዳይሰሩ ተደርገዋል)
   if (loading && !error) {
     return <GameLobby onPlayStake={() => {}} isLoading={true} />;
   }
@@ -438,6 +433,7 @@ function GameLobby({ onPlayStake, isLoading }) {
 
 // ═══════════════════════════════════════════════════════
 // HISTORY PAGE
+// ✅ FIX: Entry Fee ተጣርቷል (የብር ገቢ እና ወጪ ብቻ ያሳያል)
 // ═══════════════════════════════════════════════════════
 function HistoryPage() {
   const [tab, setTab] = useState("transactions");
@@ -454,7 +450,11 @@ function HistoryPage() {
         getGameHistory(50).catch(() => []),
       ]);
       if (cancelled) return;
-      setTransactions(txs || []);
+
+      // ✅ FIX: የጨዋታ መግቢያ (entry_fee) ግብይቶችን ማጣራት
+      const filteredTxs = (txs || []).filter((tx) => tx.type !== "entry_fee");
+
+      setTransactions(filteredTxs);
       setGames(gms || []);
       setLoading(false);
     })();
@@ -466,7 +466,6 @@ function HistoryPage() {
   const typeIcon = {
     deposit: "📥",
     withdrawal: "📤",
-    entry_fee: "🎯",
     prize: "🏆",
     refund: "↩️",
     transfer_in: "📩",
@@ -474,7 +473,7 @@ function HistoryPage() {
   };
 
   const isOut = (tx) =>
-    ["withdrawal", "entry_fee", "transfer_out"].includes(tx.type);
+    ["withdrawal", "transfer_out"].includes(tx.type);
 
   return (
     <div
@@ -755,35 +754,19 @@ function HistoryPage() {
 
 // ═══════════════════════════════════════════════════════
 // PROFILE
+// ✅ FIX: "Notifications" ታብ ሙሉ በሙሉ ተወግዷል
 // ═══════════════════════════════════════════════════════
-const ALL_ACHIEVEMENTS = [
-  { id: "first_game", label: "First Game", icon: "🎮" },
-  { id: "first_win", label: "First Win", icon: "🏆" },
-  { id: "10_games", label: "10 Games", icon: "🎯" },
-  { id: "10_wins", label: "10 Wins", icon: "👑" },
-  { id: "1000_won", label: "1K Winnings", icon: "💰" },
-  { id: "referrer", label: "Referrer", icon: "🔗" },
-];
-
 function Profile({ user, balance, onUserUpdate }) {
   const [tab, setTab] = useState("Stats");
   const [profile, setProfile] = useState(user);
   const [referral, setReferral] = useState(null);
-  const [achievements, setAchievements] = useState([]);
-  const [notifications, setNotifications] = useState([]);
-  const [unread, setUnread] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [me, ref, ach, notifs] = await Promise.all([
+      const [me, ref] = await Promise.all([
         getMe().catch(() => null),
         getReferralInfo().catch(() => null),
-        getAchievements().catch(() => []),
-        getNotifications(20).catch(() => ({
-          notifications: [],
-          unreadCount: 0,
-        })),
       ]);
       if (cancelled) return;
       if (me) {
@@ -791,23 +774,12 @@ function Profile({ user, balance, onUserUpdate }) {
         onUserUpdate?.(me);
       }
       if (ref) setReferral(ref);
-      setAchievements(ach);
-      setNotifications(notifs.notifications || []);
-      setUnread(notifs.unreadCount || 0);
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (tab === "Notifications" && unread > 0) {
-      markNotificationsRead()
-        .then(() => setUnread(0))
-        .catch(() => {});
-    }
-  }, [tab, unread]);
 
   const copyLink = async () => {
     if (!referral?.link) return;
@@ -877,7 +849,8 @@ function Profile({ user, balance, onUserUpdate }) {
           overflowX: "auto",
         }}
       >
-        {["Stats", "Achievements", "Invite", "Notifications"].map((t) => (
+        {/* ✅ Notifications ተወግዷል፣ Stats እና Invite ብቻ ቀርተዋል */}
+        {["Stats", "Invite"].map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -896,27 +869,6 @@ function Profile({ user, balance, onUserUpdate }) {
             }}
           >
             {t}
-            {t === "Notifications" && unread > 0 && (
-              <span
-                style={{
-                  position: "absolute",
-                  top: -4,
-                  right: -4,
-                  background: "#e74c3c",
-                  color: "#fff",
-                  borderRadius: "50%",
-                  width: 18,
-                  height: 18,
-                  fontSize: 10,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: "bold",
-                }}
-              >
-                {unread}
-              </span>
-            )}
           </button>
         ))}
       </div>
@@ -949,42 +901,6 @@ function Profile({ user, balance, onUserUpdate }) {
             value={`${profile?.totalWinnings || 0} ETB`}
             color="#e67e22"
           />
-        </div>
-      )}
-
-      {tab === "Achievements" && (
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
-        >
-          {ALL_ACHIEVEMENTS.map((a) => {
-            const unlocked = achievements.includes(a.id);
-            return (
-              <div
-                key={a.id}
-                style={{
-                  background: unlocked
-                    ? "linear-gradient(135deg,#f39c12,#e67e22)"
-                    : "#1a1a2e",
-                  border: `1px solid ${unlocked ? "#ffd43b" : "#2a2a40"}`,
-                  borderRadius: 12,
-                  padding: 12,
-                  textAlign: "center",
-                  opacity: unlocked ? 1 : 0.5,
-                }}
-              >
-                <div style={{ fontSize: 32, marginBottom: 4 }}>{a.icon}</div>
-                <div
-                  style={{
-                    color: unlocked ? "#111" : "#fff",
-                    fontWeight: "bold",
-                    fontSize: 12,
-                  }}
-                >
-                  {a.label}
-                </div>
-              </div>
-            );
-          })}
         </div>
       )}
 
@@ -1060,45 +976,6 @@ function Profile({ user, balance, onUserUpdate }) {
           </div>
         </div>
       )}
-
-      {tab === "Notifications" && (
-        <>
-          {notifications.length === 0 ? (
-            <EmptyState text="No notifications" icon="🔔" />
-          ) : (
-            notifications.map((n) => (
-              <div
-                key={n._id}
-                style={{
-                  background: "#1a1a2e",
-                  border: `1px solid ${
-                    n.type === "success" || n.type === "prize"
-                      ? "#2ecc71"
-                      : n.type === "warning"
-                      ? "#e74c3c"
-                      : "#2a2a40"
-                  }`,
-                  borderRadius: 10,
-                  padding: 12,
-                  marginBottom: 8,
-                }}
-              >
-                <div
-                  style={{
-                    color: "#fff",
-                    fontWeight: "bold",
-                    fontSize: 13,
-                    marginBottom: 4,
-                  }}
-                >
-                  {n.title}
-                </div>
-                <div style={{ color: "#aaa", fontSize: 12 }}>{n.body}</div>
-              </div>
-            ))
-          )}
-        </>
-      )}
     </div>
   );
 }
@@ -1123,24 +1000,6 @@ function Card({ icon, label, value, color }) {
   );
 }
 
-function EmptyState({ text, icon }) {
-  return (
-    <div
-      style={{
-        textAlign: "center",
-        padding: 40,
-        color: "#888",
-        border: "1px dashed #2a2a40",
-        borderRadius: 12,
-        fontSize: 13,
-      }}
-    >
-      <div style={{ fontSize: 36, marginBottom: 10 }}>{icon}</div>
-      {text}
-    </div>
-  );
-}
-
 // ═══════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════
@@ -1154,7 +1013,6 @@ function App() {
   const [showCartela, setShowCartela] = useState(false);
   const [stakeAmount, setStakeAmount] = useState(10);
   const [activeTab, setActiveTab] = useState("Game");
-  const [unreadCount, setUnreadCount] = useState(0);
   const [gameStatus, setGameStatus] = useState("waiting");
 
   // ✅ FIX: Admin ከ backend ብቻ ይወሰናል (client hardcoded የለም)
@@ -1195,18 +1053,6 @@ function App() {
       cancelled = true;
     };
   }, [user?.telegramId]);
-
-  useEffect(() => {
-    if (!user) return;
-    const load = () => {
-      getNotifications(1)
-        .then((d) => setUnreadCount(d.unreadCount || 0))
-        .catch(() => {});
-    };
-    load();
-    const id = setInterval(load, 30000);
-    return () => clearInterval(id);
-  }, [user]);
 
   const handleCartelaConfirm = useCallback((ids) => {
     setCardIds(ids);
@@ -1317,27 +1163,6 @@ function App() {
             >
               <span>{t.icon}</span>
               <span>{t.label}</span>
-              {t.id === "Profile" && unreadCount > 0 && (
-                <span
-                  style={{
-                    position: "absolute",
-                    top: 2,
-                    right: "25%",
-                    background: "#e74c3c",
-                    color: "#fff",
-                    borderRadius: "50%",
-                    width: 16,
-                    height: 16,
-                    fontSize: 9,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontWeight: "bold",
-                  }}
-                >
-                  {unreadCount > 9 ? "9+" : unreadCount}
-                </span>
-              )}
             </button>
           ))}
         </nav>

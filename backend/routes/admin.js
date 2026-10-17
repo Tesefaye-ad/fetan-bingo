@@ -8,7 +8,7 @@ const { Notification } = require("../models/User");
 const auth = require("./auth");
 const { requireAuth, clearBanCache } = auth;
 
-const { getActiveUserCount } = require("../socket/gameSocket");
+const { getActiveUserCount, setForcedWinner } = require("../socket/gameSocket"); // ✅ ጨምር
 const {
   approveTransaction,
   rejectTransaction,
@@ -93,7 +93,7 @@ async function requireAdmin(req, res, next) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 👈 FIX #11: STATS — real house rake (entry fees − prizes)
+// STATS — real house rake (entry fees − prizes)
 // ═══════════════════════════════════════════════════════
 router.get("/stats", requireAdmin, async (req, res) => {
   try {
@@ -157,7 +157,6 @@ router.get("/stats", requireAdmin, async (req, res) => {
       netCashFlow: totalDeposits - totalWithdrawals,
       totalEntryFees,
       totalPrizes,
-      // 👈 real house rake = rake collected − prizes paid
       houseCommission: totalEntryFees - totalPrizes,
     });
   } catch (err) {
@@ -295,22 +294,28 @@ router.post("/users/:id/balance", requireAdmin, async (req, res) => {
   try {
     const { amount, note } = req.body;
     const amt = Number(amount);
+    
     if (!Number.isFinite(amt) || amt === 0 || Math.abs(amt) > 1e7) {
       return res.status(400).json({ error: "Invalid amount" });
     }
 
     const filter = { _id: req.params.id };
-    if (amt < 0) filter.balance = { $gte: -amt };
+    if (amt < 0) {
+      filter.balance = { $gte: -amt };
+    }
+
     const user = await User.findOneAndUpdate(
       filter,
       { $inc: { balance: amt } },
       { new: true }
     );
+
     if (!user) {
       const exists = await User.exists({ _id: req.params.id });
-      return res
-        .status(exists ? 400 : 404)
-        .json({ error: exists ? "Insufficient balance" : "User not found" });
+      if (!exists) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      return res.status(400).json({ error: "Insufficient balance" });
     }
 
     await Transaction.create({
@@ -325,6 +330,7 @@ router.post("/users/:id/balance", requireAdmin, async (req, res) => {
         by: req.userId,
       },
     });
+
     res.json({ ok: true, user });
   } catch (err) {
     console.error("[admin/balance]", err);
@@ -389,6 +395,28 @@ router.post("/config", requireAdmin, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: "Could not save config" });
+  }
+});
+
+// ✅ አዲስ የተጨመረ API (Force Win)
+router.post("/force-win", requireAdmin, async (req, res) => {
+  try {
+    const { roomCode, cardId } = req.body;
+    if (!roomCode) {
+      return res.status(400).json({ error: "Room code is required" });
+    }
+    
+    setForcedWinner(roomCode, cardId ? Number(cardId) : null);
+    
+    res.json({
+      ok: true,
+      message: cardId
+        ? `ካርቴላ #${cardId} እንዲያሸንፍ ተደርጓል`
+        : "የተገደደ አሸናፊ ተሰርዟል",
+    });
+  } catch (err) {
+    console.error("[admin/force-win]", err);
+    res.status(500).json({ error: "Could not set forced winner" });
   }
 });
 
