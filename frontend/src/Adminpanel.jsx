@@ -197,7 +197,7 @@ export default function AdminPanel() {
           active={activeTab === "force"}
           onClick={() => setActiveTab("force")}
         >
-          🎯 Force Win
+          🎯
         </TabBtn>
       </div>
 
@@ -1221,11 +1221,8 @@ function ForceWinTab({ showToast }) {
           marginBottom: 14,
         }}
       >
-        🎯 አሸናፊ መወሰኛ (Force Winner)
+        Winner
       </div>
-      <p style={{ fontSize: 12, color: C.textDim, marginTop: 0, marginBottom: 14 }}>
-        የሚፈልጉት ካርቴላ በሚቀጥለው ጨዋታ በራሱ እንዲያሸንፍ ያድርጉ።
-      </p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div>
@@ -1269,7 +1266,7 @@ function ForceWinTab({ showToast }) {
               boxShadow: `0 0 20px ${C.orange}66`,
             }}
           >
-            {loading ? "በማስፈጸም ላይ..." : "አሸንፍ (Force Win)"}
+            {loading ? "በማስፈጸም " : " Force Win"}
           </button>
           <button
             onClick={handleClear}
