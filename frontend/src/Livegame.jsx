@@ -1517,7 +1517,7 @@ export default function LiveGame({
                       letterSpacing: 1,
                     }}
                   >
-                    🏆 አሸናፊዎች (WINNERS)
+                    🏆 WINNERS
                   </div>
                   {uniqueWinners.map((w, i) => (
                     <div
@@ -1526,19 +1526,19 @@ export default function LiveGame({
                         background: "#0f1420",
                         border: "1px solid #2a2a40",
                         borderRadius: 8,
-                        padding: "6px 8px",
+                        padding: "8px 10px",
                         marginBottom:
-                          i < uniqueWinners.length - 1 ? 5 : 0,
+                          i < uniqueWinners.length - 1 ? 6 : 0,
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
                       }}
                     >
-                      <div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                         <div
                           style={{
                             color: "#fff",
-                            fontSize: 12,
+                            fontSize: 13,
                             fontWeight: "bold",
                           }}
                         >
@@ -1546,36 +1546,28 @@ export default function LiveGame({
                         </div>
                         <div
                           style={{
-                            fontSize: 9,
-                            color: "#888",
-                            marginTop: 1,
+                            fontSize: 10,
+                            color: "#f39c12",
+                            fontWeight: "bold"
                           }}
                         >
-                          🎴 #{w.cartelas.join(", #")}
+                          🎴 Cartela: #{w.cartelas.join(", #")}
                         </div>
                       </div>
                       <div
                         style={{
-                          background:
-                            Number(w.prize) > 0
-                              ? "rgba(46,204,113,0.2)"
-                              : "rgba(231,76,60,0.2)",
-                          color:
-                            Number(w.prize) > 0 ? "#2ecc71" : "#e74c3c",
-                          border: `1px solid ${
-                            Number(w.prize) > 0
-                              ? "rgba(46,204,113,0.5)"
-                              : "rgba(231,76,60,0.5)"
-                          }`,
+                          background: "rgba(46,204,113,0.2)",
+                          color: "#2ecc71",
+                          border: "1px solid rgba(46,204,113,0.5)",
                           borderRadius: 20,
-                          padding: "3px 10px",
-                          fontSize: 11,
-                          fontWeight: "bold",
+                          padding: "4px 12px",
+                          fontSize: 13,
+                          fontWeight: "900",
                           flexShrink: 0,
                           marginLeft: 6,
                         }}
                       >
-                        +{w.prize || 0} ETB
+                        +{w.prize} ETB
                       </div>
                     </div>
                   ))}
