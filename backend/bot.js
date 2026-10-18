@@ -885,10 +885,8 @@ const handleInvite = async (ctx) => {
 
     const inviteText =
       `${MAIN_MENU_TEXT}\n\n` +
-      `🎁 <b>Invite & Earn ${REFERRAL_BONUS} ETB</b>\n\n` +
       `የእርስዎ የግብዣ ሊንክ:\n` +
-      `<code>${link}</code>\n\n` +
-      `👥 የጋበዟቸው ሰዎች: <b>${user.referralCount || 0}</b>`;
+      `<code>${link}</code>\n\n`;
 
     const extra = { caption: inviteText, parse_mode: "HTML" };
 

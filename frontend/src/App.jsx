@@ -684,7 +684,6 @@ function Profile({ user, balance, onUserUpdate }) {
         <div style={{ background: "linear-gradient(135deg,#1a1a2e,#0f1420)", border: "2px solid #f39c12", borderRadius: 14, padding: 16, textAlign: "center" }}>
           <div style={{ fontSize: 40 }}>🎁</div>
           <div style={{ color: "#f39c12", fontSize: 16, fontWeight: "bold", marginBottom: 8 }}>
-            Invite & Earn 5 ETB
           </div>
           <div
             style={{
