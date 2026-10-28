@@ -31,20 +31,12 @@ const PATTERN_WEIGHTS = {
   "full-card": 2,
 };
 
-// ✅ ማስታወሻ፦ በ ROOM10 እና ROOM20 ላይም ሁሉም ፓተርኖች (ሰያፍ፣ ሙሉ ካርድ) እንዲመጡ 
-// ከፈለጉ ይህንን ቁጥር ወደ 0 ይቀይሩት (50 -> 0)።
 const HARD_STAKE_THRESHOLD = Number(process.env.HARD_STAKE_THRESHOLD || 50);
 
-// ✅ FIX: prevPattern እንዲቀበል ተደርጓል — ተመሳሳይ ፓተርን እንዳይደገም
-function pickRandomPattern(fee, prevPattern = null) {
+function pickRandomPattern(fee) {
   const feeNum = Number(fee) || 10;
   const isHard = feeNum >= HARD_STAKE_THRESHOLD;
-  let pool = isHard ? [...HARD_PATTERNS] : [...EASY_PATTERNS];
-
-  // ያለፈው ፓተርን ከአማራጮቹ ውስጥ እናስወግደው (ከ1 በላይ አማራጭ ካለ)
-  if (prevPattern && pool.length > 1) {
-    pool = pool.filter((p) => p !== prevPattern);
-  }
+  const pool = isHard ? HARD_PATTERNS : EASY_PATTERNS;
 
   const weightPool = [];
   for (const p of pool) {
@@ -55,8 +47,8 @@ function pickRandomPattern(fee, prevPattern = null) {
   return weightPool[Math.floor(Math.random() * weightPool.length)];
 }
 
-function patternForRoom(roomCode, fee, prevPattern = null) {
-  return pickRandomPattern(fee, prevPattern);
+function patternForRoom(roomCode, fee) {
+  return pickRandomPattern(fee);
 }
 
 function normalizeRoomCode(code) {
@@ -74,9 +66,9 @@ function feeForRoom(roomCode, hint) {
 // ═══════════════════════════════════════════════════════
 // waitingFields — reset state for a new round
 // ═══════════════════════════════════════════════════════
-function waitingFields(roomCode, fee, prevPattern = null) {
+function waitingFields(roomCode, fee) {
   const weekly = isWeeklyRoom(roomCode);
-  const pattern = patternForRoom(roomCode, fee, prevPattern);
+  const pattern = patternForRoom(roomCode, fee);
   return {
     status: "waiting",
     entryFee: fee,
@@ -103,20 +95,8 @@ const LIGHT_SELECT =
   "-allCards -players.card -players.marked -winningCartelas.card -winningCartelas.marked";
 
 async function ensureRoom(roomCode, feeHint) {
-  let existing = await Game.findOne({ roomCode }).select(LIGHT_SELECT).lean();
-  
-  if (existing) {
-    // ✅ FIX: ክፍሉ waiting ሆኖ ሰዓቱ (selectionEndsAt) ጠፍቶ ካለ ወዲያውኑ አዲስ ሰዓት ይስጠው
-    if (existing.status === "waiting" && !existing.isWeeklyGame && !existing.selectionEndsAt) {
-      existing = await Game.findOneAndUpdate(
-        { roomCode },
-        { $set: { selectionEndsAt: new Date(Date.now() + SELECTION_TIMER_MS) } },
-        { new: true, projection: LIGHT_SELECT, lean: true }
-      );
-      console.log(`[ensureRoom] Self-healed missing timer for ${roomCode}`);
-    }
-    return existing;
-  }
+  const existing = await Game.findOne({ roomCode }).select(LIGHT_SELECT).lean();
+  if (existing) return existing;
 
   const fee = feeForRoom(roomCode, feeHint);
   try {
@@ -124,7 +104,7 @@ async function ensureRoom(roomCode, feeHint) {
       roomCode,
       maxNumber: MAX_NUMBER,
       allCards: generate1250Cards(),
-      ...waitingFields(roomCode, fee, null), // አዲስ ክፍል ስለሆነ prevPattern የለም
+      ...waitingFields(roomCode, fee),
     });
   } catch (err) {
     if (err.code !== 11000) throw err;
@@ -143,14 +123,12 @@ async function ensureRoomCards(roomCode) {
 }
 
 async function resetToWaiting(roomCode) {
-  // ✅ FIX: winPattern ን ጭምር ከዳታቤዝ እናምጣ
-  const current = await Game.findOne({ roomCode }).select("entryFee winPattern").lean();
+  const current = await Game.findOne({ roomCode }).select("entryFee").lean();
   const fee = current?.entryFee || feeForRoom(roomCode);
-  const prevPattern = current?.winPattern;
 
   return Game.findOneAndUpdate(
     { roomCode },
-    { $set: waitingFields(roomCode, fee, prevPattern) }, // prevPattern ተልኳል
+    { $set: waitingFields(roomCode, fee) },
     { new: true, projection: LIGHT_SELECT, lean: true }
   );
 }
@@ -209,7 +187,7 @@ module.exports = {
   SELECTION_TIMER_MS,
   MAX_NUMBER,
   DEFAULT_ROOMS,
-  MAX_CARDS_PER_ROOM,
+  MAX_CARDS_PER_ROOM,   // 👈 NEW export
   EASY_PATTERNS,
   HARD_PATTERNS,
   PATTERN_WEIGHTS,

@@ -63,7 +63,6 @@ const NumberButton = memo(function NumberButton({
 export default function CartelaSelection({
   roomCode,
   balance,
-  setBalance,
   stake = 10,
   onConfirm,
   onCancel,
@@ -177,7 +176,6 @@ export default function CartelaSelection({
         const d = await getBalance();
         if (!cancelled && d?.balance !== undefined) {
           setCurrentBalance(d.balance);
-          if (setBalance) setBalance(d.balance); // ✅ ዋናው አፕ ሲነሳ ባላንስን አዛምን
         }
       } catch {}
     })();
@@ -185,7 +183,7 @@ export default function CartelaSelection({
     return () => {
       cancelled = true;
     };
-  }, [roomCode, applyRoomState, flash, setBalance]);
+  }, [roomCode, applyRoomState, flash]);
 
   // ───────────── Socket ─────────────
   useEffect(() => {
@@ -212,11 +210,7 @@ export default function CartelaSelection({
       setTakenCards((p) => p.filter((x) => x !== cardId));
     };
 
-    // ✅ ሰርቨር ባላንስ ሲመልስ ሁለቱንም ስቴቶች ማዘመን
-    const onBal = ({ balance: b }) => {
-      setCurrentBalance(b);
-      if (setBalance) setBalance(b);
-    };
+    const onBal = ({ balance: b }) => setCurrentBalance(b);
 
     const onMine = ({ roomCode: rc, cardIds }) => {
       if (rc === roomCode && Array.isArray(cardIds)) {
@@ -255,7 +249,7 @@ export default function CartelaSelection({
       s.off("error_message", onErr);
       clearTimeout(noticeTimerRef.current);
     };
-  }, [roomCode, applyRoomState, goLive, flash, setBalance]);
+  }, [roomCode, applyRoomState, goLive, flash]);
 
   // ───────────── ቆጣሪ ─────────────
   useEffect(() => {
@@ -293,7 +287,7 @@ export default function CartelaSelection({
   }, [remainingSec, roomCode, applyRoomState]);
 
   // ═══════════════════════════════════════════════════
-  // handleSelect — Optimistic UI (ወዲያውኑ ባላንስ እንዲቀየር)
+  // handleSelect — useCallback ከ refs ጋር
   // ═══════════════════════════════════════════════════
   const handleSelect = useCallback(
     (id) => {
@@ -307,15 +301,8 @@ export default function CartelaSelection({
       if (isTakenByOther) return;
 
       if (isMine) {
-        // ካርቴላ ሲያስወግዱ
         getSocket().emit("deselect_card", { roomCode, cardId: id });
         setSelectedCards((p) => p.filter((x) => x !== id));
-        
-        // ✅ ወዲያውኑ ባላንሱን ወደ ነበረበት መመለስ
-        const newBal = balanceRef.current + stake;
-        balanceRef.current = newBal;
-        setCurrentBalance(newBal);
-        if (setBalance) setBalance(newBal);
         return;
       }
 
@@ -323,17 +310,10 @@ export default function CartelaSelection({
         return flash(`❌ ቀሪ ሂሳብ በቂ አይደለም — ${stake} ETB ያስፈልጋል`);
       }
 
-      // ካርቴላ ሲመርጡ
       getSocket().emit("select_card", { roomCode, cardId: id });
       setSelectedCards((p) => [...p, id]);
-      
-      // ✅ ወዲያውኑ ባላንሱን መቀነስ
-      const newBal = balanceRef.current - stake;
-      balanceRef.current = newBal;
-      setCurrentBalance(newBal);
-      if (setBalance) setBalance(newBal);
     },
-    [roomCode, stake, flash, setBalance]
+    [roomCode, stake, flash]
   );
 
   // ───────────── Back ─────────────
@@ -341,12 +321,6 @@ export default function CartelaSelection({
     pollStopRef.current = true;
     const s = getSocket();
     if (!wentLiveRef.current) {
-      // ✅ ካርቴላዎችን መርጠው ወደ ኋላ ከተመለሱ ብሩ ወዲያውኑ እንዲመለስ
-      const refundAmount = selectedRef.current.length * stake;
-      if (refundAmount > 0 && setBalance) {
-        setBalance(balanceRef.current + refundAmount);
-      }
-
       for (const id of selectedRef.current) {
         s.emit("deselect_card", { roomCode, cardId: id });
       }

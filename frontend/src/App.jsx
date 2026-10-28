@@ -10,6 +10,7 @@ import {
   getReferralInfo,
   getGameHistory,
   getWalletHistory,
+  clearHistory, // ✅ አዲስ የተጨመረ
   useTelegram,
 } from "./api";
 
@@ -63,8 +64,7 @@ function Login({ onLoggedIn }) {
     setError("");
 
     if (!initData) {
-      // ✅ FIX: ደህንነቱ የተጠበቀ የ Dev መግቢያ (በ .env ውስጥ REACT_APP_DEV_ADMIN_BYPASS=true ካለ ብቻ ይሰራል)
-      if (process.env.REACT_APP_DEV_ADMIN_BYPASS === "true") {
+      if (process.env.NODE_ENV === "development") {
         onLoggedIn({
           id: "local_dev_user",
           telegramId: telegramUser?.id ? String(telegramUser.id) : "000000000",
@@ -371,6 +371,7 @@ function HistoryPage() {
   const [transactions, setTransactions] = useState([]);
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [clearing, setClearing] = useState(false); // ✅ አዲስ
 
   useEffect(() => {
     let cancelled = false;
@@ -382,7 +383,10 @@ function HistoryPage() {
       ]);
       if (cancelled) return;
 
-      setTransactions(txs || []);
+      // ✅ Entry Fee የሚሉ ግብይቶችን ማጣራት
+      const filteredTxs = (txs || []).filter((tx) => tx.type !== "entry_fee");
+
+      setTransactions(filteredTxs);
       setGames(gms || []);
       setLoading(false);
     })();
@@ -391,6 +395,21 @@ function HistoryPage() {
     };
   }, []);
 
+  // ✅ ታሪክ የማጽዳት ፈንክሽን
+  const handleClearHistory = async () => {
+    if (!window.confirm("እርግጠኛ ነዎት? ሁሉም የታሪክ መዝገቦችዎ ይሰረዛሉ።")) return;
+    setClearing(true);
+    try {
+      await clearHistory();
+      setTransactions([]); // ዝርዝሩን ባዶ ማድረግ
+      alert("✅ ታሪኩ በተሳካ ሁኔታ ጸድቷል!");
+    } catch (err) {
+      alert("❌ ታሪኩን ማጽዳት አልተቻለም። እባክዎ እንደገና ይሞክሩ።");
+    } finally {
+      setClearing(false);
+    }
+  };
+
   const typeIcon = {
     deposit: "📥",
     withdrawal: "📤",
@@ -398,10 +417,9 @@ function HistoryPage() {
     refund: "↩️",
     transfer_in: "📩",
     transfer_out: "📨",
-    entry_fee: "🎮",
   };
 
-  const isOut = (tx) => ["withdrawal", "transfer_out", "entry_fee"].includes(tx.type);
+  const isOut = (tx) => ["withdrawal", "transfer_out"].includes(tx.type);
 
   return (
     <div
@@ -414,7 +432,7 @@ function HistoryPage() {
         background: "transparent",
       }}
     >
-      {/* ✅ ርዕስ (የማጽጃ ቁልፉ ተወግዷል) */}
+      {/* ✅ ርዕስ እና ማጽጃ ቁልፍ */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <h2
           style={{
@@ -431,6 +449,28 @@ function HistoryPage() {
         >
           📜 HISTORY
         </h2>
+        
+        {transactions.length > 0 && (
+          <button
+            onClick={handleClearHistory}
+            disabled={clearing}
+            style={{
+              background: "rgba(231, 76, 60, 0.2)",
+              color: "#e74c3c",
+              border: "1px solid #e74c3c",
+              padding: "6px 12px",
+              borderRadius: 8,
+              fontSize: 11,
+              fontWeight: "bold",
+              cursor: clearing ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 5
+            }}
+          >
+            {clearing ? "በማጽዳት ላይ..." : "🗑️ አጽዳ"}
+          </button>
+        )}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
@@ -803,7 +843,6 @@ function App() {
             <CartelaSelection
               roomCode={roomCode}
               balance={balance}
-              setBalance={setBalance}
               stake={stakeAmount}
               onConfirm={handleCartelaConfirm}
               onCancel={handleLeave}

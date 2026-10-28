@@ -1,4 +1,3 @@
-//═══════════════════════════════════════════════.txt
 // ═══════════════════════════════════════════════════════
 // GAME SOCKET — Fetan Bingo game engine
 // ═══════════════════════════════════════════════════════
@@ -21,7 +20,7 @@ const { notifyWinnersGroup } = require("../services/winnerNotify");
 // ═══════════════════════════════════════════════════════
 const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 1600);
 const FIRST_CALL_DELAY_MS = Number(process.env.FIRST_CALL_DELAY_MS || 1600);
-const WINNER_DISPLAY_MS = 10000;
+const WINNER_DISPLAY_MS = 6000;
 const RECONCILE_MS = 2000;
 const ARM_WINDOW_MS = 1500;
 const PRIZE_SHARE = Number(process.env.PRIZE_SHARE || 0.8);
