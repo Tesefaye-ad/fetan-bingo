@@ -861,7 +861,7 @@ export default function LiveGame({
 
     const onBingoClaimed = (data) => {
       setBingoPopup(data);
-      const showMs = Math.max(1000, Number(data.displayMs) || 6000);
+      const showMs = Math.max(1000, Number(data.displayMs) || 10000);
 
       setCountdown(Math.ceil(showMs / 1000));
       clearInterval(countdownTimerRef.current);

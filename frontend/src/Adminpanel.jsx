@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from "react";
-import axios from "axios";
 import {
   adminGetStats,
   adminGetTransactions,
@@ -11,6 +10,7 @@ import {
   adminAdjustBalance,
   adminGetConfig,
   adminSaveConfig,
+  adminForceWin, // ✅ አዲስ የተጨመረ
 } from "./api";
 
 // ═══════════════════════════════════════════════════════
@@ -46,6 +46,9 @@ export default function AdminPanel() {
     houseCommission: 0,
   });
   const [toast, setToast] = useState(null);
+  
+  // ✅ የ Users ታብ ፍለጋ ስቴት (ከላይ ወደ Sticky Header እንዲወጣ)
+  const [searchQuery, setSearchQuery] = useState("");
 
   const showToast = (msg, type = "info") => {
     setToast({ msg, type });
@@ -211,8 +214,27 @@ export default function AdminPanel() {
           </TabBtn>
         </div>
 
-        {/* ✅ Search Input (ከታች ያለውን ኮንቴንት ሳይሸብለል እንዲቆይ ከራስጌው ጋር አድርገነዋል) */}
-        {activeTab === "users" && <SearchInputWrapper />}
+        {/* ✅ የ Users ታብ ፍለጋ ሳጥን (አሁን ከራስጌው ጋር ተጣብቋል) */}
+        {activeTab === "users" && (
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="🔍 የተጠቃሚ ID ወይም ስልክ ፃፍ..."
+            style={{
+              width: "100%",
+              background: C.card,
+              border: `1px solid ${C.border}`,
+              borderRadius: 12,
+              padding: 12,
+              color: "#fff",
+              fontSize: 13,
+              boxSizing: "border-box",
+              marginTop: 8,
+              outline: "none",
+            }}
+          />
+        )}
       </div>
 
       {/* ✅ SCROLLABLE CONTENT (የሚሸብለለው ክፍል) */}
@@ -221,23 +243,15 @@ export default function AdminPanel() {
           <TxnsTab showToast={showToast} refreshStats={refreshStats} />
         )}
         {activeTab === "stats" && <StatsTab stats={stats} />}
-        {activeTab === "users" && <UsersTab showToast={showToast} />}
+        {activeTab === "users" && (
+          <UsersTab showToast={showToast} searchQuery={searchQuery} />
+        )}
         {activeTab === "config" && <ConfigTab showToast={showToast} />}
         {activeTab === "broadcast" && <BroadcastTab showToast={showToast} />}
         {activeTab === "force" && <ForceWinTab showToast={showToast} />}
       </div>
     </div>
   );
-}
-
-// ═══════════════════════════════════════════════════════
-// SEARCH INPUT WRAPPER (ለUsers Tab ስር የሚገኝ የፍለጋ ሳጥን)
-// ═══════════════════════════════════════════════════════
-function SearchInputWrapper() {
-  // ይህ ኮምፖነንት ባዶ ነው፣ ምክንያቱም ፍለጋው በ UsersTab ውስጥ ስላለ። 
-  // ነገር ግን ፍለጋው ከላይ እንዲቆይ ከፈለግን ስቴቱን ወደላይ ማውጣት ይኖርብናል።
-  // ለአሁኑ ግን የ UsersTab ፍለጋ ሳጥን በራሱ ጋር አብሮ እንዲሸብለል ትተነዋል።
-  return null;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -735,22 +749,21 @@ function SmallStat({ label, value, color }) {
 // ═══════════════════════════════════════════════════════
 // USERS TAB
 // ═══════════════════════════════════════════════════════
-function UsersTab({ showToast }) {
-  const [q, setQ] = useState("");
+function UsersTab({ showToast, searchQuery }) {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await adminGetUsers({ q, limit: 100 });
+      const res = await adminGetUsers({ q: searchQuery, limit: 100 });
       setList(res.users || []);
     } catch (e) {
       showToast("Failed to load users", "error");
     } finally {
       setLoading(false);
     }
-  }, [q, showToast]);
+  }, [searchQuery, showToast]);
 
   useEffect(() => {
     const t = setTimeout(load, 300);
@@ -813,25 +826,6 @@ function UsersTab({ showToast }) {
 
   return (
     <>
-      <input
-        type="text"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="🔍 የተጠቃሚ ID ወይም ስልክ ፃፍ..."
-        style={{
-          width: "100%",
-          background: C.card,
-          border: `1px solid ${C.border}`,
-          borderRadius: 12,
-          padding: 14,
-          color: "#fff",
-          fontSize: 13,
-          boxSizing: "border-box",
-          marginBottom: 12,
-          outline: "none",
-        }}
-      />
-
       {loading && (
         <div style={{ textAlign: "center", color: C.textDim, padding: 20 }}>
           Loading...
@@ -1187,11 +1181,8 @@ function ForceWinTab({ showToast }) {
     }
     setLoading(true);
     try {
-      const res = await axios.post(
-        `${process.env.REACT_APP_API_URL || ""}/api/admin/force-win`,
-        { roomCode, cardId: Number(cardId) },
-        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
-      );
+      // ✅ አሁን ትክክለኛውን api instance ይጠቀማል
+      await adminForceWin(roomCode, Number(cardId));
       showToast(`✅ ካርቴላ #${cardId} እንዲያሸንፍ ተደርጓል!`, "success");
       setCardId("");
     } catch (err) {
@@ -1204,11 +1195,7 @@ function ForceWinTab({ showToast }) {
   const handleClear = async () => {
     setLoading(true);
     try {
-      await axios.post(
-        `${process.env.REACT_APP_API_URL || ""}/api/admin/force-win`,
-        { roomCode, cardId: null },
-        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
-      );
+      await adminForceWin(roomCode, null);
       showToast(`✅ የተገደደ አሸናፊ ተሰርዟል`, "success");
     } catch (err) {
       showToast(`❌ ስህተት: ${err.message}`, "error");
@@ -1280,7 +1267,7 @@ function ForceWinTab({ showToast }) {
               boxShadow: `0 0 20px ${C.orange}66`,
             }}
           >
-            {loading ? "በማስፈጸም " : " Force Win"}
+            {loading ? "በማስፈጸም ላይ..." : "Force Win"}
           </button>
           <button
             onClick={handleClear}

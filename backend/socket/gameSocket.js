@@ -14,19 +14,21 @@ const {
 const { verifySocketToken } = require("../routes/auth");
 const rooms = require("../services/rooms");
 const { notifyWinnersGroup } = require("../services/winnerNotify");
+const { cacheClient } = require("../config/redis"); // ✅ አዲስ የተጨመረ (Redis)
 
 // ═══════════════════════════════════════════════════════
 // CONSTANTS — 👈 OPTIMIZED for 4500 concurrent users
 // ═══════════════════════════════════════════════════════
-const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 1500);
+const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 2000);
 const FIRST_CALL_DELAY_MS = Number(process.env.FIRST_CALL_DELAY_MS || 1500);
-const WINNER_DISPLAY_MS = 6000;
+const WINNER_DISPLAY_MS = 10000;
 const RECONCILE_MS = 2000;
 const ARM_WINDOW_MS = 1500;
 const PRIZE_SHARE = Number(process.env.PRIZE_SHARE || 0.8);
 const MAX_ACTIVE_USERS = 20000;
 const MIN_PLAYERS = Math.max(1, Number(process.env.MIN_PLAYERS || 2));
 const CARD_BATCH_MS = 250;
+const LOCK_TTL_MS = 30000; // ✅ የ Redis Lock የመቆያ ጊዜ (30 ሰከንድ)
 
 const runtimes = new Map();
 const startTimers = new Map();
@@ -34,8 +36,30 @@ const starting = new Map();
 const lockTails = new Map();
 const activeUserIds = new Set();
 
-// ✅ አዲስ የተጨመረ፦ አድሚን የሚገድበውን ካርቴላ ለማስቀመጥ
-const forcedWinners = new Map(); // Map<roomCode, cardId>
+// ═══════════════════════════════════════════════════════
+// ✅ የ REDIS LOCK ፈንክሽኖች
+// ═══════════════════════════════════════════════════════
+async function acquireLock(roomCode) {
+  try {
+    const res = await cacheClient.set(`lock:game:${roomCode}`, "1", "PX", LOCK_TTL_MS, "NX");
+    return res === "OK";
+  } catch (err) {
+    console.error("[redis] acquireLock error:", err.message);
+    return true; // Redis ቢወድቅ በአንድ ሰርቨር እንዲሰራ ፈቃድ ይሰጣል
+  }
+}
+
+async function renewLock(roomCode) {
+  try {
+    await cacheClient.set(`lock:game:${roomCode}`, "1", "PX", LOCK_TTL_MS, "XX");
+  } catch (err) { /* ስህተት ቢፈጠር ጨዋታውን አያቁመው */ }
+}
+
+async function releaseLock(roomCode) {
+  try {
+    await cacheClient.del(`lock:game:${roomCode}`);
+  } catch (err) { /* ስተት ቢፈጠር ጨዋታውን አያቁመው */ }
+}
 
 // ═══════════════════════════════════════════════════════
 // Card-selection batching per room
@@ -243,13 +267,16 @@ function initGameSocket(io) {
   }
 
   async function doStartGame(roomCode) {
+    const hasLock = await acquireLock(roomCode);
+    if (!hasLock) return; // ሌላ ሰርቨር እየሰራው ነው
+
     try {
       await withRoomLock(roomCode, async () => {
         const light = await Game.findOne({ roomCode }).select(
           rooms.LIGHT_SELECT
         );
-        if (!light || light.status !== "waiting") return;
-        if (deadlineOf(light) > Date.now() + 20) return;
+        if (!light || light.status !== "waiting") { await releaseLock(roomCode); return; }
+        if (deadlineOf(light) > Date.now() + 20) { await releaseLock(roomCode); return; }
 
         const game = await Game.findOneAndUpdate(
           {
@@ -274,6 +301,7 @@ function initGameSocket(io) {
           const fresh = await rooms.resetToWaiting(roomCode);
           if (fresh)
             io.to(roomCode).emit("room_state", rooms.publicState(fresh));
+          await releaseLock(roomCode); 
           return;
         }
 
@@ -316,6 +344,7 @@ function initGameSocket(io) {
           const fresh = await rooms.resetToWaiting(roomCode);
           if (fresh)
             io.to(roomCode).emit("room_state", rooms.publicState(fresh));
+          await releaseLock(roomCode);
           return;
         }
 
@@ -365,6 +394,7 @@ function initGameSocket(io) {
       });
     } catch (err) {
       console.error(`[startGame:${roomCode}]`, err);
+      await releaseLock(roomCode);
     }
   }
 
@@ -378,12 +408,21 @@ function initGameSocket(io) {
 
   async function tick(rt) {
     if (rt.done) return;
+    await renewLock(rt.roomCode);
+
     try {
       const max = 75;
       let num = null;
 
-      // ✅ የተገደደ አሸናፊ ካለ (Admin forced win)
-      const forcedCardId = forcedWinners.get(rt.roomCode);
+      // ✅ የተገደደ አሸናፊ ካለ (Admin forced win) - አሁን ከ Redis ያነባል
+      let forcedCardId = null;
+      try {
+        const forcedStr = await cacheClient.get(`forced:${rt.roomCode}`);
+        if (forcedStr) forcedCardId = Number(forcedStr);
+      } catch (e) {
+        console.error("[redis] get forced winner failed:", e.message);
+      }
+
       if (forcedCardId) {
         const targetPlayer = rt.players.find(p => p.cardId === forcedCardId);
         if (targetPlayer) {
@@ -444,6 +483,7 @@ function initGameSocket(io) {
       }
     } catch (err) {
       console.error(`[tick:${rt.roomCode}]`, err);
+      await releaseLock(rt.roomCode);
     }
 
     if (!rt.done) {
@@ -587,8 +627,9 @@ function initGameSocket(io) {
   async function finishRound(rt, panel, winningCartelas, wasWin = false) {
     const { roomCode } = rt;
     try {
-      // ✅ ጨዋታው ሲያልቅ የተገደደውን አሸናፊ አጥፋ
-      forcedWinners.delete(roomCode);
+      // ✅ ጨዋታው ሲያልቅ የተገደደውን አሸናፊ አጥፋ (ከ Redis)
+      await releaseLock(roomCode);
+      await cacheClient.del(`forced:${roomCode}`);
 
       const isWeekly = rt.entryFee === 50 || rt.entryFee === 100;
       let notificationOk = true;
@@ -642,6 +683,7 @@ function initGameSocket(io) {
       if (fresh) io.to(roomCode).emit("room_state", rooms.publicState(fresh));
     } catch (err) {
       console.error(`[finishRound:${roomCode}]`, err);
+      await releaseLock(roomCode); // ስህተት ቢፈጠርም መቆለፊያው እንዲለቀቅ
     } finally {
       clearTimeout(rt.timer);
       clearTimeout(rt.finishTimer);
@@ -710,10 +752,13 @@ function initGameSocket(io) {
   }
 
   async function doResumeGame(roomCode) {
+    const hasLock = await acquireLock(roomCode);
+    if (!hasLock) return; // ሌላ ሰርቨር እየሰራው ነው
+
     try {
       await withRoomLock(roomCode, async () => {
         const game = await Game.findOne({ roomCode, status: "active" });
-        if (!game) return;
+        if (!game) { await releaseLock(roomCode); return; }
 
         const alreadyPaid = await Transaction.exists({
           game: game._id,
@@ -745,6 +790,7 @@ function initGameSocket(io) {
           const fresh = await rooms.resetToWaiting(roomCode);
           if (fresh)
             io.to(roomCode).emit("room_state", rooms.publicState(fresh));
+          await releaseLock(roomCode);
           return;
         }
 
@@ -783,6 +829,7 @@ function initGameSocket(io) {
       });
     } catch (err) {
       console.error(`[resume:${roomCode}]`, err);
+      await releaseLock(roomCode);
     }
   }
 
@@ -1127,13 +1174,17 @@ function initGameSocket(io) {
   });
 }
 
-// ✅ አድሚን የሚጠቀመው ፈንክሽን
-function setForcedWinner(roomCode, cardId) {
+// ✅ አድሚን የሚጠቀመው ፈንክሽን (Redis ላይ ያስቀምጣል)
+async function setForcedWinner(roomCode, cardId) {
   if (!roomCode) return;
-  if (cardId) {
-    forcedWinners.set(roomCode, Number(cardId));
-  } else {
-    forcedWinners.delete(roomCode);
+  try {
+    if (cardId) {
+      await cacheClient.set(`forced:${roomCode}`, String(cardId));
+    } else {
+      await cacheClient.del(`forced:${roomCode}`);
+    }
+  } catch (err) {
+    console.error("[redis] setForcedWinner error:", err.message);
   }
 }
 

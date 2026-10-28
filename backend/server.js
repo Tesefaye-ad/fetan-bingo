@@ -14,7 +14,6 @@ require("dotenv").config();
   ];
   const opt = [{ name: "MERCHANT_SMS_TOKEN", minLen: 24 }];
 
-  // 🔒 FIX: ዋናውን ስም (MONGO_URI) እና ሁሉንም aliases (MONGODB_URI) ይፈትሻል
   const pick = (r) =>
     [r.name, ...(r.aliases || [])]
       .map((n) => (process.env[n] || "").trim())
@@ -44,7 +43,7 @@ require("dotenv").config();
     for (const e of errors) console.error("  • " + e);
     console.error("");
     console.error("[env] ⚠️ Fix the variables above in Render → Environment.");
-    if (process.env.NODE_ENV !== "test") process.exit(1); // ❗ ሳይስተካከል አይነሳም
+    if (process.env.NODE_ENV !== "test") process.exit(1);
   } else {
     console.log("[env] ✅ Validation passed");
   }
@@ -71,6 +70,10 @@ const mongoose = require("mongoose");
 const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
+
+// ✅ አዲስ የተጨመረ (Redis Adapter)
+const { createAdapter } = require("@socket.io/redis-adapter");
+const { pubClient, subClient } = require("./config/redis");
 
 // ═══════════════════════════════════════════════════════
 // ROUTES
@@ -132,6 +135,9 @@ const io = new Server(server, {
   upgradeTimeout: 10000,
   connectTimeout: 45000,
 });
+
+// ✅ የ Redis Adapter ማገናኛ (ለብዙ ሰርቨሮች ድጋፍ)
+io.adapter(createAdapter(pubClient, subClient));
 
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: "256kb" }));
@@ -225,14 +231,13 @@ setInterval(runCleanup, ONE_DAY);
 // KEEP-ALIVE (Render cold start)
 // ═══════════════════════════════════════════════════════
 // ✅ FIX: የራስን አድራሻ ማስተካከል — localhost ሳይሆን የ Render URL መጠቀም አለበት
-// ምክንያቱም localhost ማለት ሰርቨሩ ራሱን በውስጥ ብቻ ይጎበኛል፣ ይህ ደግሞ Render እንዳይተኛ አያደርገውም
 const SELF_URL = process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-ra58.onrender.com`;
 
 // ✅ FIX: ከ 10 ደቂቃ ወደ 4 ደቂቃ ቀንሷል — Render ከ15 ደቂቃ በኋላ ስለሚተኛ
 setInterval(async () => {
   try {
     await fetch(`${SELF_URL}/health`);
-    console.log("[keep-alive] Ping sent"); // ለማረጋገጫ
+    console.log("[keep-alive] Ping sent");
   } catch (err) {}
 }, 4 * 60 * 1000);
 
@@ -254,7 +259,6 @@ try {
     const RENDER_URL =
       process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-ra58.onrender.com`;
 
-    // ✅ FIX: drop_pending_updates የለም (deploy ላይ የተጫኑ /start አይጠፉም) + እስከ 4 ጊዜ እንደገና ይሞክራል
     (async () => {
       const url = `${RENDER_URL}${webhookPath}`;
       for (let attempt = 1; attempt <= 4; attempt++) {
