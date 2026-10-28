@@ -19,8 +19,8 @@ const { cacheClient } = require("../config/redis"); // ✅ አዲስ የተጨ�
 // ═══════════════════════════════════════════════════════
 // CONSTANTS — 👈 OPTIMIZED for 4500 concurrent users
 // ═══════════════════════════════════════════════════════
-const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 2000);
-const FIRST_CALL_DELAY_MS = Number(process.env.FIRST_CALL_DELAY_MS || 1500);
+const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 1600);
+const FIRST_CALL_DELAY_MS = Number(process.env.FIRST_CALL_DELAY_MS || 1600);
 const WINNER_DISPLAY_MS = 10000;
 const RECONCILE_MS = 2000;
 const ARM_WINDOW_MS = 1500;
