@@ -63,6 +63,7 @@ const NumberButton = memo(function NumberButton({
 export default function CartelaSelection({
   roomCode,
   balance,
+  setBalance, // ✅ FIX: Syntax error ተስተካክሏል (ከላይ {setBalance} የሚል ነበር)
   stake = 10,
   onConfirm,
   onCancel,
@@ -136,9 +137,17 @@ export default function CartelaSelection({
         setTakenCards(s.takenCards);
       }
 
-      if (s.status === "waiting" && s.selectionEndsAt) {
-        const t = new Date(s.selectionEndsAt).getTime();
-        if (Number.isFinite(t)) setDeadlineMs(t);
+      if (s.status === "waiting") {
+        let t = s.selectionEndsAt ? new Date(s.selectionEndsAt).getTime() : null;
+        
+        // ✅ FIX: ሰርቨሩ ሰዓት ካልላከ 50 ሰከንድ የአካባቢ ሰዓት እንጀምር (እንዳይቆም)
+        if (!t && !s.isWeeklyGame) {
+          t = Date.now() + 50000; 
+        }
+        
+        if (t && Number.isFinite(t)) {
+          setDeadlineMs(t);
+        }
       }
     },
     [roomCode, goLive]
@@ -176,6 +185,7 @@ export default function CartelaSelection({
         const d = await getBalance();
         if (!cancelled && d?.balance !== undefined) {
           setCurrentBalance(d.balance);
+          if (setBalance) setBalance(d.balance); // ✅ ዋናው አፕ ሲነሳ ባላንስን አዛምን
         }
       } catch {}
     })();
@@ -183,7 +193,7 @@ export default function CartelaSelection({
     return () => {
       cancelled = true;
     };
-  }, [roomCode, applyRoomState, flash]);
+  }, [roomCode, applyRoomState, flash, setBalance]);
 
   // ───────────── Socket ─────────────
   useEffect(() => {
@@ -210,7 +220,11 @@ export default function CartelaSelection({
       setTakenCards((p) => p.filter((x) => x !== cardId));
     };
 
-    const onBal = ({ balance: b }) => setCurrentBalance(b);
+    // ✅ ሰርቨር ባላንስ ሲመልስ ሁለቱንም ስቴቶች ማዘመን
+    const onBal = ({ balance: b }) => {
+      setCurrentBalance(b);
+      if (setBalance) setBalance(b);
+    };
 
     const onMine = ({ roomCode: rc, cardIds }) => {
       if (rc === roomCode && Array.isArray(cardIds)) {
@@ -249,7 +263,7 @@ export default function CartelaSelection({
       s.off("error_message", onErr);
       clearTimeout(noticeTimerRef.current);
     };
-  }, [roomCode, applyRoomState, goLive, flash]);
+  }, [roomCode, applyRoomState, goLive, flash, setBalance]);
 
   // ───────────── ቆጣሪ ─────────────
   useEffect(() => {
@@ -263,9 +277,10 @@ export default function CartelaSelection({
     return () => clearInterval(id);
   }, [deadlineMs]);
 
-  // ───────────── ሰዓቱ 0 ሲደርስ → ሰርቨርን ጠይቅ ─────────────
+  // ───────────── ሰዓቱ 0 ወይም ባዶ ሲሆን → ሰርቨርን ጠይቅ ─────────────
   useEffect(() => {
-    if (remainingSec !== 0 || wentLiveRef.current) return;
+    if (remainingSec !== 0 && remainingSec !== null) return; // ✅ ማሻሻያ
+    if (wentLiveRef.current) return;
     pollStopRef.current = false;
 
     const poll = async () => {
@@ -287,7 +302,7 @@ export default function CartelaSelection({
   }, [remainingSec, roomCode, applyRoomState]);
 
   // ═══════════════════════════════════════════════════
-  // handleSelect — useCallback ከ refs ጋር
+  // handleSelect — Optimistic UI (ወዲያውኑ ባላንስ እንዲቀየር)
   // ═══════════════════════════════════════════════════
   const handleSelect = useCallback(
     (id) => {
@@ -301,8 +316,15 @@ export default function CartelaSelection({
       if (isTakenByOther) return;
 
       if (isMine) {
+        // ካርቴላ ሲያስወግዱ
         getSocket().emit("deselect_card", { roomCode, cardId: id });
         setSelectedCards((p) => p.filter((x) => x !== id));
+        
+        // ✅ ወዲያውኑ ባላንሱን ወደ ነበረበት መመለስ
+        const newBal = balanceRef.current + stake;
+        balanceRef.current = newBal;
+        setCurrentBalance(newBal);
+        if (setBalance) setBalance(newBal);
         return;
       }
 
@@ -310,10 +332,17 @@ export default function CartelaSelection({
         return flash(`❌ ቀሪ ሂሳብ በቂ አይደለም — ${stake} ETB ያስፈልጋል`);
       }
 
+      // ካርቴላ ሲመርጡ
       getSocket().emit("select_card", { roomCode, cardId: id });
       setSelectedCards((p) => [...p, id]);
+      
+      // ✅ ወዲያውኑ ባላንሱን መቀነስ
+      const newBal = balanceRef.current - stake;
+      balanceRef.current = newBal;
+      setCurrentBalance(newBal);
+      if (setBalance) setBalance(newBal);
     },
-    [roomCode, stake, flash]
+    [roomCode, stake, flash, setBalance]
   );
 
   // ───────────── Back ─────────────
@@ -321,6 +350,12 @@ export default function CartelaSelection({
     pollStopRef.current = true;
     const s = getSocket();
     if (!wentLiveRef.current) {
+      // ✅ ካርቴላዎችን መርጠው ወደ ኋላ ከተመለሱ ብሩ ወዲያውኑ እንዲመለስ
+      const refundAmount = selectedRef.current.length * stake;
+      if (refundAmount > 0 && setBalance) {
+        setBalance(balanceRef.current + refundAmount);
+      }
+
       for (const id of selectedRef.current) {
         s.emit("deselect_card", { roomCode, cardId: id });
       }
@@ -346,7 +381,7 @@ export default function CartelaSelection({
   const maxAffordable = Math.floor(currentBalance / stake);
 
   const timeStr =
-    remainingSec === null ? "…" : formatCountdown(remainingSec, isWeeklyRoom);
+    remainingSec === null ? "⏳" : formatCountdown(remainingSec, isWeeklyRoom);
   const isUrgent =
     remainingSec !== null && remainingSec <= 10 && remainingSec > 0;
   const timeColor = isUrgent

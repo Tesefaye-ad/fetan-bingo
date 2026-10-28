@@ -6,9 +6,6 @@ import { useState, useEffect, useRef } from "react";
 export const API_BASE_URL =
   process.env.REACT_APP_API_URL || "https://fetan-bingo-ra58.onrender.com";
 
-  // ✅ በ api.js ውስጥ ይህንን ይጨምሩ
-export const clearHistory = () => api.delete("/wallet/history/clear").then((r) => r.data);
-
 // ═══════════════════════════════════════════════════════
 // AXIOS
 // ═══════════════════════════════════════════════════════
@@ -27,7 +24,6 @@ api.interceptors.response.use(
     // ✅ ለ idempotent methods ብቻ retry ያደርጋል (POST ድርብ ክፍያ እንዳያስከትል)
     const method = String(config.method || "get").toLowerCase();
     const isIdempotent = ["get", "head", "options"].includes(method);
-    
 
     const isNetwork =
       !error.response ||
@@ -186,7 +182,6 @@ export async function getRoom(roomCode, timeout = 4000) {
   return data;
 }
 
-// ✅ FIX: `entryFee` ጥቅም ላይ የማይውል ነበር — ተወግዷል
 export const createRoom = (roomCode) => getRoom(roomCode);
 
 // ═══════════════════════════════════════════════════════
@@ -216,9 +211,10 @@ export async function withdraw(amount, phone, method) {
   return data.balance;
 }
 
-export async function transfer(toTelegramId, amount) {
+// ✅ FIX: ትራንስፈር አሁን በስልክ ቁጥር ትክክል ይሰራል
+export async function transfer(phone, amount) {
   const { data } = await api.post("/api/wallet/transfer", {
-    toTelegramId,
+    phone,
     amount,
   });
   return data.balance;
@@ -276,7 +272,6 @@ export async function adminGetTransactions({
   limit = 50,
   skip = 0,
 } = {}) {
-  // ✅ FIX: NaN ጥበቃ
   const safeLimit = Number.isFinite(Number(limit))
     ? Math.min(Math.max(1, Number(limit)), 200)
     : 50;
@@ -306,7 +301,6 @@ export async function adminRejectTransaction(id, reason) {
 }
 
 export async function adminGetUsers({ q, limit = 50, skip = 0 } = {}) {
-  // ✅ FIX: NaN ጥበቃ
   const safeLimit = Number.isFinite(Number(limit))
     ? Math.min(Math.max(1, Number(limit)), 200)
     : 50;
@@ -350,6 +344,12 @@ export async function adminSaveConfig(ticketPrice, winnerPercent) {
     ticketPrice,
     winnerPercent,
   });
+  return data;
+}
+
+// ✅ አዲስ የተጨመረ (Force Win)
+export async function adminForceWin(roomCode, cardId) {
+  const { data } = await api.post("/api/admin/force-win", { roomCode, cardId });
   return data;
 }
 
