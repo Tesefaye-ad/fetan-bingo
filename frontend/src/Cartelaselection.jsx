@@ -137,9 +137,17 @@ export default function CartelaSelection({
         setTakenCards(s.takenCards);
       }
 
-      if (s.status === "waiting" && s.selectionEndsAt) {
-        const t = new Date(s.selectionEndsAt).getTime();
-        if (Number.isFinite(t)) setDeadlineMs(t);
+      if (s.status === "waiting") {
+        let t = s.selectionEndsAt ? new Date(s.selectionEndsAt).getTime() : null;
+        
+        // ✅ FIX: ሰርቨሩ ሰዓት ካልላከ 50 ሰከንድ የአካባቢ ሰዓት እንጀምር (እንዳይቆም)
+        if (!t && !s.isWeeklyGame) {
+          t = Date.now() + 50000; 
+        }
+        
+        if (t && Number.isFinite(t)) {
+          setDeadlineMs(t);
+        }
       }
     },
     [roomCode, goLive]
@@ -269,9 +277,10 @@ export default function CartelaSelection({
     return () => clearInterval(id);
   }, [deadlineMs]);
 
-  // ───────────── ሰዓቱ 0 ሲደርስ → ሰርቨርን ጠይቅ ─────────────
+  // ───────────── ሰዓቱ 0 ወይም ባዶ ሲሆን → ሰርቨርን ጠይቅ ─────────────
   useEffect(() => {
-    if (remainingSec !== 0 || wentLiveRef.current) return;
+    if (remainingSec !== 0 && remainingSec !== null) return; // ✅ ማሻሻያ
+    if (wentLiveRef.current) return;
     pollStopRef.current = false;
 
     const poll = async () => {
@@ -372,7 +381,7 @@ export default function CartelaSelection({
   const maxAffordable = Math.floor(currentBalance / stake);
 
   const timeStr =
-    remainingSec === null ? "…" : formatCountdown(remainingSec, isWeeklyRoom);
+    remainingSec === null ? "⏳" : formatCountdown(remainingSec, isWeeklyRoom);
   const isUrgent =
     remainingSec !== null && remainingSec <= 10 && remainingSec > 0;
   const timeColor = isUrgent

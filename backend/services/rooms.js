@@ -103,8 +103,20 @@ const LIGHT_SELECT =
   "-allCards -players.card -players.marked -winningCartelas.card -winningCartelas.marked";
 
 async function ensureRoom(roomCode, feeHint) {
-  const existing = await Game.findOne({ roomCode }).select(LIGHT_SELECT).lean();
-  if (existing) return existing;
+  let existing = await Game.findOne({ roomCode }).select(LIGHT_SELECT).lean();
+  
+  if (existing) {
+    // ✅ FIX: ክፍሉ waiting ሆኖ ሰዓቱ (selectionEndsAt) ጠፍቶ ካለ ወዲያውኑ አዲስ ሰዓት ይስጠው
+    if (existing.status === "waiting" && !existing.isWeeklyGame && !existing.selectionEndsAt) {
+      existing = await Game.findOneAndUpdate(
+        { roomCode },
+        { $set: { selectionEndsAt: new Date(Date.now() + SELECTION_TIMER_MS) } },
+        { new: true, projection: LIGHT_SELECT, lean: true }
+      );
+      console.log(`[ensureRoom] Self-healed missing timer for ${roomCode}`);
+    }
+    return existing;
+  }
 
   const fee = feeForRoom(roomCode, feeHint);
   try {
