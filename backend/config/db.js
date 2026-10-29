@@ -41,20 +41,21 @@ async function connectDB() {
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
       // ═══════════════════════════════════════════════════════
-      // 👈 OPTIMIZED: 5→50 pool for 4500 concurrent users
-      //    MongoDB Atlas M0 free tier allows 500 connections
+      // ✅ FIX: የግንኙነት ገንዳ መጠንን ማስተካከል (ለM0 Free Tier)
+      // 50 ከመሆን ወደ 20 ቀንሷል (አቅሙ እንዳይሞላ)
       // ═══════════════════════════════════════════════════════
-      maxPoolSize: 50,
-      minPoolSize: 10,
+      maxPoolSize: 20,
+      minPoolSize: 2,
       maxIdleTimeMS: 30000,
-      waitQueueTimeoutMS: 5000,
+      // ✅ FIX: የመጠባበቂያ ጊዜን ከ5 ሰከንድ ወደ 15 ሰከንድ ከፍ አድርገናል
+      waitQueueTimeoutMS: 15000, 
       connectTimeoutMS: 10000,
       heartbeatFrequencyMS: 10000,
       retryWrites: true,
       w: "majority",
       compressors: ["zlib"],
     });
-    console.log("[db] Connected (pool 50/10, zlib)");
+    console.log("[db] Connected (pool 20/2, zlib) - Optimized for M0");
   } catch (err) {
     console.error("[db] Initial connection failed:", err.message);
     isConnecting = false;
