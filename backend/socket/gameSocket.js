@@ -27,7 +27,7 @@ const RECONCILE_MS = 2000;
 const ARM_WINDOW_MS = 1500;
 const PRIZE_SHARE = Number(process.env.PRIZE_SHARE || 0.8);
 const MAX_ACTIVE_USERS = 20000;
-const MIN_PLAYERS = Math.max(1, Number(process.env.MIN_PLAYERS || 2));
+const MIN_PLAYERS = Math.max(1, Number(process.env.MIN_PLAYERS || 0));
 const CARD_BATCH_MS = 250;
 const LOCK_TTL_MS = 30000; // ✅ የ Redis Lock የመቆያ ጊዜ (30 ሰከንድ)
 
