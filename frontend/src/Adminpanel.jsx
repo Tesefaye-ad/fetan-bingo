@@ -17,6 +17,7 @@ import {
 // ═══════════════════════════════════════════════════════
 // COLORS
 // ═══════════════════════════════════════════════════════
+
 const C = {
   bg: "#0a0a14",
   card: "#151529",
@@ -34,6 +35,7 @@ const C = {
 // ═══════════════════════════════════════════════════════
 // MAIN ADMIN PANEL
 // ═══════════════════════════════════════════════════════
+
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState("txns");
   const [stats, setStats] = useState({
@@ -110,6 +112,7 @@ export default function AdminPanel() {
       )}
 
       {/* ✅ STICKY HEADER (ራስጌው እና ታቦቹ ከላይ ይጣበቃሉ) */}
+      
       <div
         style={{
           position: "sticky",

@@ -348,6 +348,7 @@ export async function adminSaveConfig(ticketPrice, winnerPercent) {
 }
 
 // ✅ አዲስ የተጨመረ (Force Win)
+
 export async function adminForceWin(roomCode, cardId) {
   const { data } = await api.post("/api/admin/force-win", { roomCode, cardId });
   return data;

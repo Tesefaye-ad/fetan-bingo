@@ -119,6 +119,7 @@ export default function CartelaSelection({
   }, []);
 
   // ───────────── ወደ ላይቭ ጌም ─────────────
+
   const goLive = useCallback(() => {
     if (wentLiveRef.current) return;
     wentLiveRef.current = true;
@@ -127,6 +128,7 @@ export default function CartelaSelection({
   }, [onConfirm, onGameStatusChange]);
 
   // ───────────── የሰርቨር ሁኔታን ወደ state ተግብር ─────────────
+  
   const applyRoomState = useCallback(
     (s) => {
       if (!s || (s.roomCode && s.roomCode !== roomCode)) return;

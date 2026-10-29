@@ -67,9 +67,11 @@ async function releaseLock(roomCode) {
 // Card-selection batching per room
 // 90 selections/sec → 4 emits/sec (250x reduction)
 // ═══════════════════════════════════════════════════════
+
 const cardBatches = new Map();
 
 // User -> Set<Socket>
+
 const userSockets = new Map();
 
 function addUserSocket(userId, socket) {
