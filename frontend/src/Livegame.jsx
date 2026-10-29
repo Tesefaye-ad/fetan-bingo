@@ -1575,6 +1575,7 @@ export default function LiveGame({
               )}
 
               {/* WINNING CARTELAS */}
+              
               {bingoPopup.winningCartelas?.length > 0 && (
                 <div
                   style={{

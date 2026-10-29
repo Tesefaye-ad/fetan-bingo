@@ -156,6 +156,7 @@ export default function CartelaSelection({
   );
 
   // ───────────── ክፍል ሲቀየር ዳግም አስጀምር ─────────────
+
   useEffect(() => {
     wentLiveRef.current = false;
     pollStopRef.current = false;
@@ -223,6 +224,7 @@ export default function CartelaSelection({
     };
 
     // ✅ ሰርቨር ባላንስ ሲመልስ ሁለቱንም ስቴቶች ማዘመን
+    
     const onBal = ({ balance: b }) => {
       setCurrentBalance(b);
       if (setBalance) setBalance(b);
