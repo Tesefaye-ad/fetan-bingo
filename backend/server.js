@@ -43,7 +43,7 @@ require("dotenv").config();
     console.error("\n❌ ENV VALIDATION FAILED:");
     for (const e of errors) console.error("  • " + e);
     console.error("");
-    console.error("[env] ⚠️ Fix the variables above in Render → Environment.");
+    console.error("[env] ⚠️ Fix the variables above in Render/Pxxl → Environment.");
     if (process.env.NODE_ENV !== "test") process.exit(1); // ❗ ሳይስተካከል አይነሳም
   } else {
     console.log("[env] ✅ Validation passed");
@@ -71,6 +71,10 @@ const mongoose = require("mongoose");
 const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
+
+// ✅ አዲስ የተጨመረ (Redis Adapter)
+const { createAdapter } = require("@socket.io/redis-adapter");
+const { pubClient, subClient } = require("./config/redis");
 
 // ═══════════════════════════════════════════════════════
 // ROUTES
@@ -132,6 +136,9 @@ const io = new Server(server, {
   upgradeTimeout: 10000,
   connectTimeout: 45000,
 });
+
+// ✅ የ Redis Adapter ማገናኛ (ለብዙ ሰርቨሮች ድጋፍ)
+io.adapter(createAdapter(pubClient, subClient));
 
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: "256kb" }));
@@ -222,11 +229,10 @@ setTimeout(runCleanup, 60000);
 setInterval(runCleanup, ONE_DAY);
 
 // ═══════════════════════════════════════════════════════
-// KEEP-ALIVE (Render cold start)
+// KEEP-ALIVE (Render/Pxxl cold start)
 // ═══════════════════════════════════════════════════════
-// ✅ FIX: የራስን አድራሻ ማስተካከል — localhost ሳይሆን የ Render URL መጠቀም አለበት
-// ምክንያቱም localhost ማለት ሰርቨሩ ራሱን በውስጥ ብቻ ይጎበኛል፣ ይህ ደግሞ Render እንዳይተኛ አያደርገውም
-const SELF_URL = process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-ra58.onrender.com`;
+// ✅ FIX: የራስን አድራሻ ማስተካከል — localhost ሳይሆን የሰርቨሩ URL መጠቀም አለበት
+const SELF_URL = process.env.RENDER_EXTERNAL_URL || process.env.PXXL_URL || `https://fetan-bingo-ra58.onrender.com`;
 
 // ✅ FIX: ከ 10 ደቂቃ ወደ 4 ደቂቃ ቀንሷል — Render ከ15 ደቂቃ በኋላ ስለሚተኛ
 setInterval(async () => {
@@ -251,12 +257,10 @@ try {
   const { startBot, bot } = require("./bot");
   startBot(app).then(() => {
     const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
-    const RENDER_URL =
-      process.env.RENDER_EXTERNAL_URL || `https://fetan-bingo-ra58.onrender.com`;
 
     // ✅ FIX: drop_pending_updates የለም (deploy ላይ የተጫኑ /start አይጠፉም) + እስከ 4 ጊዜ እንደገና ይሞክራል
     (async () => {
-      const url = `${RENDER_URL}${webhookPath}`;
+      const url = `${SELF_URL}${webhookPath}`;
       for (let attempt = 1; attempt <= 4; attempt++) {
         try {
           await bot.telegram.setWebhook(url);
@@ -273,9 +277,11 @@ try {
   console.error("[server] Bot failed:", err.message);
 }
 
+
 // ═══════════════════════════════════════════════════════
 // GRACEFUL SHUTDOWN
 // ═══════════════════════════════════════════════════════
+
 process.on("unhandledRejection", (r) =>
   console.error("[unhandledRejection]", r)
 );

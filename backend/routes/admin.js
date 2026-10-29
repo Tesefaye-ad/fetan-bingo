@@ -8,7 +8,7 @@ const { Notification } = require("../models/User");
 const auth = require("./auth");
 const { requireAuth, clearBanCache } = auth;
 
-const { getActiveUserCount, setForcedWinner } = require("../socket/gameSocket"); // ✅ ጨምር
+const { getActiveUserCount, setForcedWinner } = require("../socket/gameSocket");
 const {
   approveTransaction,
   rejectTransaction,
@@ -93,7 +93,7 @@ async function requireAdmin(req, res, next) {
 }
 
 // ═══════════════════════════════════════════════════════
-// STATS — real house rake (entry fees − prizes)
+// STATS
 // ═══════════════════════════════════════════════════════
 router.get("/stats", requireAdmin, async (req, res) => {
   try {
@@ -398,7 +398,7 @@ router.post("/config", requireAdmin, async (req, res) => {
   }
 });
 
-// ✅ አዲስ የተጨመረ API (Force Win)
+// ✅ የተስተካከለው Force Win API (Redis ላይ ስለሚጽፍ await ተጨምሯል)
 router.post("/force-win", requireAdmin, async (req, res) => {
   try {
     const { roomCode, cardId } = req.body;
@@ -406,7 +406,7 @@ router.post("/force-win", requireAdmin, async (req, res) => {
       return res.status(400).json({ error: "Room code is required" });
     }
     
-    setForcedWinner(roomCode, cardId ? Number(cardId) : null);
+    await setForcedWinner(roomCode, cardId ? Number(cardId) : null);
     
     res.json({
       ok: true,
