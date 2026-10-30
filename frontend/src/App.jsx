@@ -364,7 +364,6 @@ function GameLobby({ onPlayStake, isLoading }) {
 
 // ═══════════════════════════════════════════════════════
 // HISTORY PAGE
-// ✅ ኢንትሪ ፊ ተጣርቷል + ማጽጃ ቁልፍ ተጨምሯል
 // ═══════════════════════════════════════════════════════
 function HistoryPage() {
   const [tab, setTab] = useState("transactions");
@@ -414,7 +413,6 @@ function HistoryPage() {
         background: "transparent",
       }}
     >
-      {/* ✅ ርዕስ (የማጽጃ ቁልፉ ተወግዷል) */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <h2
           style={{
@@ -556,7 +554,6 @@ function HistoryPage() {
 
 // ═══════════════════════════════════════════════════════
 // PROFILE
-// ✅ Achievements እና Notifications ተወግደዋል
 // ═══════════════════════════════════════════════════════
 function Profile({ user, balance, onUserUpdate }) {
   const [tab, setTab] = useState("Stats");
@@ -613,6 +610,15 @@ function Profile({ user, balance, onUserUpdate }) {
         <p style={{ color: "#f39c12", margin: 0 }}>
           {profile?.username ? `@${profile.username}` : `@id_${profile?.telegramId}`}
         </p>
+        {/* ✅ አዲስ የተጨመረ፦ የስልክ ቁጥር ማሳያ */}
+        <div style={{ color: "#aaa", fontSize: 13, marginTop: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+          <span>📱</span>
+          {profile?.phone ? (
+            <span style={{ color: "#2ecc71", fontWeight: "bold" }}>{profile.phone}</span>
+          ) : (
+            <span style={{ color: "#666" }}>Not registered</span>
+          )}
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 4, marginBottom: 15, overflowX: "auto" }}>
@@ -842,7 +848,8 @@ function App() {
         />
       )}
 
-      {activeTab === "Admin" && <AdminPanel />}
+      {/* ✅ የአድሚን ገጽ መከላከያ (አድሚን ላልሆነ ተጠቃሚ አይታይም) */}
+      {activeTab === "Admin" && isAdmin && <AdminPanel />}
 
       {!showCartela && !roomCode && (
         <nav className="bottom-nav">
