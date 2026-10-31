@@ -178,11 +178,13 @@ router.post("/telegram", async (req, res) => {
       user.photoUrl = photo_url || user.photoUrl;
       user.lastActiveAt = new Date();
 
+      // ✅ FIX: በ env ውስጥ የሌለው ሰው isAdmin እንዳይሆን በጥብቅ መቆጣጠር (Demote/Promote)
       if (shouldBeAdmin && !user.isAdmin) {
         user.isAdmin = true;
-        console.log(
-          `[auth] ⬆️ Auto-promoted ${telegramId} (${username}) to admin`
-        );
+        console.log(`[auth] ⬆️ Auto-promoted ${telegramId} (${username}) to admin`);
+      } else if (!shouldBeAdmin && user.isAdmin) {
+        user.isAdmin = false;
+        console.log(`[auth] ⬇️ Demoted ${telegramId} (${username}) — not in ADMIN_TELEGRAM_IDS`);
       }
 
       await user.save();
@@ -236,13 +238,15 @@ userRouter.get("/me", async (req, res) => {
     const user = await User.findById(req.userId).select("-__v").lean();
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    if (!user.isAdmin && isEnvAdmin(user.telegramId)) {
+    // ✅ FIX: በ env ውስጥ ያለው ብቻ አድሚን እንዲሆን እና ያልተፈቀደ ሰው እንዲወርድ
+    const shouldBeAdmin = isEnvAdmin(user.telegramId);
+    if (user.isAdmin !== shouldBeAdmin) {
       await User.updateOne(
         { _id: user._id },
-        { $set: { isAdmin: true } }
+        { $set: { isAdmin: shouldBeAdmin } }
       );
-      user.isAdmin = true;
-      console.log(`[auth] /me auto-promoted ${user.telegramId}`);
+      user.isAdmin = shouldBeAdmin;
+      console.log(`[auth] /me synced admin status for ${user.telegramId} → ${shouldBeAdmin}`);
     }
 
     res.json({ user });

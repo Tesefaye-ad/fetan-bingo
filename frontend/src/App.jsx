@@ -13,19 +13,26 @@ import {
   useTelegram,
 } from "./api";
 
-// ✅ FIX: Cache Helpers — ፈጣን ምላሽ ለማግኘት
-const CACHE_KEY = "fb_user_cache";
+// ✅ FIX: ለእያንዳንዱ ተጠቃሚ የተለየ የካሽ ቁልፍ (Cache Key)
 const LOGIN_TIMEOUT_MS = 15000;
 const LOGIN_MAX_RETRIES = 2;
 const LOGIN_RETRY_DELAY_MS = 1000;
 
-function getCachedUser() {
+function getCacheKey(telegramId) {
+  return telegramId ? `fb_user_cache_${telegramId}` : "fb_user_cache_temp";
+}
+
+function getCachedUser(telegramId) {
+  if (!telegramId) return null;
   try {
-    const raw = localStorage.getItem(CACHE_KEY);
+    const raw = localStorage.getItem(getCacheKey(telegramId));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
+    // የተቀመጠው ዩዘር ከአሁኑ ጋር ካልተመሳሰለ አትጠቀምበት
+    if (String(parsed.telegramId) !== String(telegramId)) return null;
+    
     if (parsed._cachedAt && Date.now() - parsed._cachedAt > 24 * 60 * 60 * 1000) {
-      localStorage.removeItem(CACHE_KEY);
+      localStorage.removeItem(getCacheKey(telegramId));
       return null;
     }
     return parsed;
@@ -35,11 +42,27 @@ function getCachedUser() {
 }
 
 function setCachedUser(user) {
+  if (!user || !user.telegramId) return;
   try {
     localStorage.setItem(
-      CACHE_KEY,
+      getCacheKey(user.telegramId),
       JSON.stringify({ ...user, _cachedAt: Date.now() })
     );
+  } catch {}
+}
+
+// ✅ አዲስ ተጠቃሚ ሲገባ የቀድሞዎቹን ካሾች ማጽዳት
+function clearOldCaches(currentTelegramId) {
+  try {
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("fb_user_cache_") && key !== getCacheKey(currentTelegramId)) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+    localStorage.removeItem("fb_user_cache"); // ከአሮጌው ኮድ የቀረ ካሽ
   } catch {}
 }
 
@@ -103,8 +126,13 @@ function Login({ onLoggedIn }) {
           ]);
           if (timerId) clearTimeout(timerId);
           if (cancelled) return;
+          
           localStorage.setItem("telegramId", user.telegramId);
+          
+          // ✅ FIX: አዲስ ዩዘር ስለገባ የቀድሞውን የተሳሳተ ካሽ አጽዳ
+          clearOldCaches(user.telegramId);
           setCachedUser(user);
+          
           onLoggedIn(user);
           return;
         } catch (err) {
@@ -696,9 +724,13 @@ function Card({ icon, label, value, color }) {
 function App() {
   useTelegram();
 
-  const [user, setUser] = useState(() => getCachedUser());
+  // ✅ FIX: የአሁኑን የቴሌግራም መታወቂያ ከ WebApp ወይም ከ Local Storage ማግኘት
+  const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+  const initialTgId = tgUser?.id ? String(tgUser.id) : localStorage.getItem("telegramId");
+
+  const [user, setUser] = useState(() => getCachedUser(initialTgId));
   const [balance, setBalance] = useState(() => {
-    const cached = getCachedUser();
+    const cached = getCachedUser(initialTgId);
     return cached?.balance || 0;
   });
   
@@ -709,6 +741,7 @@ function App() {
   const [activeTab, setActiveTab] = useState("Game");
   const [gameStatus, setGameStatus] = useState("waiting");
 
+  // ✅ FIX: የአድሚን ሁኔታ ሁልጊዜ ከ user object በጥብቅ ይፈተሻል
   const isAdmin = user?.isAdmin === true;
 
   const tabs = useMemo(() => {
@@ -736,12 +769,19 @@ function App() {
       getMe()
         .then((fresh) => {
           if (cancelled || !fresh) return;
-          setUser((prev) => ({ ...prev, ...fresh }));
+          
+          // ✅ FIX: ከሰርቨር የመጣው isAdmin ብቻ እንዲሆን (የቀድሞው ካሽ እንዳይቀላቅል)
+          setUser((prev) => ({
+            ...prev,
+            ...fresh,
+            isAdmin: fresh.isAdmin === true
+          }));
+          
           if (fresh.balance !== undefined) setBalance(fresh.balance);
           setCachedUser(fresh);
         })
         .catch((err) => console.warn("[App] getMe failed:", err?.message));
-    }, 2000);
+    }, 1000);
 
     return () => {
       cancelled = true;
