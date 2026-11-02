@@ -106,6 +106,7 @@ router.get("/stats", requireAdmin, async (req, res) => {
       approvedWithdrawalsAgg,
       entryFeesAgg,
       prizesAgg,
+      refundsAgg, // ✅ አዲስ የተጨመረ
     ] = await Promise.all([
       User.countDocuments(),
       Game.countDocuments({ status: "finished" }),
@@ -139,12 +140,22 @@ router.get("/stats", requireAdmin, async (req, res) => {
         { $match: { type: "prize", status: "completed" } },
         { $group: { _id: null, total: { $sum: "$amount" } } },
       ]),
+      // ✅ አዲስ የተጨመረ: የተመለሰ ገንዘብ (Refund) ማሰባሰቢያ
+      Transaction.aggregate([
+        { $match: { type: "refund", status: "completed" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
     ]);
 
     const totalDeposits = approvedDepositsAgg[0]?.total || 0;
     const totalWithdrawals = approvedWithdrawalsAgg[0]?.total || 0;
     const totalEntryFees = entryFeesAgg[0]?.total || 0;
     const totalPrizes = prizesAgg[0]?.total || 0;
+    const totalRefunds = refundsAgg[0]?.total || 0; // ✅ አዲስ
+
+    // ✅ FIX: የሲስተሙ ትርፍ (House Commission) በትክክል እንዲሰላ
+    // የገባው ገንዘብ (entry fee) - የተከፈለ ሽልማት (prize) - የተመለሰ ገንዘብ (refund)
+    const houseCommission = Math.max(0, totalEntryFees - totalPrizes - totalRefunds);
 
     res.json({
       activeUsers: getActiveUserCount(),
@@ -157,7 +168,8 @@ router.get("/stats", requireAdmin, async (req, res) => {
       netCashFlow: totalDeposits - totalWithdrawals,
       totalEntryFees,
       totalPrizes,
-      houseCommission: totalEntryFees - totalPrizes,
+      totalRefunds, // ✅ አዲስ
+      houseCommission,
     });
   } catch (err) {
     console.error("[admin/stats]", err);
