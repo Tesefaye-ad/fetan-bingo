@@ -27,7 +27,10 @@ const RECONCILE_MS = 5000;
 const ARM_WINDOW_MS = 1500;
 const PRIZE_SHARE = Number(process.env.PRIZE_SHARE || 0.8);
 const MAX_ACTIVE_USERS = 20000;
-const MIN_PLAYERS = Math.max(1, Number(process.env.MIN_PLAYERS || 0));
+
+// ✅ FIX: አንድ ሰው ብቻውን እንዲጫወት መፍቀድ
+const MIN_PLAYERS = Math.max(0, Number(process.env.MIN_PLAYERS || 0));
+
 const CARD_BATCH_MS = 250;
 const LOCK_TTL_MS = 30000; // ✅ የ Redis Lock የመቆያ ጊዜ (30 ሰከንድ)
 
@@ -47,31 +50,27 @@ async function acquireLock(roomCode) {
     return res === "OK";
   } catch (err) {
     console.error("[redis] acquireLock error:", err.message);
-    return true; // Redis ቢወድቅ በአንድ ሰርቨር እንዲሰራ ፈቃድ ይሰጣል
+    return true; 
   }
 }
 
 async function renewLock(roomCode) {
   try {
     await cacheClient.set(`lock:game:${roomCode}`, "1", "PX", LOCK_TTL_MS, "XX");
-  } catch (err) { /* ስህተት ቢፈጠር ጨዋታውን አያቁመው */ }
+  } catch (err) { }
 }
 
 async function releaseLock(roomCode) {
   try {
     await cacheClient.del(`lock:game:${roomCode}`);
-  } catch (err) { /* ስህተት ቢፈጠር ጨዋታውን አያቁመው */ }
+  } catch (err) { }
 }
 
 // ═══════════════════════════════════════════════════════
 // Card-selection batching per room
-// 90 selections/sec → 4 emits/sec (250x reduction)
 // ═══════════════════════════════════════════════════════
 
 const cardBatches = new Map();
-
-// User -> Set<Socket>
-
 const userSockets = new Map();
 
 function addUserSocket(userId, socket) {
@@ -126,7 +125,6 @@ function deadlineOf(game) {
   return d ? new Date(d).getTime() : 0;
 }
 
-// ✅ FIX: firstName እና lastName ካለው ሁለቱንም ያሳያል፣ ከሌለው firstName
 function displayName(u) {
   if (!u) return "Player";
   const first = u.firstName ? String(u.firstName).trim() : "";
@@ -155,9 +153,6 @@ function initGameSocket(io) {
     }
   }
 
-  // ═══════════════════════════════════════════════════════
-  // Batched card broadcast helper
-  // ═══════════════════════════════════════════════════════
   function queueCardBroadcast(roomCode, cardId) {
     let b = cardBatches.get(roomCode);
     if (!b) {
@@ -259,9 +254,6 @@ function initGameSocket(io) {
       emitToUser(userId, "your_cards", payload);
   }
 
-  // ═══════════════════════════════════════════════════════
-  // START GAME (Redis Locked)
-  // ═══════════════════════════════════════════════════════
   function startGame(roomCode) {
     if (runtimes.has(roomCode)) return Promise.resolve();
     if (starting.has(roomCode)) return starting.get(roomCode);
@@ -402,9 +394,6 @@ function initGameSocket(io) {
     }
   }
 
-  // ═══════════════════════════════════════════════════════
-  // NUMBER CALLER (Redis Renewed & Forced Win)
-  // ═══════════════════════════════════════════════════════
   function scheduleTick(rt, firstDelayMs) {
     rt.nextAt = Date.now() + firstDelayMs;
     rt.timer = setTimeout(() => tick(rt), firstDelayMs);
@@ -519,29 +508,17 @@ function initGameSocket(io) {
         marked: player.marked,
       }));
 
-      const prizePerUser = Math.floor(rt.prizePool / userIds.length);
+      const totalPlayers = rt.players.length;
+      const totalCollected = totalPlayers * rt.entryFee;
+      const actualPrizePool = Math.floor(totalCollected * PRIZE_SHARE);
+      const prizePerUser = Math.floor(actualPrizePool / userIds.length);
 
       const panel = [];
       for (const userId of userIds) {
         const mine = winners.filter((w) => w.player.userId === userId);
         const prize = prizePerUser;
         
-        let prizeTx;
-        try {
-          prizeTx = await Transaction.create({
-            user: userId,
-            type: "prize",
-            amount: prize,
-            balanceAfter: 0,
-            game: rt.gameId,
-            status: "completed",
-            meta: { cartelas: mine.map((w) => w.player.cardId) },
-          });
-        } catch (e) {
-          if (e.code === 11000) continue;
-          throw e;
-        }
-        
+        // ✅ FIX: ባላንስን መጀመሪያ ማዘመን (Transaction ስህተት ቢሰጥም ባላንሱ እንዲጨመር)
         const updated = await User.findByIdAndUpdate(
           userId,
           {
@@ -553,17 +530,36 @@ function initGameSocket(io) {
           },
           { new: true }
         );
+
         if (!updated) {
-          await Transaction.updateOne(
-            { _id: prizeTx._id },
-            { $set: { status: "failed" } }
-          );
+          console.error(`[processWinners] User ${userId} not found to update balance`);
           continue;
         }
-        await Transaction.updateOne(
-          { _id: prizeTx._id },
-          { $set: { balanceAfter: updated.balance } }
-        );
+
+        let prizeTx = null;
+        try {
+          prizeTx = await Transaction.create({
+            user: userId,
+            type: "prize",
+            amount: prize,
+            balanceAfter: updated.balance,
+            game: rt.gameId,
+            status: "completed",
+            meta: { cartelas: mine.map((w) => w.player.cardId) },
+          });
+        } catch (e) {
+          if (e.code === 11000) {
+            // ✅ FIX: Duplicate ቢሆንም ወደ ባላንስ ማዘመን አይዘለልም (continue አይልም)
+            console.warn(`[processWinners] Duplicate transaction for user ${userId}. Updating existing.`);
+            await Transaction.findOneAndUpdate(
+              { game: rt.gameId, user: userId, type: "prize" },
+              { $set: { amount: prize, balanceAfter: updated.balance } }
+            );
+          } else {
+            console.error(`[processWinners] Transaction error for user ${userId}:`, e.message);
+          }
+        }
+
         emitToUser(userId, "balance_update", { balance: updated.balance });
         panel.push({
           userId,
@@ -584,7 +580,7 @@ function initGameSocket(io) {
 
       const payload = {
         winPattern: rt.pattern,
-        prizePool: rt.prizePool,
+        prizePool: actualPrizePool,
         prizePerUser,
         totalCartelas: winningCartelas.length,
         winnerCount: sortedPanel.length,
@@ -605,7 +601,7 @@ function initGameSocket(io) {
 
       console.log(
         `[winners:${rt.roomCode}] ✅ ${sortedPanel.length} user(s) — ` +
-          `prizePool=${rt.prizePool}ETB, perUser=${prizePerUser}ETB`
+          `totalCollected=${totalCollected}ETB, prizePool=${actualPrizePool}ETB, perUser=${prizePerUser}ETB`
       );
 
       io.to(rt.roomCode).emit("bingo_claimed", payload);
