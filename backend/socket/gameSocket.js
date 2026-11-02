@@ -395,7 +395,6 @@ function initGameSocket(io) {
         broadcastRoomState(roomCode).catch(() => {});
 
         scheduleTick(rt, FIRST_CALL_DELAY_MS);
-        // Lock remains, tick() will renew it
       });
     } catch (err) {
       console.error(`[startGame:${roomCode}]`, err);
@@ -413,13 +412,12 @@ function initGameSocket(io) {
 
   async function tick(rt) {
     if (rt.done) return;
-    await renewLock(rt.roomCode); // ✅ Lock እያንዳንዱ ሰከንድ ይታደሳል
+    await renewLock(rt.roomCode);
 
     try {
       const max = 75;
       let num = null;
 
-      // ✅ Force Win ከ Redis ማንበብ
       let forcedCardId = null;
       try {
         const forcedStr = await cacheClient.get(`forced:${rt.roomCode}`);
@@ -439,7 +437,6 @@ function initGameSocket(io) {
         }
       }
 
-      // የተገደደ ቁጥር ካልተገኘ በተለመደው መንገድ ይምረጥ
       if (num === null) {
         num = randomUncalled(rt.calledSet, max);
       }
@@ -508,7 +505,6 @@ function initGameSocket(io) {
     try {
       const userIds = [...new Set(winners.map((w) => w.player.userId))];
       
-      // ✅ FIX: lastName እንዲመጣ ተጨምሯል
       const users = await User.find({ _id: { $in: userIds } }).select(
         "username firstName lastName telegramId"
       );
@@ -516,7 +512,7 @@ function initGameSocket(io) {
 
       const winningCartelas = winners.map(({ player, pattern }) => ({
         telegramId: player.telegramId,
-        name: displayName(userById.get(player.userId)), // firstName + lastName
+        name: displayName(userById.get(player.userId)),
         cardId: player.cardId,
         pattern,
         card: player.card,
@@ -572,7 +568,7 @@ function initGameSocket(io) {
         panel.push({
           userId,
           telegramId: updated.telegramId,
-          name: displayName(updated), // firstName + lastName
+          name: displayName(updated),
           cartelas: mine.map((w) => w.player.cardId),
           prize,
           newBalance: updated.balance,
@@ -632,17 +628,18 @@ function initGameSocket(io) {
   async function finishRound(rt, panel, winningCartelas, wasWin = false) {
     const { roomCode } = rt;
     try {
-      await releaseLock(roomCode); // ✅ ጨዋታው ሲያልቅ መቆለፊያውን ማሰናበት
-      await cacheClient.del(`forced:${roomCode}`); // ✅ የተገደደውን አሸናፊ ማጽዳት
+      await releaseLock(roomCode);
+      await cacheClient.del(`forced:${roomCode}`);
 
-      const isWeekly = rt.entryFee === 50 || rt.entryFee === 100;
+      const fee = Number(rt.entryFee);
+      const isWeekly = fee === 50 || fee === 100;
       let notificationOk = true;
 
       if (wasWin && isWeekly && panel.length > 0 && winningCartelas.length > 0) {
         try {
           const r = await notifyWinnersGroup({
             roomCode,
-            entryFee: rt.entryFee,
+            entryFee: fee,
             prizePool: rt.prizePool,
             winPattern: rt.pattern,
             winners: panel,
@@ -706,7 +703,6 @@ function initGameSocket(io) {
     if (prizeTxs.length === 0) return;
 
     const userIds = [...new Set(prizeTxs.map((t) => String(t.user)))];
-    // ✅ FIX: lastName እንዲመጣ ተጨምሯል
     const users = await User.find({ _id: { $in: userIds } })
       .select("username firstName lastName telegramId")
       .lean();
@@ -726,7 +722,7 @@ function initGameSocket(io) {
 
     const r = await notifyWinnersGroup({
       roomCode: game.roomCode,
-      entryFee: game.entryFee,
+      entryFee: Number(game.entryFee),
       prizePool: game.prizePool,
       winPattern: game.winPattern,
       winners: panel,
@@ -757,7 +753,7 @@ function initGameSocket(io) {
 
   async function doResumeGame(roomCode) {
     const hasLock = await acquireLock(roomCode);
-    if (!hasLock) return; // ሌላ ሰርቨር እየሰራው ነው
+    if (!hasLock) return;
 
     try {
       await withRoomLock(roomCode, async () => {
@@ -769,7 +765,7 @@ function initGameSocket(io) {
           type: "prize",
         });
 
-        const isWeekly = game.entryFee === 50 || game.entryFee === 100;
+        const isWeekly = Number(game.entryFee) === 50 || Number(game.entryFee) === 100;
         if (
           alreadyPaid &&
           game.winningCartelas?.length > 0 &&
@@ -852,7 +848,6 @@ function initGameSocket(io) {
       for (const g of waiting) {
         const t = deadlineOf(g);
         if (!t) {
-          // ✅ FIX: ሰዓቱ ከሌለ ሪሴት አድርጎ ለ Client መልእክት ይላካል
           const fresh = await rooms.resetToWaiting(g.roomCode);
           if (fresh) io.to(g.roomCode).emit("room_state", rooms.publicState(fresh));
           continue;

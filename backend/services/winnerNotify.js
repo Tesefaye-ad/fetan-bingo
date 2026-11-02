@@ -37,13 +37,18 @@ function withTimeout(promise, ms, label) {
   );
 }
 
-function buildCaption({ roomCode, prizePool, winPattern, winners, phones }) {
+function buildCaption({ roomCode, entryFee, prizePool, winPattern, winners, phones }) {
   const date = new Date().toLocaleString("en-US", {
     timeZone: "Africa/Addis_Ababa",
   });
+  
+  // ✅ FIX: የጨዋታውን ዓይነት መለየት (ባለ 50 ወይም ባለ 100)
+  const fee = Number(entryFee);
+  const gameName = fee === 50 ? "ባለ 50" : "ባለ 100";
+
   let text =
     `🎉 <b>እንኳን ደስ አለዎት!</b>\n` +
-    `🏆 <b>Fetan Bingo — ${htmlEscape(roomCode)}</b>\n` +
+    `🏆 <b>የዛሬውን ${gameName} ብር የቢንጎ ጨዋታ ያሸነፈው/ያሸነፉት፦</b>\n` +
     `💰 ጠቅላላ ሽልማት: <b>${prizePool} ETB</b>\n` +
     `🎯 ፓተርን: <b>${htmlEscape(String(winPattern).toUpperCase())}</b>\n` +
     `🕐 ${htmlEscape(date)}\n`;
@@ -78,15 +83,14 @@ function buildCaption({ roomCode, prizePool, winPattern, winners, phones }) {
 async function notifyWinnersGroup(round) {
   const groupChatId = process.env.WINNERS_GROUP_CHAT_ID;
   if (!groupChatId) {
-    console.warn("[notify] WINNERS_GROUP_CHAT_ID is not set — skipped");
+    console.warn("[notify] ❌ WINNERS_GROUP_CHAT_ID is not set — skipped");
     return { ok: false, reason: "no_group_id" };
   }
 
-  // 👈 ጨዋታው ላይ እንዳይጋባ — fire-and-forget አድርገን እንጠራለን
   try {
     const { bot } = require("../bot");
     if (!bot) {
-      console.warn("[notify] bot not loaded — skipped");
+      console.warn("[notify] ❌ bot not loaded — skipped");
       return { ok: false, reason: "no_bot" };
     }
 
@@ -135,22 +139,34 @@ async function notifyWinnersGroup(round) {
           "png_render"
         );
       } catch (imgErr) {
-        console.error("[notify] image render failed:", imgErr.message);
+        console.error("[notify] ❌ image render failed:", imgErr.message);
       }
     }
 
-    // ─── 4. Send (timeout ጋር) ───
+    // ─── 4. Send (timeout ጋር & Fallback logic) ───
+    let sent = false;
+
+    // ሀ. ፎቶ ካለ በፎቶ ለመላክ ሞክር
     if (png) {
-      await withTimeout(
-        bot.telegram.sendPhoto(
-          groupChatId,
-          { source: png, filename: `${round.roomCode}-winners.png` },
-          { caption, parse_mode: "HTML" }
-        ),
-        SEND_TIMEOUT_MS,
-        "send_photo"
-      );
-    } else {
+      try {
+        await withTimeout(
+          bot.telegram.sendPhoto(
+            groupChatId,
+            { source: png, filename: `${round.roomCode}-winners.png` },
+            { caption, parse_mode: "HTML" }
+          ),
+          SEND_TIMEOUT_MS,
+          "send_photo"
+        );
+        sent = true;
+        console.log(`[notify] ✅ ${round.roomCode} አሸናፊዎች በፎቶ ተልከዋል`);
+      } catch (photoErr) {
+        console.error(`[notify] ❌ ፎቶ መላክ አልተቻለም: ${photoErr.message} — ወደ ጽሑፍ ይቀየራል`);
+      }
+    }
+
+    // ለ. ፎቶ ካልተላከ (ወይም ፎቶ ከሌለ) በጽሑፍ ላክ
+    if (!sent) {
       await withTimeout(
         bot.telegram.sendMessage(groupChatId, caption, {
           parse_mode: "HTML",
@@ -159,12 +175,12 @@ async function notifyWinnersGroup(round) {
         SEND_TIMEOUT_MS,
         "send_message"
       );
+      console.log(`[notify] ✅ ${round.roomCode} አሸናፊዎች በጽሑፍ ተልከዋል`);
     }
 
-    console.log(`[notify] ${round.roomCode} winners sent to group`);
     return { ok: true };
   } catch (err) {
-    console.error("[notify] failed:", err.message);
+    console.error(`[notify] ❌ failed:`, err.message);
     return { ok: false, reason: err.message };
   }
 }
