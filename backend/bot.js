@@ -658,6 +658,64 @@ bot.command("smscheck", async (ctx) => {
   }
 });
 
+// ✅ አዲስ የተጨመረ: ለሁሉም ተጠቃሚዎች መልእክት የመላኪያ ትዕዛዝ
+bot.command("broadcast", async (ctx) => {
+  if (!isBotAdmin(ctx)) return;
+
+  const text = ctx.message.text.split(" ").slice(1).join(" ");
+  if (!text) {
+    return ctx.reply("⚠️ እባክዎ መልእክቱን ይጻፉ። ለምሳሌ:\n`/broadcast ሰላም ሁሉም!`", {
+      parse_mode: "Markdown",
+    });
+  }
+
+  const msg = await ctx.reply(`⏳ ለሁሉም ተጠቃሚዎች እየተላከ ነው...`);
+
+  try {
+    // የተመዘገቡ ተጠቃሚዎችን በሙሉ ማምጣት (የታገዱ ካሉ ሳይጨምር)
+    const users = await User.find({ isBanned: { $ne: true } })
+      .select("telegramId")
+      .lean();
+
+    let success = 0;
+    let failed = 0;
+
+    // የቴሌግራም ገደብ (Rate limit) እንዳይመታ በተከታታይ መላክ
+    for (const u of users) {
+      try {
+        await bot.telegram.sendMessage(u.telegramId, text, {
+          parse_mode: "HTML",
+        });
+        success++;
+        // በየ 50 ሚሊሰከንዱ ማረፍ (Anti-spam)
+        await new Promise((r) => setTimeout(r, 50));
+      } catch (err) {
+        // 403: ተጠቃሚው ቦቱን ካገደው ችላ ተብሎ ይታለፋል
+        if (err.response && err.response.error_code === 403) {
+          failed++;
+        } else {
+          failed++;
+        }
+      }
+    }
+
+    await ctx.telegram.editMessageText(
+      ctx.chat.id,
+      msg.message_id,
+      undefined,
+      `✅ መልእክቱ ተልኳል!\n\n📤 ተሳክቷል: ${success}\n❌ አልተሳካም: ${failed}`
+    );
+  } catch (err) {
+    console.error("[/broadcast] error:", err.message);
+    await ctx.telegram.editMessageText(
+      ctx.chat.id,
+      msg.message_id,
+      undefined,
+      "❌ መልእክቱን መላክ አልተቻለም።"
+    );
+  }
+});
+
 async function adminDecision(ctx, kind, approve) {
   try {
     if (!isBotAdmin(ctx)) return ctx.answerCbQuery("❌ Admin only");
