@@ -13,11 +13,6 @@ const SELECTION_TIMER_MS = Number(process.env.SELECTION_TIMER_MS || 50000);
 const MAX_NUMBER = 75;
 const DEFAULT_ROOMS = ["ROOM10", "ROOM20", "ROOM50", "ROOM100"];
 
-// ═══════════════════════════════════════════════════════
-// 👈 NEW: cap cards per room to keep broadcast small
-//    800 × 3 rooms = 2400 concurrent per process safely
-//    For 4500 users, use more rooms or increase this value
-// ═══════════════════════════════════════════════════════
 const MAX_CARDS_PER_ROOM = Number(process.env.MAX_CARDS_PER_ROOM || 800);
 
 const EASY_PATTERNS = ["any-row", "any-column"];
@@ -33,8 +28,26 @@ const PATTERN_WEIGHTS = {
 
 const HARD_STAKE_THRESHOLD = Number(process.env.HARD_STAKE_THRESHOLD || 50);
 
-function pickRandomPattern(fee) {
+// ✅ FIX: prevPattern እንዲቀበል ተደርጓል — ለ Play 10 እና 20 የተወሰነ ቅደም ተከተል እንዲኖረው
+function pickRandomPattern(fee, prevPattern = null) {
   const feeNum = Number(fee) || 10;
+
+  // ✅ ለ Play 10 እና Play 20 ልዩ ቅደም ተከተል
+  if (feeNum === 10 || feeNum === 20) {
+    // 1. መጀመሪያ ጨዋታ ከሆነ (ወይም ካለፈው የተለየ ከሆነ) -> Any Row
+    if (!prevPattern || !["any-row", "any-column", "any-diagonal"].includes(prevPattern)) {
+      return "any-row";
+    }
+    // 2. ቀዳሚው Any Row ከሆነ -> Any Column
+    if (prevPattern === "any-row") {
+      return "any-column";
+    }
+    // 3. ሶስተኛው እና ከዚያ በኋላ ያሉት -> በዘፈቀደ ከሶስቱ ይምረጥ
+    const randomPool = ["any-row", "any-column", "any-diagonal"];
+    return randomPool[Math.floor(Math.random() * randomPool.length)];
+  }
+
+  // ✅ ለ Play 50 እና Play 100 (የድሮው ህግ እንዳለ ይቆይ)
   const isHard = feeNum >= HARD_STAKE_THRESHOLD;
   const pool = isHard ? HARD_PATTERNS : EASY_PATTERNS;
 
@@ -47,8 +60,8 @@ function pickRandomPattern(fee) {
   return weightPool[Math.floor(Math.random() * weightPool.length)];
 }
 
-function patternForRoom(roomCode, fee) {
-  return pickRandomPattern(fee);
+function patternForRoom(roomCode, fee, prevPattern = null) {
+  return pickRandomPattern(fee, prevPattern);
 }
 
 function normalizeRoomCode(code) {
@@ -66,9 +79,9 @@ function feeForRoom(roomCode, hint) {
 // ═══════════════════════════════════════════════════════
 // waitingFields — reset state for a new round
 // ═══════════════════════════════════════════════════════
-function waitingFields(roomCode, fee) {
+function waitingFields(roomCode, fee, prevPattern = null) {
   const weekly = isWeeklyRoom(roomCode);
-  const pattern = patternForRoom(roomCode, fee);
+  const pattern = patternForRoom(roomCode, fee, prevPattern);
   return {
     status: "waiting",
     entryFee: fee,
@@ -104,7 +117,7 @@ async function ensureRoom(roomCode, feeHint) {
       roomCode,
       maxNumber: MAX_NUMBER,
       allCards: generate1250Cards(),
-      ...waitingFields(roomCode, fee),
+      ...waitingFields(roomCode, fee, null), // አዲስ ክፍል ስለሆነ prevPattern የለም
     });
   } catch (err) {
     if (err.code !== 11000) throw err;
@@ -123,12 +136,14 @@ async function ensureRoomCards(roomCode) {
 }
 
 async function resetToWaiting(roomCode) {
-  const current = await Game.findOne({ roomCode }).select("entryFee").lean();
+  // ✅ FIX: winPattern ን ጭምር ከዳታቤዝ እናምጣ
+  const current = await Game.findOne({ roomCode }).select("entryFee winPattern").lean();
   const fee = current?.entryFee || feeForRoom(roomCode);
+  const prevPattern = current?.winPattern;
 
   return Game.findOneAndUpdate(
     { roomCode },
-    { $set: waitingFields(roomCode, fee) },
+    { $set: waitingFields(roomCode, fee, prevPattern) }, // prevPattern ተልኳል
     { new: true, projection: LIGHT_SELECT, lean: true }
   );
 }
@@ -187,7 +202,7 @@ module.exports = {
   SELECTION_TIMER_MS,
   MAX_NUMBER,
   DEFAULT_ROOMS,
-  MAX_CARDS_PER_ROOM,   // 👈 NEW export
+  MAX_CARDS_PER_ROOM,
   EASY_PATTERNS,
   HARD_PATTERNS,
   PATTERN_WEIGHTS,

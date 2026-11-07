@@ -1097,7 +1097,7 @@ function BroadcastTab({ showToast }) {
     if (!body.trim()) return showToast("Enter message", "error");
     setSending(true);
     try {
-      await adminBroadcast("📢 Announcement", body);
+      await adminBroadcast("", body);
       showToast("📢 Sent to all users!", "success");
       setBody("");
     } catch (e) {

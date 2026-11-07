@@ -359,7 +359,7 @@ router.post("/broadcast", requireAdmin, async (req, res) => {
       return res.status(400).json({ error: "Message required" });
     }
 
-    const finalTitle = typeof title === "string" && title.trim() ? title.slice(0, 120) : "📢 Announcement";
+    const finalTitle = typeof title === "string" && title.trim() ? title.slice(0, 120) : "";
     const finalBody = body.slice(0, 2000);
 
     // 1. በዳታቤዝ ውስጥ ማስቀመጥ (ለ App ውስጥ ማሳወቂያ ሆኖ እንዲያገለግል)
