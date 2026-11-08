@@ -106,7 +106,7 @@ router.get("/stats", requireAdmin, async (req, res) => {
       approvedWithdrawalsAgg,
       entryFeesAgg,
       prizesAgg,
-      refundsAgg, // ✅ አዲስ የተጨመረ
+      refundsAgg,
     ] = await Promise.all([
       User.countDocuments(),
       Game.countDocuments({ status: "finished" }),
@@ -140,7 +140,6 @@ router.get("/stats", requireAdmin, async (req, res) => {
         { $match: { type: "prize", status: "completed" } },
         { $group: { _id: null, total: { $sum: "$amount" } } },
       ]),
-      // ✅ አዲስ የተጨመረ: የተመለሰ ገንዘብ (Refund) ማሰባሰቢያ
       Transaction.aggregate([
         { $match: { type: "refund", status: "completed" } },
         { $group: { _id: null, total: { $sum: "$amount" } } },
@@ -151,9 +150,8 @@ router.get("/stats", requireAdmin, async (req, res) => {
     const totalWithdrawals = approvedWithdrawalsAgg[0]?.total || 0;
     const totalEntryFees = entryFeesAgg[0]?.total || 0;
     const totalPrizes = prizesAgg[0]?.total || 0;
-    const totalRefunds = refundsAgg[0]?.total || 0; // ✅ አዲስ
+    const totalRefunds = refundsAgg[0]?.total || 0;
 
-    // ✅ FIX: የሲስተሙ ትርፍ (House Commission) በትክክል እንዲሰላ
     const houseCommission = Math.max(0, totalEntryFees - totalPrizes - totalRefunds);
 
     res.json({
@@ -167,7 +165,7 @@ router.get("/stats", requireAdmin, async (req, res) => {
       netCashFlow: totalDeposits - totalWithdrawals,
       totalEntryFees,
       totalPrizes,
-      totalRefunds, // ✅ አዲስ
+      totalRefunds,
       houseCommission,
     });
   } catch (err) {
@@ -350,7 +348,7 @@ router.post("/users/:id/balance", requireAdmin, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// ✅ የተስተካከለው Broadcast API (ወደ ቴሌግራምም ይልካል)
+// ✅ የተስተካከለው Broadcast API
 // ═══════════════════════════════════════════════════════
 router.post("/broadcast", requireAdmin, async (req, res) => {
   try {
@@ -359,8 +357,12 @@ router.post("/broadcast", requireAdmin, async (req, res) => {
       return res.status(400).json({ error: "Message required" });
     }
 
-    const finalTitle = typeof title === "string" && title.trim() ? title.slice(0, 120) : "";
-    const finalBody = body.slice(0, 2000);
+    // ✅ FIX: ርዕስ ባዶ ሲሆን ስህተት እንዳይመጣ ነባሪ ጽሑፍ መስጠት
+    const finalTitle = (typeof title === "string" && title.trim()) 
+      ? title.trim().slice(0, 120) 
+      : "📢 Announcement";
+      
+    const finalBody = body.trim().slice(0, 2000);
 
     // 1. በዳታቤዝ ውስጥ ማስቀመጥ (ለ App ውስጥ ማሳወቂያ ሆኖ እንዲያገለግል)
     const notification = await Notification.create({
@@ -374,37 +376,52 @@ router.post("/broadcast", requireAdmin, async (req, res) => {
     try {
       const { bot } = require("../bot");
       if (bot) {
-        // የተመዘገቡ ተጠቃሚዎችን በሙሉ ማምጣት
-        const users = await User.find({ isBanned: { $ne: true } }).select("telegramId").lean();
-        const text = `📢 <b>${finalTitle}</b>\n\n${finalBody}`;
+        // ✅ FIX: ድርብ ኢሞጂ እንዳይመጣ ርዕሱ ላይ ቀድሞ ካለ 📢 ማስወገድ
+        const cleanTitle = finalTitle.replace(/^📢\s*/, "");
+        const text = `📢 <b>${cleanTitle}</b>\n\n${finalBody}`;
         
-        // ቴሌግራም በአንድ ጊዜ ብዙ መልእክት እንዳይልክ በተከታታይ (Loop) መላክ
+        // ✅ FIX: የፍሮንትኤንድ ጥያቄ እንዳይጠብቅ ወዲያውኑ ምላሽ መስጠት
+        res.json({ ok: true, notification });
+
+        // በ Background ላይ መልእክቱን መላክ እንጀምር
         (async () => {
-          let success = 0;
-          let failed = 0;
-          for (const u of users) {
-            try {
-              await bot.telegram.sendMessage(u.telegramId, text, { parse_mode: "HTML" });
-              success++;
-              // የቴሌግራም ገደብ (Rate Limit) እንዳይመታ በየ 50 ሚሊሰከንዱ ማረፍ
-              await new Promise(r => setTimeout(r, 50)); 
-            } catch (err) {
-              // 403 (User Blocked Bot) ካለ ችላ ተብሎ ይታለፋል
-              failed++;
+          try {
+            const users = await User.find({ isBanned: { $ne: true } }).select("telegramId").lean();
+            let success = 0;
+            let failed = 0;
+
+            for (const u of users) {
+              try {
+                await bot.telegram.sendMessage(u.telegramId, text, { parse_mode: "HTML" });
+                success++;
+                // የቴሌግራም ገደብ (Rate Limit) እንዳይመታ በየ 50 ሚሊሰከንዱ ማረፍ
+                await new Promise(r => setTimeout(r, 50)); 
+              } catch (err) {
+                // 403 (User Blocked Bot) ካለ ችላ ተብሎ ይታለፋል
+                failed++;
+              }
             }
+            console.log(`[broadcast] ✅ በቴሌግራም ተልኳል: ${success} | ❌ አልተላከም: ${failed}`);
+          } catch (err) {
+            console.error("[broadcast] የቴሌግራም Loop ስህተት:", err.message);
           }
-          console.log(`[broadcast] በቴሌግራም ተልኳል: ${success} | አልተላከም: ${failed}`);
         })();
+        return; // res.json ስለተላከ እዚህ እናቁም
       }
     } catch (err) {
-      console.error("[broadcast] የቴሌግራም መልእክት ስህተት:", err.message);
+      console.error("[broadcast] የቴሌግራም ሞጁል ስህተት:", err.message);
     }
 
-    // ለ Frontend ወዲያውኑ ምላሽ መስጠት (መልእክቱ ከበስተጀርባ እየተላከ ስለሆነ)
-    res.json({ ok: true, notification });
+    // ቴሌግራም ካልሰራ ወይም ካልተገኘ መልሱ እዚህ ይላካል
+    if (!res.headersSent) {
+      res.json({ ok: true, notification });
+    }
+
   } catch (err) {
     console.error("[admin/broadcast]", err);
-    res.status(500).json({ error: "Could not broadcast" });
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Could not broadcast" });
+    }
   }
 });
 

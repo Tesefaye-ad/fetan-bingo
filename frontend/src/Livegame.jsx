@@ -56,11 +56,12 @@ function PatternPreview({ pattern, size = 70 }) {
       case "any-column":
         for (let r = 0; r < 5; r++) cells.add(key(r, 2));
         break;
-      case "any-diagonal":
+           case "any-diagonal":
+        // ✅ FIX: ሁለቱንም ሰያፎች (X) ሳይሆን የመጀመሪያውን ሰያፍ (\) ብቻ ያሳይ
         for (let i = 0; i < 5; i++) {
           cells.add(key(i, i));
-          cells.add(key(i, 4 - i));
         }
+        break;
         break;
       case "four-corners":
         cells.add(key(0, 0));
