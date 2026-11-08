@@ -283,16 +283,15 @@ userRouter.get("/referral", async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    const botUsername =
-      process.env.TELEGRAM_BOT_USERNAME || "fetanbingo1_bot";
-    const link = `https://t.me/${botUsername.replace(
-      "@",
-      ""
-    )}?start=ref_${user.telegramId}`;
+    const botUsername = process.env.TELEGRAM_BOT_USERNAME || "fetanbingo1_bot";
+    const link = `https://t.me/${botUsername.replace("@", "")}?start=ref_${user.telegramId}`;
 
     res.json({
       link,
       referralCount: user.referralCount || 0,
+      // ✅ FIX: አሁን 20 ሰው ሲሆን ብቻ 100 ብር እንደሚያገኙ ለ Frontend መንገር
+      bonusReward: 100,
+      targetReferrals: 20,
       invited: invited.map((u) => ({
         name: u.firstName || u.username || "Player",
         joinedAt: u.createdAt,

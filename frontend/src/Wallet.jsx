@@ -246,7 +246,7 @@ function Wallet({ balance, setBalance }) {
             type="number"
             value={withdrawAmount}
             onChange={(e) => setWithdrawAmount(e.target.value)}
-            placeholder="Amount (min 50 ETB)"
+            placeholder="Amount (min 100 ETB)"
             style={inputStyle}
           />
           <button

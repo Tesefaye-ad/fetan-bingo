@@ -83,7 +83,7 @@ const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "@FetanBingoSupport";
 const DEPOSIT_PHONE = process.env.DEPOSIT_TELEBIRR_PHONE;
 const DEPOSIT_NAME = process.env.DEPOSIT_TELEBIRR_NAME || "";
 const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 20);
-const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 50);
+const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 100);
 const REFERRAL_BONUS = Number(process.env.REFERRAL_BONUS || 5);
 const REGISTRATION_BONUS = 10;
 
@@ -229,19 +229,43 @@ async function processReferralBonus(telegramId) {
     );
     if (!claimed) return;
 
+    // ✅ FIX: ለእያንዳንዱ ሰው 5 ብር ከመስጠት ይልቅ ቁጥራቸውን ብቻ መጨመር
     const inviter = await User.findOneAndUpdate(
       { telegramId: claimed.referredBy, isBanned: { $ne: true } },
-      { $inc: { referralCount: 1, bonusBalance: REFERRAL_BONUS } },
+      { $inc: { referralCount: 1 } },
       { new: true }
     );
 
     if (inviter) {
-      bot.telegram
-        .sendMessage(
-          inviter.telegramId,
-          `🎉 Someone joined using your invite link! You earned ${REFERRAL_BONUS} ETB bonus.`
-        )
-        .catch(() => {});
+      // ✅ FIX: 20 ሰው ሲሆን ብቻ 100 ብር መስጠት
+      if (inviter.referralCount >= 20 && inviter.bonusBalance < 100) {
+        const updatedInviter = await User.findOneAndUpdate(
+          { telegramId: inviter.telegramId },
+          { $inc: { bonusBalance: 100 } },
+          { new: true }
+        );
+
+        bot.telegram
+          .sendMessage(
+            inviter.telegramId,
+            `🎉 <b>እንኳን ደስ አለዎት!</b>\n\n` +
+            `20 ጓደኞችዎን በመጋበዝዎ ${100} ETB ቦነስ አግኝተዋል።\n` +
+            `ለመጫወት ዝግጁ ነዎት? 🎮`,
+            { parse_mode: "HTML" }
+          )
+          .catch(() => {});
+      } else {
+        // ✅ ገና 20 ካልሆነ ለመረጃ ብቻ መልእክት መላክ
+        bot.telegram
+          .sendMessage(
+            inviter.telegramId,
+            `🎉 Someone joined using your invite link!\n\n` +
+            `📊 እስካሁን የጋበዙት: ${inviter.referralCount}/20\n` +
+            `🎁 20 ሲሆን 100 ETB ያገኛሉ!`,
+            { parse_mode: "HTML" }
+          )
+          .catch(() => {});
+      }
     }
   } catch (err) {
     console.error("[processReferralBonus] error:", err.message);

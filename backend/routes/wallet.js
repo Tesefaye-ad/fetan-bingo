@@ -10,7 +10,7 @@ const router = express.Router();
 router.use(requireAuth);
 
 const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 20);
-const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 50);
+const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 100);
 const MAX_PENDING_DEPOSITS = 5; 
 
 // ብር መጠን: ውሱን ቁጥር፣ ከ 0 በላይ፣ ቢበዛ 2 ዲጂት ከነጥብ በኋላ
