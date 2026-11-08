@@ -86,7 +86,6 @@ function Login({ onLoggedIn }) {
     setError("");
 
     if (!initData) {
-      // ✅ FIX: ደህንነቱ የተጠበቀ የ Dev መግቢያ (በ .env ውስጥ REACT_APP_DEV_ADMIN_BYPASS=true ካለ ብቻ ይሰራል)
       if (process.env.REACT_APP_DEV_ADMIN_BYPASS === "true") {
         onLoggedIn({
           id: "local_dev_user",
@@ -129,7 +128,6 @@ function Login({ onLoggedIn }) {
           
           localStorage.setItem("telegramId", user.telegramId);
           
-          // ✅ FIX: አዲስ ዩዘር ስለገባ የቀድሞውን የተሳሳተ ካሽ አጽዳ
           clearOldCaches(user.telegramId);
           setCachedUser(user);
           
@@ -724,7 +722,6 @@ function Card({ icon, label, value, color }) {
 function App() {
   useTelegram();
 
-  // ✅ FIX: የአሁኑን የቴሌግራም መታወቂያ ከ WebApp ወይም ከ Local Storage ማግኘት
   const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
   const initialTgId = tgUser?.id ? String(tgUser.id) : localStorage.getItem("telegramId");
 
@@ -756,36 +753,40 @@ function App() {
 
   const handleLoggedIn = useCallback((u) => {
     if (!u) return;
-    setUser(u);
+    const safeUser = {
+      ...u,
+      isAdmin: u.isAdmin === true // Ensure it's strictly boolean
+    };
+    setUser(safeUser);
     setBalance(u.balance || 0);
-    setCachedUser(u);
+    setCachedUser(safeUser);
   }, []);
 
   useEffect(() => {
     if (!user?.telegramId) return;
     let cancelled = false;
 
-    const timer = setTimeout(() => {
-      getMe()
-        .then((fresh) => {
-          if (cancelled || !fresh) return;
-          
-          // ✅ FIX: ከሰርቨር የመጣው isAdmin ብቻ እንዲሆን (የቀድሞው ካሽ እንዳይቀላቅል)
-          setUser((prev) => ({
+    // ✅ FIX: ያለምንም መዘግየት (Immediate) ከሰርቨር ያምጣ
+    getMe()
+      .then((fresh) => {
+        if (cancelled || !fresh) return;
+        
+        setUser((prev) => {
+          const updated = {
             ...prev,
             ...fresh,
-            isAdmin: fresh.isAdmin === true
-          }));
-          
-          if (fresh.balance !== undefined) setBalance(fresh.balance);
-          setCachedUser(fresh);
-        })
-        .catch((err) => console.warn("[App] getMe failed:", err?.message));
-    }, 1000);
+            isAdmin: fresh.isAdmin === true // Enforce boolean
+          };
+          setCachedUser(updated);
+          return updated;
+        });
+        
+        if (fresh.balance !== undefined) setBalance(fresh.balance);
+      })
+      .catch((err) => console.warn("[App] getMe failed:", err?.message));
 
     return () => {
       cancelled = true;
-      clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.telegramId]);
