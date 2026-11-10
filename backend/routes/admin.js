@@ -360,7 +360,7 @@ router.post("/broadcast", requireAdmin, async (req, res) => {
     // ✅ FIX: ርዕስ ባዶ ሲሆን ስህተት እንዳይመጣ ነባሪ ጽሑፍ መስጠት
     const finalTitle = (typeof title === "string" && title.trim()) 
       ? title.trim().slice(0, 120) 
-      : "📢 Announcement";
+      : "";
       
     const finalBody = body.trim().slice(0, 2000);
 
