@@ -7,19 +7,12 @@ const mongoose = require("mongoose");
 const Game = require("../models/Game");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
-const {
-  TOTAL_CARDS,
-  checkWin,
-  computeMarked,
-} = require("../utils/bingoCard");
+const { TOTAL_CARDS, checkWin, computeMarked } = require("../utils/bingoCard");
 const { verifySocketToken, isUserBanned } = require("../routes/auth");
 const rooms = require("../services/rooms");
 const { notifyWinnersGroup } = require("../services/winnerNotify");
 const { cacheClient } = require("../config/redis");
 
-// ═══════════════════════════════════════════════════════
-// CONSTANTS — OPTIMIZED for 4500 concurrent users
-// ═══════════════════════════════════════════════════════
 const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 1700);
 const FIRST_CALL_DELAY_MS = Number(process.env.FIRST_CALL_DELAY_MS || 1700);
 const WINNER_DISPLAY_MS = 10000;
@@ -29,7 +22,6 @@ const PRIZE_SHARE = Number(process.env.PRIZE_SHARE || 0.8);
 const MAX_ACTIVE_USERS = 20000;
 
 const MIN_PLAYERS = Math.max(0, Number(process.env.MIN_PLAYERS || 0));
-
 const CARD_BATCH_MS = 250;
 const LOCK_TTL_MS = 30000;
 
@@ -39,22 +31,11 @@ const starting = new Map();
 const lockTails = new Map();
 const activeUserIds = new Set();
 
-// ═══════════════════════════════════════════════════════
-// REDIS DISTRIBUTED LOCK
-// ═══════════════════════════════════════════════════════
-
 async function acquireLock(roomCode) {
   try {
-    const res = await cacheClient.set(
-      `lock:game:${roomCode}`,
-      "1",
-      "PX",
-      LOCK_TTL_MS,
-      "NX"
-    );
+    const res = await cacheClient.set(`lock:game:${roomCode}`, "1", "PX", LOCK_TTL_MS, "NX");
     return res === "OK";
   } catch (err) {
-    console.error("[redis] acquireLock error:", err.message);
     return true;
   }
 }
@@ -71,30 +52,19 @@ async function releaseLock(roomCode) {
   } catch (err) {}
 }
 
-// ═══════════════════════════════════════════════════════
-// 🔴 BALANCE SYNC — client optimistic deduction መመለስ
-// ═══════════════════════════════════════════════════════
 async function syncBalanceToSocket(socket) {
   try {
     const u = await User.findById(socket.userId).select("balance").lean();
     if (u) socket.emit("balance_update", { balance: u.balance });
-  } catch (e) {
-    console.error("[syncBalance]", e.message);
-  }
+  } catch (e) {}
 }
 
-// ═══════════════════════════════════════════════════════
-// Card-selection batching per room
-// ═══════════════════════════════════════════════════════
 const cardBatches = new Map();
 const userSockets = new Map();
 
 function addUserSocket(userId, socket) {
   let set = userSockets.get(userId);
-  if (!set) {
-    set = new Set();
-    userSockets.set(userId, set);
-  }
+  if (!set) { set = new Set(); userSockets.set(userId, set); }
   set.add(socket);
 }
 
@@ -105,9 +75,7 @@ function removeUserSocket(userId, socket) {
   if (set.size === 0) userSockets.delete(userId);
 }
 
-function getActiveUserCount() {
-  return activeUserIds.size;
-}
+function getActiveUserCount() { return activeUserIds.size; }
 
 function withRoomLock(roomCode, fn) {
   const prev = lockTails.get(roomCode) || Promise.resolve();
@@ -156,9 +124,6 @@ function parseCardId(v) {
   return Number.isInteger(id) && id >= 1 && id <= TOTAL_CARDS ? id : null;
 }
 
-// ═══════════════════════════════════════════════════════
-// INIT
-// ═══════════════════════════════════════════════════════
 function initGameSocket(io) {
   function emitToUser(userId, event, payload) {
     const set = userSockets.get(String(userId));
@@ -170,10 +135,7 @@ function initGameSocket(io) {
 
   function queueCardBroadcast(roomCode, cardId) {
     let b = cardBatches.get(roomCode);
-    if (!b) {
-      b = { cardIds: new Set(), timer: null };
-      cardBatches.set(roomCode, b);
-    }
+    if (!b) { b = { cardIds: new Set(), timer: null }; cardBatches.set(roomCode, b); }
     b.cardIds.add(cardId);
 
     if (!b.timer) {
@@ -181,12 +143,8 @@ function initGameSocket(io) {
         const ids = [...b.cardIds];
         b.cardIds.clear();
         b.timer = null;
-        if (ids.length > 0) {
-          io.to(roomCode).emit("cards_taken", { cardIds: ids });
-        }
-        if (cardBatches.get(roomCode)?.cardIds.size === 0) {
-          cardBatches.delete(roomCode);
-        }
+        if (ids.length > 0) io.to(roomCode).emit("cards_taken", { cardIds: ids });
+        if (cardBatches.get(roomCode)?.cardIds.size === 0) cardBatches.delete(roomCode);
       }, CARD_BATCH_MS);
     }
   }
@@ -198,30 +156,22 @@ function initGameSocket(io) {
   }
 
   async function refund(userId, amount, gameId, meta) {
-    const u = await User.findByIdAndUpdate(
-      userId,
-      { $inc: { balance: amount } },
-      { new: true }
-    );
+    const u = await User.findByIdAndUpdate(userId, { $inc: { balance: amount } }, { new: true });
     if (!u) return null;
     await Transaction.create({
-      user: u._id,
-      type: "refund",
-      amount,
-      balanceAfter: u.balance,
-      game: gameId,
-      meta,
+      user: u._id, type: "refund", amount, balanceAfter: u.balance, game: gameId, meta,
     });
     emitToUser(u._id, "balance_update", { balance: u.balance });
     return u;
   }
 
   // ═══════════════════════════════════════════════════════
-  // 🔴 PRIZE CREDIT — Idempotent & crash-safe
+  // 🔴 PRIZE CREDIT — Bulletproof Idempotency (Using roundId)
   // ═══════════════════════════════════════════════════════
-  async function creditUserPrize({ gameId, userId, amount, cartelas, winsCount }) {
+  async function creditUserPrize({ roundId, gameId, userId, amount, cartelas, winsCount }) {
     let tx;
     try {
+      // 1. Transaction መፍጠር (Unique index ስላለው ድርብ መሆን አይችልም)
       tx = await Transaction.create({
         user: userId,
         type: "prize",
@@ -229,50 +179,51 @@ function initGameSocket(io) {
         balanceAfter: 0,
         game: gameId,
         status: "completed",
-        meta: { cartelas, credited: false },
+        meta: { cartelas, credited: false, roundId },
       });
     } catch (e) {
-      if (e.code !== 11000) throw e;
-      tx = await Transaction.findOne({
-        game: gameId,
-        user: userId,
-        type: "prize",
-      });
+      if (e.code !== 11000) throw e; // ከድርብ ውጪ ያለ ስህተት ካለ እንወድቅ
+      
+      // ቀድሞ የተፈጠረ ከሆነ እንፈልገው (በ roundId)
+      tx = await Transaction.findOne({ user: userId, type: "prize", "meta.roundId": roundId });
       if (!tx) throw new Error("prize_tx_missing_after_dup");
+      
+      // ቀድሞ ተከፍሎ ከሆነ እንዘልል (Idempotent)
       if (tx.meta?.credited === true) {
         return { user: null, balanceAfter: tx.balanceAfter, alreadyDone: true };
       }
     }
 
-    const updated = await User.findOneAndUpdate(
-      { _id: userId, creditedGames: { $ne: gameId } },
-      {
-        $inc: { balance: amount, gamesWon: winsCount, totalWinnings: amount },
-        $push: { creditedGames: gameId },
-      },
+    // 2. ዋሌቱን ማሳደግ (በቀጥታ $inc - ምንም አይነት ረዳት ፊልድ አያስፈልግም)
+    const updated = await User.findByIdAndUpdate(
+      userId,
+      { $inc: { balance: amount, gamesWon: winsCount, totalWinnings: amount } },
       { new: true }
     );
 
-    const finalUser = updated || (await User.findById(userId));
-    if (!finalUser) {
+    if (!updated) {
       console.error(`[creditUserPrize] user ${userId} missing`);
       return { user: null, balanceAfter: 0, alreadyDone: true };
     }
 
+    // 3. Transaction ን እንደተከፈለ ምልክት ማድረግ
     await Transaction.updateOne(
       { _id: tx._id },
-      { $set: { balanceAfter: finalUser.balance, "meta.credited": true } }
+      { $set: { balanceAfter: updated.balance, "meta.credited": true } }
     );
 
-    return { user: finalUser, balanceAfter: finalUser.balance, alreadyDone: !updated };
+    return { user: updated, balanceAfter: updated.balance, alreadyDone: false };
   }
 
-  // ═══════════════════════════════════════════════════════
-  // 🔴 RETRY UNPAID PRIZES — crash-recovery
-  // ═══════════════════════════════════════════════════════
   async function retryAllUnpaidPrizes(game) {
     const winners = game.winners || [];
     if (winners.length === 0) return true;
+
+    const roundId = game.roundId;
+    if (!roundId) {
+      console.error(`[retry] game ${game._id} missing roundId!`);
+      return false;
+    }
 
     const prizePool = game.prizePool || 0;
     const prizePerUser = Math.floor(prizePool / winners.length);
@@ -280,70 +231,34 @@ function initGameSocket(io) {
     let allPaid = true;
 
     for (const userId of winners) {
-      const existingTx = await Transaction.findOne({
-        game: game._id,
-        user: userId,
-        type: "prize",
-      }).lean();
-
+      const existingTx = await Transaction.findOne({ user: userId, type: "prize", "meta.roundId": roundId }).lean();
       if (existingTx?.meta?.credited === true) continue;
-
-      if (existingTx && existingTx.meta?.credited === undefined) {
-        console.warn(
-          `[retry:${game.roomCode}] Old-style prize tx for user ${userId} — assuming already paid`
-        );
-        continue;
-      }
 
       let cartelas = [];
       if (existingTx?.meta?.cartelas?.length) {
         cartelas = existingTx.meta.cartelas;
       } else {
-        const myWcs = winningCartelas.filter(
-          (wc) => wc.userId && String(wc.userId) === String(userId)
-        );
+        const myWcs = winningCartelas.filter((wc) => wc.userId && String(wc.userId) === String(userId));
         cartelas = myWcs.map((w) => w.cardId);
       }
 
       try {
         if (existingTx) {
-          const updated = await User.findOneAndUpdate(
-            { _id: userId, creditedGames: { $ne: game._id } },
-            {
-              $inc: {
-                balance: existingTx.amount,
-                gamesWon: cartelas.length || 1,
-                totalWinnings: existingTx.amount,
-              },
-              $push: { creditedGames: game._id },
-            },
+          const updated = await User.findByIdAndUpdate(
+            userId,
+            { $inc: { balance: existingTx.amount, gamesWon: cartelas.length || 1, totalWinnings: existingTx.amount } },
             { new: true }
           );
-          const finalUser = updated || (await User.findById(userId));
-          if (finalUser) {
-            await Transaction.updateOne(
-              { _id: existingTx._id },
-              { $set: { balanceAfter: finalUser.balance, "meta.credited": true } }
-            );
-            if (updated) {
-              emitToUser(userId, "balance_update", { balance: finalUser.balance });
-            }
+          if (updated) {
+            await Transaction.updateOne({ _id: existingTx._id }, { $set: { balanceAfter: updated.balance, "meta.credited": true } });
+            emitToUser(userId, "balance_update", { balance: updated.balance });
           } else {
             allPaid = false;
           }
         } else {
-          const result = await creditUserPrize({
-            gameId: game._id,
-            userId,
-            amount: prizePerUser,
-            cartelas,
-            winsCount: cartelas.length || 1,
-          });
-          if (result.user) {
-            emitToUser(userId, "balance_update", { balance: result.balanceAfter });
-          } else if (!result.alreadyDone) {
-            allPaid = false;
-          }
+          const result = await creditUserPrize({ roundId, gameId: game._id, userId, amount: prizePerUser, cartelas, winsCount: cartelas.length || 1 });
+          if (result.user) emitToUser(userId, "balance_update", { balance: result.balanceAfter });
+          else if (!result.alreadyDone) allPaid = false;
         }
       } catch (e) {
         allPaid = false;
@@ -353,31 +268,11 @@ function initGameSocket(io) {
     return allPaid;
   }
 
-  function createRuntime({
-    gameId,
-    roomCode,
-    entryFee,
-    prizePool,
-    pattern,
-    players,
-    called,
-  }) {
+  function createRuntime({ gameId, roundId, roomCode, entryFee, prizePool, pattern, players, called }) {
     const rt = {
-      gameId,
-      roomCode,
-      entryFee,
-      prizePool,
-      pattern,
-      players,
-      called: [...called],
-      calledSet: new Set(called),
-      index: new Map(),
-      timer: null,
-      finishTimer: null,
-      nextAt: 0,
-      done: false,
-      result: null,
-      persist: Promise.resolve(),
+      gameId, roundId, roomCode, entryFee, prizePool, pattern, players, called: [...called],
+      calledSet: new Set(called), index: new Map(), timer: null, finishTimer: null,
+      nextAt: 0, done: false, result: null, persist: Promise.resolve(),
     };
     for (const p of players) {
       for (let r = 0; r < 5; r++) {
@@ -395,15 +290,13 @@ function initGameSocket(io) {
   function sendCardsToOwners(rt) {
     const grouped = new Map();
     for (const p of rt.players) {
-      if (!grouped.has(p.userId))
-        grouped.set(p.userId, { cards: [], markedCards: [], cardIds: [] });
+      if (!grouped.has(p.userId)) grouped.set(p.userId, { cards: [], markedCards: [], cardIds: [] });
       const g = grouped.get(p.userId);
       g.cards.push(p.card);
       g.markedCards.push(p.marked);
       g.cardIds.push(p.cardId);
     }
-    for (const [userId, payload] of grouped)
-      emitToUser(userId, "your_cards", payload);
+    for (const [userId, payload] of grouped) emitToUser(userId, "your_cards", payload);
   }
 
   function startGame(roomCode) {
@@ -421,21 +314,11 @@ function initGameSocket(io) {
     try {
       await withRoomLock(roomCode, async () => {
         const light = await Game.findOne({ roomCode }).select(rooms.LIGHT_SELECT);
-        if (!light || light.status !== "waiting") {
-          await releaseLock(roomCode);
-          return;
-        }
-        if (deadlineOf(light) > Date.now() + 20) {
-          await releaseLock(roomCode);
-          return;
-        }
+        if (!light || light.status !== "waiting") { await releaseLock(roomCode); return; }
+        if (deadlineOf(light) > Date.now() + 20) { await releaseLock(roomCode); return; }
 
         const game = await Game.findOneAndUpdate(
-          {
-            roomCode,
-            status: "waiting",
-            "reservedCards.0": { $exists: true },
-          },
+          { roomCode, status: "waiting", "reservedCards.0": { $exists: true } },
           {
             $set: {
               status: "active",
@@ -446,6 +329,7 @@ function initGameSocket(io) {
               paidAt: null,
               notifiedAt: null,
               selectionEndsAt: null,
+              roundId: new mongoose.Types.ObjectId().toString(), // 🔴 NEW ROUND ID
             },
           },
           { new: true }
@@ -458,41 +342,24 @@ function initGameSocket(io) {
           return;
         }
 
+        const roundId = game.roundId;
         const seen = new Set();
         const players = [];
         const cardMap = new Map((game.allCards || []).map((c) => [c.cardId, c]));
+        
         for (const r of game.reservedCards) {
           if (seen.has(r.cardId)) continue;
           seen.add(r.cardId);
           const cd = cardMap.get(r.cardId);
           if (!cd) {
-            await refund(r.user, game.entryFee, game._id, {
-              reason: "card-missing",
-              cardId: r.cardId,
-            });
+            await refund(r.user, game.entryFee, game._id, { reason: "card-missing", cardId: r.cardId });
             continue;
           }
-          players.push({
-            user: r.user,
-            telegramId: r.telegramId,
-            cardId: cd.cardId,
-            card: cd.card,
-            marked: computeMarked(cd.card, []),
-            hasWon: false,
-          });
+          players.push({ user: r.user, telegramId: r.telegramId, cardId: cd.cardId, card: cd.card, marked: computeMarked(cd.card, []), hasWon: false });
         }
 
-        // 🔴 FIX: 0 players ሆኖ ጨዋታ እንዳይጀመር
         if (players.length === 0 || players.length < MIN_PLAYERS) {
-          console.warn(
-            `[startGame:${roomCode}] ${players.length} < MIN_PLAYERS=${MIN_PLAYERS}`
-          );
-          for (const p of players) {
-            await refund(p.user, game.entryFee, game._id, {
-              reason: "min-players-not-met",
-              minPlayers: MIN_PLAYERS,
-            });
-          }
+          for (const p of players) await refund(p.user, game.entryFee, game._id, { reason: "min-players-not-met", minPlayers: MIN_PLAYERS });
           const fresh = await rooms.resetToWaiting(roomCode);
           if (fresh) io.to(roomCode).emit("room_state", rooms.publicState(fresh));
           await releaseLock(roomCode);
@@ -502,40 +369,18 @@ function initGameSocket(io) {
         const prizePool = Math.floor(game.entryFee * PRIZE_SHARE) * players.length;
         const pattern = game.winPattern || rooms.pickRandomPattern(game.entryFee);
 
-        await Game.updateOne(
-          { _id: game._id },
-          { $set: { players, reservedCards: [], prizePool, winPattern: pattern } }
-        );
+        await Game.updateOne({ _id: game._id }, { $set: { players, reservedCards: [], prizePool, winPattern: pattern } });
 
         const rt = createRuntime({
-          gameId: game._id,
-          roomCode,
-          entryFee: game.entryFee,
-          prizePool,
-          pattern,
-          players: players.map((p) => ({
-            userId: String(p.user),
-            telegramId: p.telegramId,
-            cardId: p.cardId,
-            card: p.card,
-            marked: p.marked,
-            hasWon: false,
-          })),
+          gameId: game._id, roundId, roomCode, entryFee: game.entryFee, prizePool, pattern,
+          players: players.map((p) => ({ userId: String(p.user), telegramId: p.telegramId, cardId: p.cardId, card: p.card, marked: p.marked, hasWon: false })),
           called: [],
         });
         runtimes.set(roomCode, rt);
 
-        io.to(roomCode).emit("game_started", {
-          roomCode,
-          winPattern: pattern,
-          playerCount: players.length,
-          prizePool,
-          entryFee: game.entryFee,
-          serverTime: Date.now(),
-        });
+        io.to(roomCode).emit("game_started", { roomCode, winPattern: pattern, playerCount: players.length, prizePool, entryFee: game.entryFee, serverTime: Date.now() });
         sendCardsToOwners(rt);
         broadcastRoomState(roomCode).catch(() => {});
-
         scheduleTick(rt, FIRST_CALL_DELAY_MS);
       });
     } catch (err) {
@@ -554,35 +399,22 @@ function initGameSocket(io) {
     await renewLock(rt.roomCode);
 
     try {
-      const max = 75;
       let num = null;
-
       let forcedCardId = null;
       try {
         const forcedStr = await cacheClient.get(`forced:${rt.roomCode}`);
         if (forcedStr) forcedCardId = Number(forcedStr);
-      } catch (e) {
-        console.error("[redis] get forced winner failed:", e.message);
-      }
+      } catch (e) {}
 
       if (forcedCardId) {
         const targetPlayer = rt.players.find((p) => p.cardId === forcedCardId);
         if (targetPlayer) {
-          const uncalledOnCard = targetPlayer.card
-            .flat()
-            .filter((n) => n !== 0 && !rt.calledSet.has(n));
-          if (uncalledOnCard.length > 0) {
-            num = uncalledOnCard[crypto.randomInt(uncalledOnCard.length)];
-            console.log(
-              `[force-win:${rt.roomCode}] ለካርቴላ #${forcedCardId} ቁጥር ${num} ተመርጧል`
-            );
-          }
+          const uncalledOnCard = targetPlayer.card.flat().filter((n) => n !== 0 && !rt.calledSet.has(n));
+          if (uncalledOnCard.length > 0) num = uncalledOnCard[crypto.randomInt(uncalledOnCard.length)];
         }
       }
 
-      if (num === null) {
-        num = randomUncalled(rt.calledSet, max);
-      }
+      if (num === null) num = randomUncalled(rt.calledSet, 75);
 
       if (num === null) {
         rt.done = true;
@@ -598,18 +430,9 @@ function initGameSocket(io) {
         candidates.add(hit.player);
       }
 
-      io.to(rt.roomCode).emit("number_called", {
-        number: num,
-        letter: letterFor(num),
-        winPattern: rt.pattern,
-        serverTime: Date.now(),
-      });
+      io.to(rt.roomCode).emit("number_called", { number: num, letter: letterFor(num), winPattern: rt.pattern, serverTime: Date.now() });
 
-      rt.persist = rt.persist
-        .then(() =>
-          Game.updateOne({ _id: rt.gameId }, { $push: { calledNumbers: num } })
-        )
-        .catch((e) => console.error(`[persist:${rt.roomCode}]`, e.message));
+      rt.persist = rt.persist.then(() => Game.updateOne({ _id: rt.gameId }, { $push: { calledNumbers: num } })).catch((e) => {});
 
       const winners = [];
       for (const p of candidates) {
@@ -637,25 +460,21 @@ function initGameSocket(io) {
     }
   }
 
-  // ═══════════════════════════════════════════════════════
-  // 🔴 WINNERS — Atomic, crash-safe, idempotent
-  // ═══════════════════════════════════════════════════════
   async function processWinners(rt, winners) {
     clearTimeout(rt.timer);
     try {
-      if (winners.length === 0) {
-        return finishRound(rt, [], []);
-      }
+      if (winners.length === 0) return finishRound(rt, [], []);
 
       const userIds = [...new Set(winners.map((w) => w.player.userId))];
-      if (userIds.length === 0) {
-        return finishRound(rt, [], []);
-      }
+      if (userIds.length === 0) return finishRound(rt, [], []);
 
-      const users = await User.find({ _id: { $in: userIds } }).select(
-        "username firstName lastName telegramId"
-      );
+      const users = await User.find({ _id: { $in: userIds } }).select("username firstName lastName telegramId");
       const userById = new Map(users.map((u) => [String(u._id), u]));
+
+      const totalPlayers = rt.players.length;
+      const totalCollected = totalPlayers * rt.entryFee;
+      const actualPrizePool = Math.floor(totalCollected * PRIZE_SHARE);
+      const prizePerUser = Math.floor(actualPrizePool / userIds.length);
 
       const winningCartelas = winners.map(({ player, pattern }) => ({
         userId: player.userId,
@@ -665,26 +484,16 @@ function initGameSocket(io) {
         pattern,
         card: player.card,
         marked: player.marked,
+        prize: prizePerUser, // 🔴 እያንዳንዱ ካርቴላ የራሱን ድርሻ እንዲይዝ
       }));
-
-      const totalPlayers = rt.players.length;
-      const totalCollected = totalPlayers * rt.entryFee;
-      const actualPrizePool = Math.floor(totalCollected * PRIZE_SHARE);
-      const prizePerUser = Math.floor(actualPrizePool / userIds.length);
 
       await Game.updateOne(
         { _id: rt.gameId },
-        {
-          $set: {
-            winners: userIds,
-            winningCartelas,
-            prizePool: actualPrizePool,
-          },
-        }
+        { $set: { winners: userIds, winningCartelas, prizePool: actualPrizePool } }
       );
 
       const panel = [];
-      let allCredited = true; // 🔴 ሁሉም መክፈላቸውን ለማረጋገጥ
+      let allCredited = true;
 
       for (const userId of userIds) {
         const mine = winners.filter((w) => w.player.userId === userId);
@@ -693,6 +502,7 @@ function initGameSocket(io) {
         let creditResult;
         try {
           creditResult = await creditUserPrize({
+            roundId: rt.roundId,
             gameId: rt.gameId,
             userId,
             amount: prizePerUser,
@@ -700,82 +510,39 @@ function initGameSocket(io) {
             winsCount: mine.length,
           });
         } catch (e) {
-          allCredited = false; // 🔴 ስህተት ካለ paidAt አይመዘገብም
-          console.error(
-            `[processWinners] credit failed for ${userId}:`,
-            e.message
-          );
+          allCredited = false;
+          console.error(`[processWinners] credit failed for ${userId}:`, e.message);
           continue;
         }
 
         if (creditResult.user) {
-          emitToUser(userId, "balance_update", {
-            balance: creditResult.balanceAfter,
-          });
+          emitToUser(userId, "balance_update", { balance: creditResult.balanceAfter });
         }
 
         const u = userById.get(userId);
-        panel.push({
-          userId,
-          telegramId: u?.telegramId,
-          name: displayName(u),
-          cartelas,
-          prize: prizePerUser,
-          newBalance: creditResult.balanceAfter,
-        });
+        panel.push({ userId, telegramId: u?.telegramId, name: displayName(u), cartelas, prize: prizePerUser, newBalance: creditResult.balanceAfter });
       }
 
-      // 🔴 ሁሉም ከተከፈሉ ብቻ paidAt ይመዘገባል (Resume ሲደረግ እንዲመለስ)
       if (allCredited) {
-        await Game.updateOne(
-          { _id: rt.gameId },
-          { $set: { paidAt: new Date() } }
-        ).catch((e) => console.error("[paidAt]", e.message));
+        await Game.updateOne({ _id: rt.gameId }, { $set: { paidAt: new Date() } }).catch((e) => {});
       }
 
       const sortedPanel = [...panel].sort((a, b) => b.prize - a.prize);
 
       const payload = {
-        winPattern: rt.pattern,
-        prizePool: actualPrizePool,
-        prizePerUser,
-        totalCartelas: winningCartelas.length,
-        winnerCount: sortedPanel.length,
-        winners: sortedPanel,
-        winningCartelas: winningCartelas.map((w) => ({
-          telegramId: w.telegramId,
-          name: w.name,
-          cardId: w.cardId,
-          subPattern: w.pattern,
-          card: w.card,
-          marked: w.marked,
-        })),
-        displayMs: WINNER_DISPLAY_MS,
-        serverTime: Date.now(),
+        winPattern: rt.pattern, prizePool: actualPrizePool, prizePerUser, totalCartelas: winningCartelas.length,
+        winnerCount: sortedPanel.length, winners: sortedPanel,
+        winningCartelas: winningCartelas.map((w) => ({ telegramId: w.telegramId, name: w.name, cardId: w.cardId, subPattern: w.pattern, card: w.card, marked: w.marked })),
+        displayMs: WINNER_DISPLAY_MS, serverTime: Date.now(),
       };
 
       rt.result = { payload, shownAt: Date.now() };
-
-      console.log(
-        `[winners:${rt.roomCode}] ✅ ${sortedPanel.length} user(s) — ` +
-          `totalCollected=${totalCollected}ETB, prizePool=${actualPrizePool}ETB, perUser=${prizePerUser}ETB`
-      );
-
       io.to(rt.roomCode).emit("bingo_claimed", payload);
     } catch (err) {
       console.error(`[processWinners:${rt.roomCode}]`, err);
     }
 
-    rt.finishTimer = setTimeout(
-      () =>
-        finishRound(
-          rt,
-          rt.result?.payload.winners || [],
-          rt.result?.payload.winningCartelas || [],
-          true
-        ),
-      WINNER_DISPLAY_MS
-    );
+    rt.finishTimer = setTimeout(() => finishRound(rt, rt.result?.payload.winners || [], rt.result?.payload.winningCartelas || [], true), WINNER_DISPLAY_MS);
   }
 
   async function finishRound(rt, panel, winningCartelas, wasWin = false) {
@@ -791,47 +558,25 @@ function initGameSocket(io) {
       if (wasWin && isWeekly && panel.length > 0 && winningCartelas.length > 0) {
         try {
           const r = await notifyWinnersGroup({
-            roomCode,
-            entryFee: fee,
-            prizePool: rt.prizePool,
-            winPattern: rt.pattern,
-            winners: panel,
-            winningCartelas: winningCartelas.map((w) => ({
-              cardId: w.cardId,
-              card: w.card,
-              marked: w.marked,
-              pattern: w.subPattern || w.pattern,
-            })),
+            roomCode, entryFee: fee, prizePool: rt.prizePool, winPattern: rt.pattern, winners: panel,
+            winningCartelas: winningCartelas.map((w) => ({ cardId: w.cardId, card: w.card, marked: w.marked, pattern: w.subPattern || w.pattern })),
           });
           notificationOk = r?.ok !== false;
-        } catch (e) {
-          console.error("[notify]", e.message);
-          notificationOk = false;
-        }
+        } catch (e) { notificationOk = false; }
       }
 
       if (notificationOk) {
-        await Game.updateOne(
-          { _id: rt.gameId },
-          { $set: { notifiedAt: new Date() } }
-        ).catch((e) => console.error("[notify:mark]", e.message));
+        await Game.updateOne({ _id: rt.gameId }, { $set: { notifiedAt: new Date() } }).catch((e) => {});
       }
 
       const playerIds = [...new Set(rt.players.map((p) => p.userId))];
-      await User.updateMany(
-        { _id: { $in: playerIds } },
-        { $inc: { gamesPlayed: 1 } }
-      );
+      await User.updateMany({ _id: { $in: playerIds } }, { $inc: { gamesPlayed: 1 } });
 
       const fresh = await rooms.resetToWaiting(roomCode);
 
       io.to(roomCode).emit("game_over", {
-        winners: winningCartelas,
-        totalWinners: winningCartelas.length,
-        winnerCount: panel.length,
-        prizePool: rt.prizePool,
-        winPattern: rt.pattern,
-        nextGame: fresh ? rooms.publicState(fresh) : null,
+        winners: winningCartelas, totalWinners: winningCartelas.length, winnerCount: panel.length,
+        prizePool: rt.prizePool, winPattern: rt.pattern, nextGame: fresh ? rooms.publicState(fresh) : null,
       });
       io.to(roomCode).emit("next_game_ready", { roomCode });
       if (fresh) io.to(roomCode).emit("room_state", rooms.publicState(fresh));
@@ -845,54 +590,27 @@ function initGameSocket(io) {
     }
   }
 
-  // ═══════════════════════════════════════════════════════
-  // RESUME (Redis Locked)
-  // ═══════════════════════════════════════════════════════
   async function retryWinnerNotification(game) {
-    const prizeTxs = await Transaction.find({
-      game: game._id,
-      type: "prize",
-    }).lean();
+    const roundId = game.roundId || game._id.toString();
+    const prizeTxs = await Transaction.find({ user: { $in: game.winners }, type: "prize", "meta.roundId": roundId }).lean();
     if (prizeTxs.length === 0) return;
 
     const userIds = [...new Set(prizeTxs.map((t) => String(t.user)))];
-    const users = await User.find({ _id: { $in: userIds } })
-      .select("username firstName lastName telegramId")
-      .lean();
+    const users = await User.find({ _id: { $in: userIds } }).select("username firstName lastName telegramId").lean();
     const userById = new Map(users.map((u) => [String(u._id), u]));
 
     const panel = prizeTxs.map((tx) => {
       const u = userById.get(String(tx.user));
-      return {
-        userId: String(tx.user),
-        telegramId: u?.telegramId,
-        name: displayName(u),
-        cartelas: tx.meta?.cartelas || [],
-        prize: tx.amount,
-        newBalance: tx.balanceAfter,
-      };
+      return { userId: String(tx.user), telegramId: u?.telegramId, name: displayName(u), cartelas: tx.meta?.cartelas || [], prize: tx.amount, newBalance: tx.balanceAfter };
     });
 
     const r = await notifyWinnersGroup({
-      roomCode: game.roomCode,
-      entryFee: Number(game.entryFee),
-      prizePool: game.prizePool,
-      winPattern: game.winPattern,
-      winners: panel,
-      winningCartelas: (game.winningCartelas || []).map((w) => ({
-        cardId: w.cardId,
-        card: w.card,
-        marked: w.marked,
-        pattern: w.pattern,
-      })),
+      roomCode: game.roomCode, entryFee: Number(game.entryFee), prizePool: game.prizePool, winPattern: game.winPattern, winners: panel,
+      winningCartelas: (game.winningCartelas || []).map((w) => ({ cardId: w.cardId, card: w.card, marked: w.marked, pattern: w.pattern })),
     });
 
     if (r?.ok !== false) {
-      await Game.updateOne(
-        { _id: game._id },
-        { $set: { notifiedAt: new Date() } }
-      );
-      console.log(`[resume:${game.roomCode}] ✅ winner notification resent`);
+      await Game.updateOne({ _id: game._id }, { $set: { notifiedAt: new Date() } });
     }
   }
 
@@ -911,47 +629,27 @@ function initGameSocket(io) {
     try {
       await withRoomLock(roomCode, async () => {
         const game = await Game.findOne({ roomCode, status: "active" });
-        if (!game) {
-          await releaseLock(roomCode);
-          return;
+        if (!game) { await releaseLock(roomCode); return; }
+
+        if (!game.roundId) {
+          game.roundId = new mongoose.Types.ObjectId().toString();
+          await Game.updateOne({ _id: game._id }, { $set: { roundId: game.roundId } });
         }
 
-        const hasWinners =
-          (game.winners && game.winners.length > 0) ||
-          (game.winningCartelas && game.winningCartelas.length > 0);
+        const hasWinners = (game.winners && game.winners.length > 0) || (game.winningCartelas && game.winningCartelas.length > 0);
 
         if (hasWinners && !game.paidAt) {
           try {
             const allPaid = await retryAllUnpaidPrizes(game);
-            if (allPaid) {
-              await Game.updateOne(
-                { _id: game._id },
-                { $set: { paidAt: new Date() } }
-              ).catch(() => {});
-            }
-          } catch (e) {
-            console.error(`[resume:${roomCode}] payout retry failed:`, e.message);
-          }
+            if (allPaid) await Game.updateOne({ _id: game._id }, { $set: { paidAt: new Date() } }).catch(() => {});
+          } catch (e) {}
         }
 
         if (hasWinners) {
-          const isWeekly =
-            Number(game.entryFee) === 50 || Number(game.entryFee) === 100;
-          if (
-            game.winningCartelas?.length > 0 &&
-            !game.notifiedAt &&
-            isWeekly
-          ) {
-            try {
-              await retryWinnerNotification(game);
-            } catch (e) {
-              console.error(
-                `[resume:${roomCode}] notify retry failed:`,
-                e.message
-              );
-            }
+          const isWeekly = Number(game.entryFee) === 50 || Number(game.entryFee) === 100;
+          if (game.winningCartelas?.length > 0 && !game.notifiedAt && isWeekly) {
+            try { await retryWinnerNotification(game); } catch (e) {}
           }
-
           const fresh = await rooms.resetToWaiting(roomCode);
           if (fresh) io.to(roomCode).emit("room_state", rooms.publicState(fresh));
           await releaseLock(roomCode);
@@ -965,23 +663,8 @@ function initGameSocket(io) {
           return;
         }
 
-        const players = game.players.map((p) => ({
-          userId: String(p.user),
-          telegramId: p.telegramId,
-          cardId: p.cardId,
-          card: p.card,
-          marked: computeMarked(p.card, game.calledNumbers),
-          hasWon: false,
-        }));
-        const rt = createRuntime({
-          gameId: game._id,
-          roomCode,
-          entryFee: game.entryFee,
-          prizePool: game.prizePool,
-          pattern: game.winPattern,
-          players,
-          called: game.calledNumbers,
-        });
+        const players = game.players.map((p) => ({ userId: String(p.user), telegramId: p.telegramId, cardId: p.cardId, card: p.card, marked: computeMarked(p.card, game.calledNumbers), hasWon: false }));
+        const rt = createRuntime({ gameId: game._id, roundId: game.roundId, roomCode, entryFee: game.entryFee, prizePool: game.prizePool, pattern: game.winPattern, players, called: game.calledNumbers });
         runtimes.set(roomCode, rt);
 
         const winners = [];
@@ -1004,47 +687,30 @@ function initGameSocket(io) {
     }
   }
 
-  // ═══════════════════════════════════════════════════════
-  // RECONCILER
-  // ═══════════════════════════════════════════════════════
   let reconciling = false;
   async function reconcile() {
     if (reconciling || mongoose.connection.readyState !== 1) return;
     reconciling = true;
     try {
-      const waiting = await Game.find({ status: "waiting" })
-        .select("roomCode isWeeklyGame selectionEndsAt scheduledStart")
-        .lean();
+      const waiting = await Game.find({ status: "waiting" }).select("roomCode isWeeklyGame selectionEndsAt scheduledStart").lean();
       const now = Date.now();
       for (const g of waiting) {
         const t = deadlineOf(g);
         if (!t) {
           const fresh = await rooms.resetToWaiting(g.roomCode);
-          if (fresh)
-            io.to(g.roomCode).emit("room_state", rooms.publicState(fresh));
+          if (fresh) io.to(g.roomCode).emit("room_state", rooms.publicState(fresh));
           continue;
         }
         const delta = t - now;
-        if (delta <= 0) {
-          startGame(g.roomCode);
-        } else if (delta <= ARM_WINDOW_MS && !startTimers.has(g.roomCode)) {
-          startTimers.set(
-            g.roomCode,
-            setTimeout(() => {
-              startTimers.delete(g.roomCode);
-              startGame(g.roomCode);
-            }, delta)
-          );
+        if (delta <= 0) startGame(g.roomCode);
+        else if (delta <= ARM_WINDOW_MS && !startTimers.has(g.roomCode)) {
+          startTimers.set(g.roomCode, setTimeout(() => { startTimers.delete(g.roomCode); startGame(g.roomCode); }, delta));
         }
       }
 
-      const active = await Game.find({ status: "active" })
-        .select("roomCode")
-        .lean();
+      const active = await Game.find({ status: "active" }).select("roomCode").lean();
       for (const g of active) {
-        if (!runtimes.has(g.roomCode) && !starting.has(g.roomCode)) {
-          resumeGame(g.roomCode);
-        }
+        if (!runtimes.has(g.roomCode) && !starting.has(g.roomCode)) resumeGame(g.roomCode);
       }
     } catch (err) {
       console.error("[reconcile]", err.message);
@@ -1061,64 +727,35 @@ function initGameSocket(io) {
         await rooms.ensureRoomCards(code);
       }
     } catch (err) {
-      console.error("[boot] failed, retrying in 3s:", err.message);
       setTimeout(boot, 3000);
     }
   })();
 
-  // ═══════════════════════════════════════════════════════
-  // MEMORY GUARD
-  // ═══════════════════════════════════════════════════════
   setInterval(() => {
     const now = Date.now();
-
     for (const [roomCode, rt] of runtimes.entries()) {
       if (rt.done && now - (rt.result?.shownAt || now) > 30000) {
         clearTimeout(rt.timer);
         clearTimeout(rt.finishTimer);
         runtimes.delete(roomCode);
-        console.log(`[memory] cleaned stale runtime: ${roomCode}`);
       }
     }
-
     for (const [roomCode, t] of startTimers.entries()) {
       if (t._idleStart && now - t._idleStart > 60000) {
         clearTimeout(t);
         startTimers.delete(roomCode);
       }
     }
-
-    if (starting.size > 100) {
-      console.warn(`[memory] starting map too large: ${starting.size}`);
-    }
-
-    const mem = process.memoryUsage();
-    console.log(
-      `[memory] rss=${Math.round(mem.rss / 1048576)}MB ` +
-        `heap=${Math.round(mem.heapUsed / 1048576)}MB ` +
-        `sockets=${io.engine.clientsCount} ` +
-        `userSockets=${userSockets.size} ` +
-        `runtimes=${runtimes.size} ` +
-        `batches=${cardBatches.size}`
-    );
   }, 5 * 60 * 1000);
 
-  // ═══════════════════════════════════════════════════════
-  // SOCKET AUTH — JWT + Ban check
-  // ═══════════════════════════════════════════════════════
   io.use(async (socket, next) => {
     const payload = verifySocketToken(socket.handshake.auth?.token);
     if (!payload) return next(new Error("unauthorized"));
-
     try {
-      if (await isUserBanned(String(payload.userId))) {
-        return next(new Error("banned"));
-      }
+      if (await isUserBanned(String(payload.userId))) return next(new Error("banned"));
     } catch (e) {
-      console.error("[socket] ban check failed:", e.message);
       return next(new Error("auth_error"));
     }
-
     socket.userId = String(payload.userId);
     socket.telegramId = String(payload.telegramId);
     next();
@@ -1138,9 +775,7 @@ function initGameSocket(io) {
       return true;
     };
 
-    if (activeUserIds.size < MAX_ACTIVE_USERS) {
-      activeUserIds.add(socket.userId);
-    }
+    if (activeUserIds.size < MAX_ACTIVE_USERS) activeUserIds.add(socket.userId);
 
     socket.on("watch_room", async ({ roomCode } = {}) => {
       try {
@@ -1150,164 +785,80 @@ function initGameSocket(io) {
         socket.join(roomCode);
         socket.data.roomCode = roomCode;
         socket.emit("room_state", rooms.publicState(game));
-        socket.emit("my_reservations", {
-          roomCode,
-          cardIds: game.reservedCards
-            .filter((r) => r.telegramId === socket.telegramId)
-            .map((r) => r.cardId),
-        });
-      } catch (err) {
-        console.error("[watch_room]", err);
-      }
+        socket.emit("my_reservations", { roomCode, cardIds: game.reservedCards.filter((r) => r.telegramId === socket.telegramId).map((r) => r.cardId) });
+      } catch (err) {}
     });
 
     socket.on("select_card", async ({ roomCode, cardId } = {}) => {
       try {
-        if (!socket.allow()) {
-          await syncBalanceToSocket(socket);
-          return;
-        }
+        if (!socket.allow()) { await syncBalanceToSocket(socket); return; }
 
         roomCode = rooms.normalizeRoomCode(roomCode);
         cardId = parseCardId(cardId);
-        if (!roomCode || !cardId) {
-          await syncBalanceToSocket(socket);
-          return;
-        }
+        if (!roomCode || !cardId) { await syncBalanceToSocket(socket); return; }
 
         const game = await rooms.ensureRoom(roomCode);
-
-        const fail = async (message) => {
-          await syncBalanceToSocket(socket);
-          socket.emit("error_message", { message, cardId });
-        };
+        const fail = async (message) => { await syncBalanceToSocket(socket); socket.emit("error_message", { message, cardId }); };
 
         if (game.status !== "waiting") return fail("⏱ ምርጫው ተዘግቷል");
         const deadline = deadlineOf(game);
         if (deadline <= Date.now()) return fail("⏱ ሰዓቱ አልቋል");
 
-        const totalCards =
-          (game.reservedCards?.length || 0) + (game.players?.length || 0);
-        if (totalCards >= rooms.MAX_CARDS_PER_ROOM) {
-          return fail(`❌ ክፍሉ ሙሉ ነው (${rooms.MAX_CARDS_PER_ROOM} ካርዶች)`);
-        }
+        const totalCards = (game.reservedCards?.length || 0) + (game.players?.length || 0);
+        if (totalCards >= rooms.MAX_CARDS_PER_ROOM) return fail(`❌ ክፍሉ ሙሉ ነው (${rooms.MAX_CARDS_PER_ROOM} ካርዶች)`);
 
-        const mine = game.reservedCards.filter(
-          (r) => r.telegramId === socket.telegramId
-        );
-        if (mine.some((r) => r.cardId === cardId)) {
-          await syncBalanceToSocket(socket);
-          return;
-        }
+        const mine = game.reservedCards.filter((r) => r.telegramId === socket.telegramId);
+        if (mine.some((r) => r.cardId === cardId)) { await syncBalanceToSocket(socket); return; }
 
         const user = await User.findOneAndUpdate(
-          {
-            _id: socket.userId,
-            isBanned: { $ne: true },
-            balance: { $gte: game.entryFee },
-          },
+          { _id: socket.userId, isBanned: { $ne: true }, balance: { $gte: game.entryFee } },
           { $inc: { balance: -game.entryFee } },
           { new: true }
         );
         if (!user) return fail("❌ ቀሪ ሂሳብ በቂ አይደለም");
 
-        const deadlineField = game.isWeeklyGame
-          ? "scheduledStart"
-          : "selectionEndsAt";
+        const deadlineField = game.isWeeklyGame ? "scheduledStart" : "selectionEndsAt";
         const res = await Game.updateOne(
-          {
-            roomCode,
-            status: "waiting",
-            [deadlineField]: { $gt: new Date() },
-            "reservedCards.cardId": { $ne: cardId },
-            "players.cardId": { $ne: cardId },
-          },
-          {
-            $push: {
-              reservedCards: {
-                user: user._id,
-                telegramId: socket.telegramId,
-                cardId,
-              },
-            },
-          }
+          { roomCode, status: "waiting", [deadlineField]: { $gt: new Date() }, "reservedCards.cardId": { $ne: cardId }, "players.cardId": { $ne: cardId } },
+          { $push: { reservedCards: { user: user._id, telegramId: socket.telegramId, cardId } } }
         );
 
         if (res.modifiedCount !== 1) {
-          await refund(user._id, game.entryFee, game._id, {
-            reason: "reserve-failed",
-            cardId,
-          });
-          socket.emit("error_message", {
-            message: `❌ Card #${cardId} ተወስዷል ወይም ሰዓቱ አልቋል`,
-            cardId,
-          });
+          await refund(user._id, game.entryFee, game._id, { reason: "reserve-failed", cardId });
+          socket.emit("error_message", { message: `❌ Card #${cardId} ተወስዷል ወይም ሰዓቱ አልቋል`, cardId });
           return;
         }
 
         await Transaction.create({
-          user: user._id,
-          type: "entry_fee",
-          amount: game.entryFee,
-          balanceAfter: user.balance,
-          game: game._id,
-          meta: { action: "reserve", cardId },
+          user: user._id, type: "entry_fee", amount: game.entryFee, balanceAfter: user.balance, game: game._id, meta: { action: "reserve", cardId },
         });
 
         queueCardBroadcast(roomCode, cardId);
         socket.emit("balance_update", { balance: user.balance });
       } catch (err) {
-        console.error("[select_card]", err);
         await syncBalanceToSocket(socket);
       }
     });
 
     socket.on("deselect_card", async ({ roomCode, cardId } = {}) => {
       try {
-        if (!socket.allow()) {
-          await syncBalanceToSocket(socket);
-          return;
-        }
+        if (!socket.allow()) { await syncBalanceToSocket(socket); return; }
         roomCode = rooms.normalizeRoomCode(roomCode);
         cardId = parseCardId(cardId);
-        if (!roomCode || !cardId) {
-          await syncBalanceToSocket(socket);
-          return;
-        }
+        if (!roomCode || !cardId) { await syncBalanceToSocket(socket); return; }
 
         const game = await rooms.ensureRoom(roomCode);
-        if (game.status !== "waiting" || deadlineOf(game) <= Date.now()) {
-          await syncBalanceToSocket(socket);
-          return;
-        }
+        if (game.status !== "waiting" || deadlineOf(game) <= Date.now()) { await syncBalanceToSocket(socket); return; }
 
         const res = await Game.updateOne(
-          {
-            roomCode,
-            status: "waiting",
-            reservedCards: {
-              $elemMatch: { cardId, telegramId: socket.telegramId },
-            },
-          },
-          {
-            $pull: {
-              reservedCards: { cardId, telegramId: socket.telegramId },
-            },
-          }
+          { roomCode, status: "waiting", reservedCards: { $elemMatch: { cardId, telegramId: socket.telegramId } } },
+          { $pull: { reservedCards: { cardId, telegramId: socket.telegramId } } }
         );
-        if (res.modifiedCount !== 1) {
-          await syncBalanceToSocket(socket);
-          return;
-        }
+        if (res.modifiedCount !== 1) { await syncBalanceToSocket(socket); return; }
 
-        await refund(socket.userId, game.entryFee, game._id, {
-          action: "deselect",
-          cardId,
-        });
-
+        await refund(socket.userId, game.entryFee, game._id, { action: "deselect", cardId });
         io.to(roomCode).emit("card_released", { cardId });
       } catch (err) {
-        console.error("[deselect_card]", err);
         await syncBalanceToSocket(socket);
       }
     });
@@ -1318,7 +869,6 @@ function initGameSocket(io) {
         if (!roomCode) return;
 
         if (starting.has(roomCode)) await starting.get(roomCode);
-
         {
           const game = await rooms.ensureRoom(roomCode);
           socket.join(roomCode);
@@ -1326,52 +876,25 @@ function initGameSocket(io) {
 
           const rt = runtimes.get(roomCode);
           const base = {
-            roomCode,
-            status: game.status,
-            winPattern: rt?.pattern || game.winPattern || "any-row",
-            prizePool: rt?.prizePool ?? game.prizePool ?? 0,
-            playerCount: rt ? rt.players.length : game.players.length,
-            entryFee: game.entryFee,
-            calledNumbers: rt ? rt.called : game.calledNumbers || [],
-            serverTime: Date.now(),
+            roomCode, status: game.status, winPattern: rt?.pattern || game.winPattern || "any-row",
+            prizePool: rt?.prizePool ?? game.prizePool ?? 0, playerCount: rt ? rt.players.length : game.players.length,
+            entryFee: game.entryFee, calledNumbers: rt ? rt.called : game.calledNumbers || [], serverTime: Date.now(),
           };
 
-          const myCards = rt
-            ? rt.players.filter((p) => p.userId === socket.userId)
-            : [];
-
+          const myCards = rt ? rt.players.filter((p) => p.userId === socket.userId) : [];
           if (myCards.length > 0) {
-            socket.emit("state_restore", {
-              ...base,
-              cards: myCards.map((p) => ({
-                cardId: p.cardId,
-                card: p.card,
-                marked: p.marked,
-              })),
-            });
+            socket.emit("state_restore", { ...base, cards: myCards.map((p) => ({ cardId: p.cardId, card: p.card, marked: p.marked })) });
           } else {
-            socket.emit("spectator_mode", {
-              ...base,
-              pendingCardIds: game.reservedCards
-                .filter((r) => r.telegramId === socket.telegramId)
-                .map((r) => r.cardId),
-            });
+            socket.emit("spectator_mode", { ...base, pendingCardIds: game.reservedCards.filter((r) => r.telegramId === socket.telegramId).map((r) => r.cardId) });
           }
 
           if (rt?.result) {
             const left = WINNER_DISPLAY_MS - (Date.now() - rt.result.shownAt);
-            if (left > 200) {
-              socket.emit("bingo_claimed", {
-                ...rt.result.payload,
-                displayMs: left,
-              });
-            }
+            if (left > 200) socket.emit("bingo_claimed", { ...rt.result.payload, displayMs: left });
           }
           socket.emit("room_state", rooms.publicState(game));
         }
-      } catch (err) {
-        console.error("[join_room]", err);
-      }
+      } catch (err) {}
     });
 
     socket.on("leave_room", () => {
@@ -1381,25 +904,17 @@ function initGameSocket(io) {
 
     socket.on("disconnect", () => {
       removeUserSocket(socket.userId, socket);
-      if (!userSockets.has(socket.userId)) {
-        activeUserIds.delete(socket.userId);
-      }
+      if (!userSockets.has(socket.userId)) activeUserIds.delete(socket.userId);
     });
   });
 }
 
-// ✅ አድሚን የሚጠቀመው ፈንክሽን (Redis ላይ ያስቀምጣል)
 async function setForcedWinner(roomCode, cardId) {
   if (!roomCode) return;
   try {
-    if (cardId) {
-      await cacheClient.set(`forced:${roomCode}`, String(cardId));
-    } else {
-      await cacheClient.del(`forced:${roomCode}`);
-    }
-  } catch (err) {
-    console.error("[redis] setForcedWinner error:", err.message);
-  }
+    if (cardId) await cacheClient.set(`forced:${roomCode}`, String(cardId));
+    else await cacheClient.del(`forced:${roomCode}`);
+  } catch (err) {}
 }
 
 module.exports = { initGameSocket, getActiveUserCount, setForcedWinner };

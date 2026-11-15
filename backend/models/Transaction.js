@@ -59,13 +59,15 @@ TransactionSchema.index(
   }
 );
 
-// አሸናፊ ክፍያ — አንድ ተጠቃሚ በአንድ ጨዋታ አንድ ጊዜ ብቻ
-// (crash/resume ቢደረግም ድርብ ክፍያ የለም)
+// ═══════════════════════════════════════════════════════
+// 🔴 PRIZE IDEMPOTENCY (አዲስ ማስተካከያ)
+//    አንድ ተጠቃሚ በአንድ የጨዋታ ዙር (roundId) አንድ ጊዜ ብቻ እንዲከፈለው
+// ═══════════════════════════════════════════════════════
 TransactionSchema.index(
-  { game: 1, user: 1 },
+  { user: 1, "meta.roundId": 1 },
   {
     unique: true,
-    name: "uniq_prize_per_game_user",
+    name: "uniq_prize_per_round_user",
     partialFilterExpression: { type: "prize" },
   }
 );

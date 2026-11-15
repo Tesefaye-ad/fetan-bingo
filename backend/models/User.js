@@ -23,18 +23,6 @@ const UserSchema = new mongoose.Schema(
     referredBy: { type: String },
     referralCount: { type: Number, default: 0 },
     referralRewarded: { type: Boolean, default: false },
-
-    // ═══════════════════════════════════════════════════════
-    // 🔴 PRIZE IDEMPOTENCY
-    //    Idempotency lock for winner payouts — $inc balance
-    //    and $push creditedGames are one atomic operation.
-    //    If crash/resume retries, the game is skipped.
-    // ═══════════════════════════════════════════════════════
-    creditedGames: {
-      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Game" }],
-      default: [],
-    },
-
     achievements: { type: [String], default: [] },
     lastActiveAt: { type: Date, default: Date.now },
     notificationReadAt: { type: Date, default: Date.now },
@@ -45,21 +33,9 @@ const UserSchema = new mongoose.Schema(
 // ═══════════════════════════════════════════════════════
 // INDEXES
 // ═══════════════════════════════════════════════════════
-
-// ለ ban check (admin panel)
 UserSchema.index({ isBanned: 1 }, { name: "idx_banned" });
-
-// 🔴 ለ transfer lookup — `User.findOne({ phone: { $in: variants } })`
-UserSchema.index(
-  { phone: 1 },
-  { name: "idx_phone", sparse: true }
-);
-
-// 🔴 ለ referral query — `User.find({ referredBy: telegramId })`
-UserSchema.index(
-  { referredBy: 1 },
-  { name: "idx_referred_by", sparse: true }
-);
+UserSchema.index({ phone: 1 }, { name: "idx_phone", sparse: true });
+UserSchema.index({ referredBy: 1 }, { name: "idx_referred_by", sparse: true });
 
 const User = mongoose.model("User", UserSchema);
 

@@ -12,7 +12,6 @@ import { formatCountdown, serverNow } from "./serverClock";
 const TOTAL_CARDS = 1250;
 const WEEKLY_ROOMS = ["ROOM50", "ROOM100"];
 const SYNC_RETRIES = 6;
-const PRIZE_SHARE = 0.8; // ✅ 80% ደራሽ
 
 // ═══════════════════════════════════════════════════════
 // ✅ Number button — memoized (1250 buttons ላይ ወሳኝ)
@@ -84,6 +83,7 @@ export default function CartelaSelection({
   const noticeTimerRef = useRef(null);
   const pollStopRef = useRef(false);
   const mountedRef = useRef(true);
+  // 🔴 NEW — fallback deadline አንድ ጊዜ ብቻ እንዲሰራ
   const fallbackDeadlineSetRef = useRef(false);
 
   useEffect(() => {
@@ -127,6 +127,9 @@ export default function CartelaSelection({
   }, [onConfirm, onGameStatusChange]);
 
   // ───────────── የሰርቨር ሁኔታን ወደ state ተግብር ─────────────
+  // 🔴 FIX: fallback deadline አንድ ጊዜ ብቻ እንዲሰራ
+  //    (room_state broadcast በየ ሰከንዱ ስለሚመጣ —
+  //     ያለዚህ ጥበቃ ቆጣሪው ዘላለም ይዘረጋል)
   const applyRoomState = useCallback(
     (s) => {
       if (!s || (s.roomCode && s.roomCode !== roomCode)) return;
@@ -140,6 +143,10 @@ export default function CartelaSelection({
       if (s.status === "waiting") {
         let t = s.selectionEndsAt ? new Date(s.selectionEndsAt).getTime() : null;
 
+        // 🔴 Fallback ONLY ONCE per room lifecycle
+        //    Server may not send selectionEndsAt on very first room_state.
+        //    We set a local 50s timer once — subsequent room_state events
+        //    don't reset it.
         if (!t && !s.isWeeklyGame && !fallbackDeadlineSetRef.current) {
           t = Date.now() + 50000;
           fallbackDeadlineSetRef.current = true;
@@ -157,7 +164,7 @@ export default function CartelaSelection({
   useEffect(() => {
     wentLiveRef.current = false;
     pollStopRef.current = false;
-    fallbackDeadlineSetRef.current = false;
+    fallbackDeadlineSetRef.current = false; // 🔴 RESET
     setSelectedCards([]);
     setTakenCards([]);
     setDeadlineMs(null);
@@ -374,9 +381,7 @@ export default function CartelaSelection({
   const selectedSet = useMemo(() => new Set(selectedCards), [selectedCards]);
   const takenSet = useMemo(() => new Set(takenCards), [takenCards]);
 
-  // ✅ FIX: ድምር (Cost) እና ደራሽ (Prize) ማስላት
-  const totalCost = selectedCards.length * stake;
-  const potentialPrize = Math.floor(totalCost * PRIZE_SHARE);
+  const total = selectedCards.length * stake;
   const maxAffordable = Math.floor(currentBalance / stake);
 
   const timeStr =
@@ -481,7 +486,6 @@ export default function CartelaSelection({
         />
       </div>
 
-      {/* ✅ FIX: ድምር እና ደራሽ ማሳያ */}
       <div
         style={{
           display: "grid",
@@ -498,10 +502,11 @@ export default function CartelaSelection({
         }}
       >
         <span>
-          Cost: <b style={{ color: "#f39c12" }}>{totalCost} ETB</b>
+          Selected:{" "}
+          <b style={{ color: "#2ecc71" }}>{selectedCards.length}</b>
         </span>
         <span>
-          Derash: <b style={{ color: "#2ecc71" }}>{potentialPrize} ETB</b>
+          Total: <b style={{ color: "#f39c12" }}>{total} ETB</b>
         </span>
         <span>
           Max: <b style={{ color: "#3498db" }}>{maxAffordable}</b>

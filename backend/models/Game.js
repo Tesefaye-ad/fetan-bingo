@@ -65,6 +65,9 @@ const GameSchema = new mongoose.Schema(
     allCards: { type: [CardSchema], default: [] },
     winners: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     
+    // 🔴 ለእያንዳንዱ ጨዋታ ዙር ልዩ የሆነ መለያ (Idempotency Key)
+    roundId: { type: String, default: () => new mongoose.Types.ObjectId().toString() },
+
     // 🔴 አሸናፊ ካርቴላዎች (Idempotent Payout ለማድረግ)
     winningCartelas: { type: [WinningCartelaSchema], default: [] },
 
