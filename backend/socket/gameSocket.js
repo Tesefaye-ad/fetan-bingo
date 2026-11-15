@@ -73,10 +73,6 @@ async function releaseLock(roomCode) {
 
 // ═══════════════════════════════════════════════════════
 // 🔴 BALANCE SYNC — client optimistic deduction መመለስ
-//
-//    Called whenever we reject an action that the client
-//    optimistically applied. Emits the real DB balance so
-//    the client can correct its UI.
 // ═══════════════════════════════════════════════════════
 async function syncBalanceToSocket(socket) {
   try {
@@ -276,11 +272,12 @@ function initGameSocket(io) {
   // ═══════════════════════════════════════════════════════
   async function retryAllUnpaidPrizes(game) {
     const winners = game.winners || [];
-    if (winners.length === 0) return;
+    if (winners.length === 0) return true;
 
     const prizePool = game.prizePool || 0;
     const prizePerUser = Math.floor(prizePool / winners.length);
     const winningCartelas = game.winningCartelas || [];
+    let allPaid = true;
 
     for (const userId of winners) {
       const existingTx = await Transaction.findOne({
@@ -331,6 +328,8 @@ function initGameSocket(io) {
             if (updated) {
               emitToUser(userId, "balance_update", { balance: finalUser.balance });
             }
+          } else {
+            allPaid = false;
           }
         } else {
           const result = await creditUserPrize({
@@ -342,12 +341,16 @@ function initGameSocket(io) {
           });
           if (result.user) {
             emitToUser(userId, "balance_update", { balance: result.balanceAfter });
+          } else if (!result.alreadyDone) {
+            allPaid = false;
           }
         }
       } catch (e) {
+        allPaid = false;
         console.error(`[retryAllUnpaidPrizes] user ${userId}:`, e.message);
       }
     }
+    return allPaid;
   }
 
   function createRuntime({
@@ -479,7 +482,8 @@ function initGameSocket(io) {
           });
         }
 
-        if (players.length < MIN_PLAYERS) {
+        // 🔴 FIX: 0 players ሆኖ ጨዋታ እንዳይጀመር
+        if (players.length === 0 || players.length < MIN_PLAYERS) {
           console.warn(
             `[startGame:${roomCode}] ${players.length} < MIN_PLAYERS=${MIN_PLAYERS}`
           );
@@ -680,6 +684,8 @@ function initGameSocket(io) {
       );
 
       const panel = [];
+      let allCredited = true; // 🔴 ሁሉም መክፈላቸውን ለማረጋገጥ
+
       for (const userId of userIds) {
         const mine = winners.filter((w) => w.player.userId === userId);
         const cartelas = mine.map((w) => w.player.cardId);
@@ -694,6 +700,7 @@ function initGameSocket(io) {
             winsCount: mine.length,
           });
         } catch (e) {
+          allCredited = false; // 🔴 ስህተት ካለ paidAt አይመዘገብም
           console.error(
             `[processWinners] credit failed for ${userId}:`,
             e.message
@@ -718,10 +725,13 @@ function initGameSocket(io) {
         });
       }
 
-      await Game.updateOne(
-        { _id: rt.gameId },
-        { $set: { paidAt: new Date() } }
-      ).catch((e) => console.error("[paidAt]", e.message));
+      // 🔴 ሁሉም ከተከፈሉ ብቻ paidAt ይመዘገባል (Resume ሲደረግ እንዲመለስ)
+      if (allCredited) {
+        await Game.updateOne(
+          { _id: rt.gameId },
+          { $set: { paidAt: new Date() } }
+        ).catch((e) => console.error("[paidAt]", e.message));
+      }
 
       const sortedPanel = [...panel].sort((a, b) => b.prize - a.prize);
 
@@ -912,14 +922,16 @@ function initGameSocket(io) {
 
         if (hasWinners && !game.paidAt) {
           try {
-            await retryAllUnpaidPrizes(game);
+            const allPaid = await retryAllUnpaidPrizes(game);
+            if (allPaid) {
+              await Game.updateOne(
+                { _id: game._id },
+                { $set: { paidAt: new Date() } }
+              ).catch(() => {});
+            }
           } catch (e) {
             console.error(`[resume:${roomCode}] payout retry failed:`, e.message);
           }
-          await Game.updateOne(
-            { _id: game._id },
-            { $set: { paidAt: new Date() } }
-          ).catch(() => {});
         }
 
         if (hasWinners) {
@@ -1149,12 +1161,8 @@ function initGameSocket(io) {
       }
     });
 
-    // ═══════════════════════════════════════════════════════
-    // 🔴 SELECT_CARD — every rejection syncs balance
-    // ═══════════════════════════════════════════════════════
     socket.on("select_card", async ({ roomCode, cardId } = {}) => {
       try {
-        // Rate-limited: sync balance (client may have deducted optimistically)
         if (!socket.allow()) {
           await syncBalanceToSocket(socket);
           return;
@@ -1169,8 +1177,6 @@ function initGameSocket(io) {
 
         const game = await rooms.ensureRoom(roomCode);
 
-        // 🔴 Every rejection must first sync real balance.
-        //    Client deducted optimistically → must be corrected.
         const fail = async (message) => {
           await syncBalanceToSocket(socket);
           socket.emit("error_message", { message, cardId });
@@ -1190,7 +1196,6 @@ function initGameSocket(io) {
           (r) => r.telegramId === socket.telegramId
         );
         if (mine.some((r) => r.cardId === cardId)) {
-          // Already mine — no server change, but fix client drift
           await syncBalanceToSocket(socket);
           return;
         }
@@ -1233,7 +1238,6 @@ function initGameSocket(io) {
             reason: "reserve-failed",
             cardId,
           });
-          // refund() already emitted balance_update; just signal the error
           socket.emit("error_message", {
             message: `❌ Card #${cardId} ተወስዷል ወይም ሰዓቱ አልቋል`,
             cardId,
@@ -1254,7 +1258,6 @@ function initGameSocket(io) {
         socket.emit("balance_update", { balance: user.balance });
       } catch (err) {
         console.error("[select_card]", err);
-        // 🔴 Unexpected exception — sync so client isn't stuck with fake deduction
         await syncBalanceToSocket(socket);
       }
     });
