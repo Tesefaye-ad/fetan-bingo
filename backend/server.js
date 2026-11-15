@@ -14,7 +14,6 @@ require("dotenv").config();
   ];
   const opt = [{ name: "MERCHANT_SMS_TOKEN", minLen: 24 }];
 
-  // 🔒 FIX: ዋናውን ስም (MONGO_URI) እና ሁሉንም aliases (MONGODB_URI) ይፈትሻል
   const pick = (r) =>
     [r.name, ...(r.aliases || [])]
       .map((n) => (process.env[n] || "").trim())
@@ -23,9 +22,7 @@ require("dotenv").config();
   for (const r of req) {
     const v = pick(r);
     if (!v) {
-      errors.push(
-        `Missing: ${r.name}${r.aliases ? ` (or ${r.aliases.join(", ")})` : ""}`
-      );
+      errors.push(`Missing: ${r.name}`);
       continue;
     }
     if (r.minLen && String(v).length < r.minLen) {
@@ -42,27 +39,10 @@ require("dotenv").config();
   if (errors.length) {
     console.error("\n❌ ENV VALIDATION FAILED:");
     for (const e of errors) console.error("  • " + e);
-    console.error("");
     console.error("[env] ⚠️ Fix the variables above in Render/Pxxl → Environment.");
-    if (process.env.NODE_ENV !== "test") process.exit(1); // ❗ ሳይስተካከል አይነሳም
+    if (process.env.NODE_ENV !== "test") process.exit(1);
   } else {
     console.log("[env] ✅ Validation passed");
-  }
-
-  const mask = (v) =>
-    !v ? "(unset)" : String(v).length <= 8
-      ? "****"
-      : String(v).slice(0, 4) + "…" + String(v).slice(-4);
-
-  console.log(`[env] ADMIN_TELEGRAM_IDS = ${process.env.ADMIN_TELEGRAM_IDS}`);
-  console.log(`[env] JWT_SECRET = ${mask(process.env.JWT_SECRET)}`);
-  console.log(`[env] TELEGRAM_BOT_TOKEN = ${mask(process.env.TELEGRAM_BOT_TOKEN)}`);
-  if (process.env.MERCHANT_SMS_TOKEN) {
-    console.log(
-      `[env] MERCHANT_SMS_TOKEN = ${mask(process.env.MERCHANT_SMS_TOKEN)} (${process.env.MERCHANT_SMS_TOKEN.length} chars)`
-    );
-  } else {
-    console.warn("[env] ⚠️ MERCHANT_SMS_TOKEN not set — merchant SMS DISABLED");
   }
 })();
 
@@ -72,12 +52,11 @@ const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
 
-// ✅ አዲስ የተጨመረ (Redis Adapter)
 const { createAdapter } = require("@socket.io/redis-adapter");
 const { pubClient, subClient } = require("./config/redis");
 
 // ═══════════════════════════════════════════════════════
-// ROUTES
+// ROUTES & MIDDLEWARE
 // ═══════════════════════════════════════════════════════
 const authRoutes = require("./routes/auth");
 const walletRoutes = require("./routes/wallet");
@@ -87,9 +66,6 @@ const adminRoutes = require("./routes/admin");
 const { initGameSocket } = require("./socket/gameSocket");
 const merchantSmsRoutes = require("./routes/merchantSmsRoute");
 
-// ═══════════════════════════════════════════════════════
-// RATE LIMITERS
-// ═══════════════════════════════════════════════════════
 const {
   globalLimiter,
   authLimiter,
@@ -97,14 +73,8 @@ const {
   withdrawLimiter,
 } = require("./middleware/rateLimit");
 
-// ═══════════════════════════════════════════════════════
-// DATABASE — single source of truth (config/db.js)
-// ═══════════════════════════════════════════════════════
 const connectDB = require("./config/db");
 
-// ═══════════════════════════════════════════════════════
-// APP SETUP
-// ═══════════════════════════════════════════════════════
 const app = express();
 const server = http.createServer(app);
 
@@ -115,7 +85,7 @@ const allowedOrigins = process.env.CLIENT_URL
   : "*";
 
 // ═══════════════════════════════════════════════════════
-// SOCKET.IO — tuned for 6000+ users
+// SOCKET.IO SETUP
 // ═══════════════════════════════════════════════════════
 const io = new Server(server, {
   cors: { origin: allowedOrigins, methods: ["GET", "POST"] },
@@ -137,7 +107,6 @@ const io = new Server(server, {
   connectTimeout: 45000,
 });
 
-// ✅ የ Redis Adapter ማገናኛ (ለብዙ ሰርቨሮች ድጋፍ)
 io.adapter(createAdapter(pubClient, subClient));
 
 app.use(cors({ origin: allowedOrigins }));
@@ -162,7 +131,7 @@ app.get("/health", (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// RATE LIMITERS
+// ROUTES SETUP
 // ═══════════════════════════════════════════════════════
 app.use("/api", globalLimiter);
 app.use("/api/auth/telegram", authLimiter);
@@ -170,9 +139,6 @@ app.use("/api/wallet/deposit", depositLimiter);
 app.use("/api/wallet/withdraw", withdrawLimiter);
 app.use("/api/merchant-sms", merchantSmsRoutes);
 
-// ═══════════════════════════════════════════════════════
-// ROUTES
-// ═══════════════════════════════════════════════════════
 app.use("/api/auth", authRoutes);
 app.use("/api/user", authRoutes.userRouter);
 app.use("/api/wallet", walletRoutes);
@@ -180,9 +146,6 @@ app.use("/api/wallet", depositRoutes);
 app.use("/api/game", gameRoutes);
 app.use("/api/admin", adminRoutes);
 
-// ═══════════════════════════════════════════════════════
-// 404 + ERROR HANDLERS
-// ═══════════════════════════════════════════════════════
 app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
 app.use((err, req, res, next) => {
   console.error("[error]", err);
@@ -190,28 +153,25 @@ app.use((err, req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// SOCKET
-// ═══════════════════════════════════════════════════════
-initGameSocket(io);
-
-// ═══════════════════════════════════════════════════════
-// START SERVER
+// START SERVER & CONNECT DATABASE
 // ═══════════════════════════════════════════════════════
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`[server] Running on port ${PORT}`);
 });
 
-connectDB();
+// 🔴 FIX: ዳታቤዙ ከተገናኘ በኋላ ብቻ Socket እንዲጀመር ማድረግ (Crash እንዳያመጣ)
+connectDB().then(() => {
+  console.log("[db] Connected. Starting game socket engine...");
+  initGameSocket(io);
+}).catch((err) => {
+  console.error("[db] Failed to connect on startup:", err.message);
+});
 
 // ═══════════════════════════════════════════════════════
-// AUTO CLEANUP — every 2 weeks
-// ═══════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════
-// AUTO CLEANUP — 👈 OPTIMIZED: daily instead of every 2 weeks
+// AUTO CLEANUP (Daily)
 // ═══════════════════════════════════════════════════════
 const ONE_DAY = 24 * 60 * 60 * 1000;
-
 async function runCleanup() {
   try {
     const { cleanup } = require("./scripts/cleanup");
@@ -222,27 +182,21 @@ async function runCleanup() {
   }
 }
 
-// ሰርቨር ሲነሳ ከ 60 ሰከንድ በኋላ አንድ ጊዜ
 setTimeout(runCleanup, 60000);
-
-// 👈 ከዚያ በየቀኑ (2 ሳምንት ሳይሆን)
 setInterval(runCleanup, ONE_DAY);
 
 // ═══════════════════════════════════════════════════════
 // KEEP-ALIVE (Render/Pxxl cold start)
 // ═══════════════════════════════════════════════════════
-// ✅ FIX: የራስን አድራሻ ማስተካከል — localhost ሳይሆን የሰርቨሩ URL መጠቀም አለበት
 const SELF_URL = process.env.RENDER_EXTERNAL_URL || process.env.PXXL_URL || `https://fetan-bingo-ra58.onrender.com`;
 
-// ✅ FIX: ከ 10 ደቂቃ ወደ 4 ደቂቃ ቀንሷል — Render ከ15 ደቂቃ በኋላ ስለሚተኛ
 setInterval(async () => {
   try {
     await fetch(`${SELF_URL}/health`);
-    console.log("[keep-alive] Ping sent"); // ለማረጋገጫ
+    console.log("[keep-alive] Ping sent");
   } catch (err) {}
 }, 4 * 60 * 1000);
 
-// ✅ FIX: ከ 10 ሰከንድ ወደ 5 ሰከንድ ቀንሷል
 setTimeout(async () => {
   try {
     await fetch(`${SELF_URL}/health`);
@@ -258,7 +212,6 @@ try {
   startBot(app).then(() => {
     const webhookPath = `/telegraf/${bot.secretPathComponent()}`;
 
-    // ✅ FIX: drop_pending_updates የለም (deploy ላይ የተጫኑ /start አይጠፉም) + እስከ 4 ጊዜ እንደገና ይሞክራል
     (async () => {
       const url = `${SELF_URL}${webhookPath}`;
       for (let attempt = 1; attempt <= 4; attempt++) {
@@ -277,16 +230,31 @@ try {
   console.error("[server] Bot failed:", err.message);
 }
 
-
 // ═══════════════════════════════════════════════════════
 // GRACEFUL SHUTDOWN
 // ═══════════════════════════════════════════════════════
+let isShuttingDown = false;
+async function shutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`\n[shutdown] Received ${signal}. Shutting down gracefully...`);
+  
+  try {
+    io.close();
+    server.close();
+    await mongoose.disconnect();
+    console.log("[shutdown] Server closed.");
+    process.exit(0);
+  } catch (err) {
+    console.error("[shutdown] Error during shutdown:", err);
+    process.exit(1);
+  }
+}
 
-process.on("unhandledRejection", (r) =>
-  console.error("[unhandledRejection]", r)
-);
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("unhandledRejection", (r) => console.error("[unhandledRejection]", r));
 process.on("uncaughtException", (e) => {
   console.error("[uncaughtException]", e);
-  // ሰርቨሩ በተበላሸ ሁኔታ እንዳይቀጥል — Render በራሱ እንደገና ያስነሳዋል
-  setTimeout(() => process.exit(1), 1000).unref();
+  shutdown("uncaughtException");
 });

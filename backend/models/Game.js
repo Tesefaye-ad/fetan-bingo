@@ -1,5 +1,8 @@
 const mongoose = require("mongoose");
 
+// ═══════════════════════════════════════════════════════
+// SUB-SCHEMAS
+// ═══════════════════════════════════════════════════════
 const PlayerSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
@@ -21,6 +24,24 @@ const CardSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const WinningCartelaSchema = new mongoose.Schema(
+  {
+    // 🔴 userId: ለ Resume/Payout ማዕከላዊ ቁልፍ (አስፈላጊ ነው!)
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    telegramId: { type: String },
+    name: { type: String },
+    cardId: { type: Number, required: true },
+    pattern: { type: String },
+    card: { type: [[Number]] },
+    marked: { type: [[Boolean]] },
+    prize: { type: Number }, // 🔴 በወቅቱ የተሰላ ደራሽ (ለታሪክ መዝገብ)
+  },
+  { _id: false }
+);
+
+// ═══════════════════════════════════════════════════════
+// MAIN GAME SCHEMA
+// ═══════════════════════════════════════════════════════
 const GameSchema = new mongoose.Schema(
   {
     roomCode: { type: String, required: true, unique: true, index: true },
@@ -43,25 +64,9 @@ const GameSchema = new mongoose.Schema(
     ],
     allCards: { type: [CardSchema], default: [] },
     winners: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-
-    // ═══════════════════════════════════════════════════════
-    // 🔴 WINNING CARTELAS
-    //    userId:   primary key for resume/unpaid lookup
-    //    telegramId: kept for backward compatibility & notify
-    //    prize:    per-user prize at time of win (for resume)
-    // ═══════════════════════════════════════════════════════
-    winningCartelas: [
-      {
-        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-        telegramId: String,
-        name: String,
-        cardId: Number,
-        pattern: String,
-        card: [[Number]],
-        marked: [[Boolean]],
-        prize: Number,
-      },
-    ],
+    
+    // 🔴 አሸናፊ ካርቴላዎች (Idempotent Payout ለማድረግ)
+    winningCartelas: { type: [WinningCartelaSchema], default: [] },
 
     winPattern: {
       type: String,
@@ -80,33 +85,36 @@ const GameSchema = new mongoose.Schema(
     startedAt: { type: Date },
     finishedAt: { type: Date },
 
-    // Winner notification sent timestamp (for crash-resume retry)
-    notifiedAt: { type: Date, default: null },
-
-    // 🔴 Payout complete timestamp (for resume verification)
-    paidAt: { type: Date, default: null },
+    // 🔴 ለ Crash-Resume (ሰርቨሩ ሲወድቅ እንደገና ለመክፈል)
+    notifiedAt: { type: Date, default: null }, // የቴሌግራም ማሳወቂያ የተላከበት ሰዓት
+    paidAt: { type: Date, default: null },     // ደራሹ ለሁሉም የተከፈለበት ሰዓት
   },
   { timestamps: true }
 );
 
 // ═══════════════════════════════════════════════════════
-// INDEXES
+// INDEXES (ለፍጥነት እና ለዳታቤዝ ጥራት)
 // ═══════════════════════════════════════════════════════
+
+// 1. የክፍል ሁኔታን በፍጥነት ለመፈለግ
 GameSchema.index({ status: 1, roomCode: 1 }, { name: "idx_status_room" });
-GameSchema.index(
-  { status: 1, finishedAt: -1 },
-  { name: "idx_status_finished" }
-);
+
+// 2. የተጠናቀቁ ጨዋታዎችን በሰዓት ለመለየት (ለCleanup)
+GameSchema.index({ status: 1, finishedAt: -1 }, { name: "idx_status_finished" });
+
+// 3. የተጠቃሚ ታሪክ ለመመልከት
 GameSchema.index(
   { "players.user": 1, status: 1, finishedAt: -1 },
   { name: "idx_user_history" }
 );
+
+// 4. ያልተጫወቱ ክፍሎችን ለማጽዳት
 GameSchema.index(
   { status: 1, "reservedCards.0": 1, updatedAt: 1 },
   { name: "idx_stale_waiting" }
 );
 
-// 🔴 ለ payout resume — finished games ላይ payout ማረጋገጥ
+// 5. 🔴 ለ Payout Resume (ሰርቨሩ ሲወድቅ ያልተከፈለውን ለማግኘት)
 GameSchema.index(
   { paidAt: 1, status: 1 },
   { name: "idx_payout_status" }
