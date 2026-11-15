@@ -1,6 +1,21 @@
 "use strict";
 // ═══════════════════════════════════════════════════════
-// CLEANUP — አሮጌ ውሂብ ማጥፋት (በየ 2 ሳምንቱ በራሱ ይሰራል)
+// CLEANUP — አሮጌ ውሂብ ማጥፋት (በየቀኑ በራሱ ይሰራል)
+// ═══════════════════════════════════════════════════════
+// 🔴 SECURITY INVARIANTS (do NOT violate):
+//
+//   1) Completed deposit/withdrawal/prize/transfer transactions
+//      ፈጽሞ አይጠፉም — replay attack ለመከላከል እና የገንዘብ ኦዲት ለማስቀመጥ
+//
+//   2) ANY transaction with meta.transactionId OR meta.smsFingerprint
+//      ፈጽሞ አይጠፋም — unique index ስለሌለው replay attack ይቻላል
+//      (uniq_tx_id + uniq_sms_fingerprint በ Transaction model ላይ)
+//
+//   3) Pending withdrawals ፈጽሞ አይጠፉም — ገንዘብ ከተጠቃሚው
+//      ተቀንሶ ይቀመጣል፤ መዝገቡ ቢጠፋ ብሩ ይጠፋል
+//
+//   4) Pending deposits with requiresManualReview=true ፈጽሞ
+//      አይጠፉም — admin እስኪወስን ድረስ ይቆያሉ
 // ═══════════════════════════════════════════════════════
 const mongoose = require("mongoose");
 const Transaction = require("../models/Transaction");
@@ -8,22 +23,23 @@ const Game = require("../models/Game");
 const { Notification } = require("../models/User");
 
 const DAY = 24 * 60 * 60 * 1000;
-
-// ─── የማጥፊያ ዕድሜዎች ───
+const HOUR = 60 * 60 * 1000;
 
 const RETENTION = {
-  notifications: 7 * DAY,              // 30 → 7
-  transactionsCompleted: 90 * DAY,     // 180 → 90
-  transactionsFailed: 14 * DAY,        // 30 → 14
-  gamesFinished: 7 * DAY,             // 60 → 14
-  gamesWaitingStale: 1 * DAY,          // 7 → 1
+  notifications: 7 * DAY,
+  transactionsFailed: 14 * DAY,
+  gamesFinished: 30 * DAY,      // 🔴 7 → 30 (audit trail)
+  gamesWaitingStale: 1 * DAY,
+  pendingDepositExpire: 1 * HOUR, // mark failed — don't delete
 };
 
 async function cleanup() {
   const now = Date.now();
   const result = { startedAt: new Date().toISOString() };
 
-  // 1️⃣ Notifications — 30 ቀናት በላይ (TTL index ቢረዳም እዚህ ደግሞ አረጋግጥ)
+  // ─────────────────────────────────────────────────────
+  // 1️⃣ Notifications — 7 ቀን
+  // ─────────────────────────────────────────────────────
   try {
     const r = await Notification.deleteMany({
       createdAt: { $lt: new Date(now - RETENTION.notifications) },
@@ -33,38 +49,97 @@ async function cleanup() {
     result.notificationsError = e.message;
   }
 
-  // 2️⃣ Transactions — የተጠናቀቁ 6 ወር፣ የተሳሳቱ 1 ወር
+  // ─────────────────────────────────────────────────────
+  // 2️⃣ Stale pending deposits → MARK FAILED (don't delete!)
+  //    Frees MAX_PENDING_DEPOSITS quota so user can retry
+  //    without waiting days. Protects unique indexes.
+  // ─────────────────────────────────────────────────────
   try {
-    const r1 = await Transaction.deleteMany({
-      status: "completed",
-      createdAt: { $lt: new Date(now - RETENTION.transactionsCompleted) },
-    });
-    // ⚠️ pending withdrawal ፈጽሞ አይጠፋም — ብሩ ከተጠቃሚው ቀድሞ ተቀንሷል፤
-    //    መዝገቡ ቢጠፋ ተጠቃሚው ብሩን ያጣል (ማንም ሊመልስለት አይችልም)
-    const r2 = await Transaction.deleteMany({
-      $or: [
-        { status: "failed" },
-        { status: "pending", type: { $ne: "withdrawal" } },
-      ],
-      createdAt: { $lt: new Date(now - RETENTION.transactionsFailed) },
-    });
-    result.transactions = r1.deletedCount + r2.deletedCount;
+    const r = await Transaction.updateMany(
+      {
+        type: "deposit",
+        status: "pending",
+        // 🔴 NEVER touch deposits with replay-protection keys
+        "meta.transactionId": { $exists: false },
+        "meta.smsFingerprint": { $exists: false },
+        // 🔴 NEVER touch deposits awaiting admin review
+        "meta.requiresManualReview": { $ne: true },
+        createdAt: { $lt: new Date(now - RETENTION.pendingDepositExpire) },
+      },
+      {
+        $set: {
+          status: "failed",
+          "meta.expiredAt": new Date(),
+          "meta.rejectReason": "expired_pending_deposit",
+        },
+      }
+    );
+    result.expiredPendingDeposits = r.modifiedCount;
   } catch (e) {
-    result.transactionsError = e.message;
+    result.expiredPendingDepositsError = e.message;
   }
 
-  // 3️⃣ የተጠናቀቁ ጨዋታዎች — 2 ወር
+  // ─────────────────────────────────────────────────────
+  // 3️⃣ Failed transactions — 14 ቀን
+  //    🔴 Only those WITHOUT replay-protection keys.
+  //    A "failed" deposit that still has meta.transactionId
+  //    is intentional (queueManualReview path) — keep it.
+  // ─────────────────────────────────────────────────────
   try {
+    const r = await Transaction.deleteMany({
+      status: "failed",
+      "meta.transactionId": { $exists: false },
+      "meta.smsFingerprint": { $exists: false },
+      createdAt: { $lt: new Date(now - RETENTION.transactionsFailed) },
+    });
+    result.failedTransactions = r.deletedCount;
+  } catch (e) {
+    result.failedTransactionsError = e.message;
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 4️⃣ Other pending (non-withdrawal, non-deposit) — defensive
+  //    entry_fee/prize/refund/transfer are always "completed"
+  //    in the current codebase, but keep as safety net.
+  // ─────────────────────────────────────────────────────
+  try {
+    const r = await Transaction.deleteMany({
+      status: "pending",
+      type: { $nin: ["deposit", "withdrawal"] },
+      createdAt: { $lt: new Date(now - RETENTION.transactionsFailed) },
+    });
+    result.stalePendingOther = r.deletedCount;
+  } catch (e) {
+    result.stalePendingOtherError = e.message;
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 5️⃣ Finished games — 30 ቀን
+  //    🔴 Only delete if payout was completed (paidAt set)
+  //    and no pending notification (notifiedAt not null).
+  //    NOTE: current codebase never sets status="finished"
+  //    (games are reset to "waiting"), so this is defensive
+  //    for when history archival is added.
+  // ─────────────────────────────────────────────────────
+  try {
+    const cutoff = new Date(now - RETENTION.gamesFinished);
     const r = await Game.deleteMany({
       status: "finished",
-      finishedAt: { $lt: new Date(now - RETENTION.gamesFinished) },
+      finishedAt: { $lt: cutoff },
+      // paidAt must be set (either explicitly or absent for legacy docs)
+      $or: [
+        { paidAt: { $ne: null } },
+        { paidAt: { $exists: false } },
+      ],
     });
     result.games = r.deletedCount;
   } catch (e) {
     result.gamesError = e.message;
   }
 
-  // 4️⃣ ያልተጫወቱ ክፍሎች — ካርድ የሌላቸው + 1 ሳምንት
+  // ─────────────────────────────────────────────────────
+  // 6️⃣ Stale waiting rooms — 1 ቀን (ካርድ የሌላቸው)
+  // ─────────────────────────────────────────────────────
   try {
     const r = await Game.deleteMany({
       status: "waiting",
@@ -82,7 +157,6 @@ async function cleanup() {
 
 module.exports = { cleanup };
 
-// ─── በቀጥታ ከ CLI ሲጠራ (node scripts/cleanup.js) ───
 if (require.main === module) {
   require("dotenv").config();
   (async () => {

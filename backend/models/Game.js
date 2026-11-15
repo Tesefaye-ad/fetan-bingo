@@ -43,16 +43,26 @@ const GameSchema = new mongoose.Schema(
     ],
     allCards: { type: [CardSchema], default: [] },
     winners: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+
+    // ═══════════════════════════════════════════════════════
+    // 🔴 WINNING CARTELAS
+    //    userId:   primary key for resume/unpaid lookup
+    //    telegramId: kept for backward compatibility & notify
+    //    prize:    per-user prize at time of win (for resume)
+    // ═══════════════════════════════════════════════════════
     winningCartelas: [
       {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
         telegramId: String,
         name: String,
         cardId: Number,
         pattern: String,
         card: [[Number]],
         marked: [[Boolean]],
+        prize: Number,
       },
     ],
+
     winPattern: {
       type: String,
       enum: [
@@ -69,8 +79,12 @@ const GameSchema = new mongoose.Schema(
     scheduledStart: { type: Date },
     startedAt: { type: Date },
     finishedAt: { type: Date },
-    // 👈 NEW: winner notification sent timestamp (for crash-resume retry)
+
+    // Winner notification sent timestamp (for crash-resume retry)
     notifiedAt: { type: Date, default: null },
+
+    // 🔴 Payout complete timestamp (for resume verification)
+    paidAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
@@ -90,6 +104,12 @@ GameSchema.index(
 GameSchema.index(
   { status: 1, "reservedCards.0": 1, updatedAt: 1 },
   { name: "idx_stale_waiting" }
+);
+
+// 🔴 ለ payout resume — finished games ላይ payout ማረጋገጥ
+GameSchema.index(
+  { paidAt: 1, status: 1 },
+  { name: "idx_payout_status" }
 );
 
 module.exports = mongoose.model("Game", GameSchema);

@@ -11,9 +11,8 @@ router.use(requireAuth);
 
 const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 20);
 const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 100);
-const MAX_PENDING_DEPOSITS = 5; 
+const MAX_PENDING_DEPOSITS = 5;
 
-// ብር መጠን: ውሱን ቁጥር፣ ከ 0 በላይ፣ ቢበዛ 2 ዲጂት ከነጥብ በኋላ
 function parseAmount(v) {
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0 || n > 1e7) return null;
@@ -43,8 +42,6 @@ router.get("/history", async (req, res) => {
     res.status(500).json({ error: "Could not load history" });
   }
 });
-
-// ❌ አደገኛው DELETE /history/clear ኤፒአይ ሙሉ በሙሉ ተወግዷል
 
 router.post("/deposit/initiate", async (req, res) => {
   try {
@@ -128,30 +125,50 @@ router.post("/withdraw", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// ✅ የተስተካከለው የገንዘብ ማስተላለፊያ (Atomic Transaction)
+// 🔴 TRANSFER — Idempotent + Atomic
 // ═══════════════════════════════════════════════════════
 router.post("/transfer", async (req, res) => {
   let session;
   try {
     const amount = parseAmount(req.body.amount);
-    const { phone } = req.body;
+    const { phone, idempotencyKey } = req.body;
 
     if (!amount) return res.status(400).json({ error: "Invalid amount" });
     if (!phone) return res.status(400).json({ error: "Recipient phone number required" });
+
+    // 🔴 Idempotency key (optional — falls back if not provided)
+    const idemKey =
+      typeof idempotencyKey === "string" &&
+      idempotencyKey.length >= 8 &&
+      idempotencyKey.length <= 128
+        ? idempotencyKey
+        : null;
+
+    // 🔴 1. Idempotency check FIRST — if this exact transfer already ran, return success
+    if (idemKey) {
+      const existing = await Transaction.findOne({
+        user: req.userId,
+        type: "transfer_out",
+        "meta.idempotencyKey": idemKey,
+      }).lean();
+      if (existing) {
+        const u = await User.findById(req.userId).select("balance").lean();
+        return res.json({ balance: u?.balance ?? 0, idempotent: true });
+      }
+    }
 
     let cleanPhone = String(phone || "").replace(/[^\d+]/g, "");
     if (!PHONE_RE.test(cleanPhone)) {
       return res.status(400).json({ error: "Valid Ethiopian phone required (e.g. 0911223344)" });
     }
 
-    // ✅ የስልክ ቁጥር ቅርጸት ልዩነትን ማስተካከል (09..., +2519..., 2519...)
     let searchPhone = cleanPhone;
     if (searchPhone.startsWith("+251")) {
       searchPhone = "0" + searchPhone.slice(4);
     } else if (searchPhone.startsWith("251")) {
       searchPhone = "0" + searchPhone.slice(3);
     }
-    
+
     const phoneVariants = [searchPhone, "+251" + searchPhone.slice(1), "251" + searchPhone.slice(1)];
 
     const recipient = await User.findOne({
@@ -162,10 +179,9 @@ router.post("/transfer", async (req, res) => {
     if (!recipient) return res.status(404).json({ error: "Recipient not found with this phone number" });
     if (String(recipient._id) === String(req.userId)) return res.status(400).json({ error: "Cannot transfer to yourself" });
 
-    // ✅ ገንዘብ ማስተላለፍ (Session ተጠቅሞ)
     let sender, recipientUpdated;
     session = await mongoose.startSession();
-    
+
     await session.withTransaction(async () => {
       sender = await User.findOneAndUpdate(
         { _id: req.userId, balance: { $gte: amount }, isBanned: { $ne: true } },
@@ -181,24 +197,30 @@ router.post("/transfer", async (req, res) => {
       );
       if (!recipientUpdated) throw new Error("Recipient not found");
 
-      await Transaction.create([
-        {
-          user: sender._id,
-          type: "transfer_out",
-          amount,
-          balanceAfter: sender.balance,
-          counterparty: recipientUpdated._id,
-          meta: { recipientPhone: searchPhone }
-        },
-        {
-          user: recipientUpdated._id,
-          type: "transfer_in",
-          amount,
-          balanceAfter: recipientUpdated.balance,
-          counterparty: sender._id,
-          meta: { senderPhone: sender.phone }
-        }
-      ], { session });
+      await Transaction.create(
+        [
+          {
+            user: sender._id,
+            type: "transfer_out",
+            amount,
+            balanceAfter: sender.balance,
+            counterparty: recipientUpdated._id,
+            meta: {
+              recipientPhone: searchPhone,
+              idempotencyKey: idemKey, // 🔴 idempotency recorded
+            },
+          },
+          {
+            user: recipientUpdated._id,
+            type: "transfer_in",
+            amount,
+            balanceAfter: recipientUpdated.balance,
+            counterparty: sender._id,
+            meta: { senderPhone: sender.phone },
+          },
+        ],
+        { session }
+      );
     });
 
     await Notification.create({
@@ -210,6 +232,11 @@ router.post("/transfer", async (req, res) => {
 
     res.json({ balance: sender.balance });
   } catch (err) {
+    // 🔴 Idempotency race: another request created the same transaction
+    if (err.code === 11000 && req.body?.idempotencyKey) {
+      const u = await User.findById(req.userId).select("balance").lean();
+      return res.json({ balance: u?.balance ?? 0, idempotent: true });
+    }
     if (err.message === "Insufficient balance") {
       return res.status(400).json({ error: "Insufficient balance" });
     }

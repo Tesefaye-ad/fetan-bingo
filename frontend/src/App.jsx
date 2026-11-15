@@ -11,9 +11,12 @@ import {
   getGameHistory,
   getWalletHistory,
   useTelegram,
+  logout, // 🔴 ADD — for 401/403 forced re-login
 } from "./api";
 
-// ✅ FIX: ለእያንዳንዱ ተጠቃሚ የተለየ የካሽ ቁልፍ (Cache Key)
+// ═══════════════════════════════════════════════════════
+// CACHE HELPERS
+// ═══════════════════════════════════════════════════════
 const LOGIN_TIMEOUT_MS = 15000;
 const LOGIN_MAX_RETRIES = 2;
 const LOGIN_RETRY_DELAY_MS = 1000;
@@ -28,9 +31,8 @@ function getCachedUser(telegramId) {
     const raw = localStorage.getItem(getCacheKey(telegramId));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    // የተቀመጠው ዩዘር ከአሁኑ ጋር ካልተመሳሰለ አትጠቀምበት
     if (String(parsed.telegramId) !== String(telegramId)) return null;
-    
+
     if (parsed._cachedAt && Date.now() - parsed._cachedAt > 24 * 60 * 60 * 1000) {
       localStorage.removeItem(getCacheKey(telegramId));
       return null;
@@ -51,7 +53,6 @@ function setCachedUser(user) {
   } catch {}
 }
 
-// ✅ አዲስ ተጠቃሚ ሲገባ የቀድሞዎቹን ካሾች ማጽዳት
 function clearOldCaches(currentTelegramId) {
   try {
     const keysToRemove = [];
@@ -62,7 +63,20 @@ function clearOldCaches(currentTelegramId) {
       }
     }
     keysToRemove.forEach((k) => localStorage.removeItem(k));
-    localStorage.removeItem("fb_user_cache"); // ከአሮጌው ኮድ የቀረ ካሽ
+    localStorage.removeItem("fb_user_cache");
+  } catch {}
+}
+
+// 🔴 NEW — wipe ALL user caches (used on 401/403 forced re-login)
+function clearAllUserCaches() {
+  try {
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("fb_user_cache_")) keysToRemove.push(key);
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+    localStorage.removeItem("fb_user_cache");
   } catch {}
 }
 
@@ -125,12 +139,12 @@ function Login({ onLoggedIn }) {
           ]);
           if (timerId) clearTimeout(timerId);
           if (cancelled) return;
-          
+
           localStorage.setItem("telegramId", user.telegramId);
-          
+
           clearOldCaches(user.telegramId);
           setCachedUser(user);
-          
+
           onLoggedIn(user);
           return;
         } catch (err) {
@@ -283,7 +297,7 @@ function GameLobby({ onPlayStake, isLoading }) {
         padding: "20px 15px",
         maxWidth: 450,
         margin: "0 auto",
-        minHeight: "100%", 
+        minHeight: "100%",
         background: "transparent",
       }}
     >
@@ -435,7 +449,7 @@ function HistoryPage() {
         maxWidth: 480,
         margin: "0 auto",
         color: "#fff",
-        minHeight: "100%", 
+        minHeight: "100%",
         background: "transparent",
       }}
     >
@@ -636,7 +650,6 @@ function Profile({ user, balance, onUserUpdate }) {
         <p style={{ color: "#f39c12", margin: 0 }}>
           {profile?.username ? `@${profile.username}` : `@id_${profile?.telegramId}`}
         </p>
-        {/* ✅ አዲስ የተጨመረ፦ የስልክ ቁጥር ማሳያ */}
         <div style={{ color: "#aaa", fontSize: 13, marginTop: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
           <span>📱</span>
           {profile?.phone ? (
@@ -722,15 +735,25 @@ function Card({ icon, label, value, color }) {
 function App() {
   useTelegram();
 
+  // ═══════════════════════════════════════════════════════
+  // 🔴 SECURITY: NEVER use localStorage.telegramId as identity
+  //    It's a SHARED key written by the LAST logged-in user.
+  //    On a shared device, user B would see user A's name,
+  //    balance, and isAdmin=true until Telegram SDK loads.
+  //
+  //    Only trust:
+  //      - initDataUnsafe.user.id  (fresh from Telegram)
+  //      - initData (verified server-side)
+  // ═══════════════════════════════════════════════════════
   const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-  const initialTgId = tgUser?.id ? String(tgUser.id) : localStorage.getItem("telegramId");
+  const initialTgId = tgUser?.id ? String(tgUser.id) : null;
 
   const [user, setUser] = useState(() => getCachedUser(initialTgId));
   const [balance, setBalance] = useState(() => {
     const cached = getCachedUser(initialTgId);
     return cached?.balance || 0;
   });
-  
+
   const [roomCode, setRoomCode] = useState(null);
   const [cardIds, setCardIds] = useState([]);
   const [showCartela, setShowCartela] = useState(false);
@@ -738,7 +761,6 @@ function App() {
   const [activeTab, setActiveTab] = useState("Game");
   const [gameStatus, setGameStatus] = useState("waiting");
 
-  // ✅ FIX: የአድሚን ሁኔታ ሁልጊዜ ከ user object በጥብቅ ይፈተሻል
   const isAdmin = user?.isAdmin === true;
 
   const tabs = useMemo(() => {
@@ -751,39 +773,73 @@ function App() {
     return isAdmin ? [...base, { id: "Admin", label: "Admin", icon: "⚙️" }] : base;
   }, [isAdmin]);
 
+  // ═══════════════════════════════════════════════════════
+  // 🔴 FIX #14: Admin tab guard — if isAdmin flips to false
+  //    (demoted, cached leak corrected, etc.), reset tab
+  // ═══════════════════════════════════════════════════════
+  useEffect(() => {
+    if (activeTab === "Admin" && !isAdmin) {
+      setActiveTab("Game");
+    }
+  }, [activeTab, isAdmin]);
+
   const handleLoggedIn = useCallback((u) => {
     if (!u) return;
     const safeUser = {
       ...u,
-      isAdmin: u.isAdmin === true // Ensure it's strictly boolean
+      isAdmin: u.isAdmin === true,
     };
     setUser(safeUser);
     setBalance(u.balance || 0);
     setCachedUser(safeUser);
   }, []);
 
+  // ═══════════════════════════════════════════════════════
+  // 🔴 FIX #8: getMe → on 401/403 force re-login
+  //    Without this, an expired token leaves the user
+  //    stuck on stale cached data and every API 401s.
+  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!user?.telegramId) return;
     let cancelled = false;
 
-    // ✅ FIX: ያለምንም መዘግየት (Immediate) ከሰርቨር ያምጣ
     getMe()
       .then((fresh) => {
         if (cancelled || !fresh) return;
-        
         setUser((prev) => {
           const updated = {
             ...prev,
             ...fresh,
-            isAdmin: fresh.isAdmin === true // Enforce boolean
+            isAdmin: fresh.isAdmin === true,
           };
           setCachedUser(updated);
           return updated;
         });
-        
         if (fresh.balance !== undefined) setBalance(fresh.balance);
       })
-      .catch((err) => console.warn("[App] getMe failed:", err?.message));
+      .catch((err) => {
+        if (cancelled) return;
+        const status = err?.response?.status;
+
+        // 🔴 401 (expired JWT) or 403 (banned / not found)
+        //    → wipe all state → <Login> re-authenticates with fresh initData
+        if (status === 401 || status === 403) {
+          console.warn("[App] Auth failed — forcing re-login (status:", status, ")");
+          logout();              // clears token + telegramId + socket
+          clearAllUserCaches();  // wipes every fb_user_cache_* entry
+          setUser(null);
+          setBalance(0);
+          setCardIds([]);
+          setRoomCode(null);
+          setShowCartela(false);
+          setActiveTab("Game");
+          setGameStatus("waiting");
+          return;
+        }
+
+        // Network / other errors — just log, keep cached data
+        console.warn("[App] getMe failed:", err?.message);
+      });
 
     return () => {
       cancelled = true;
@@ -889,7 +945,6 @@ function App() {
         />
       )}
 
-      {/* ✅ የአድሚን ገጽ መከላከያ (አድሚን ላልሆነ ተጠቃሚ አይታይም) */}
       {activeTab === "Admin" && isAdmin && <AdminPanel />}
 
       {!showCartela && !roomCode && (

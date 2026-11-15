@@ -348,7 +348,7 @@ router.post("/users/:id/balance", requireAdmin, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// ✅ የተስተካከለው Broadcast API
+// ✅ የተስተካከለው Broadcast API — ርዕስ ሳይኖር ፅሁፉ ብቻ ይላካል
 // ═══════════════════════════════════════════════════════
 router.post("/broadcast", requireAdmin, async (req, res) => {
   try {
@@ -357,17 +357,18 @@ router.post("/broadcast", requireAdmin, async (req, res) => {
       return res.status(400).json({ error: "Message required" });
     }
 
-    // ✅ FIX: ርዕስ ባዶ ሲሆን ስህተት እንዳይመጣ ነባሪ ጽሑፍ መስጠት
+    // ✅ ርዕስ ባዶ ከሆነ ምንም ነባሪ ስም (Fetan bingo) አይሰጥም
     const finalTitle = (typeof title === "string" && title.trim()) 
       ? title.trim().slice(0, 120) 
-      : "Fetan bingo";
+      : null;
       
     const finalBody = body.trim().slice(0, 2000);
 
     // 1. በዳታቤዝ ውስጥ ማስቀመጥ (ለ App ውስጥ ማሳወቂያ ሆኖ እንዲያገለግል)
+    // ዳታቤዙ ርዕስ ስለሚፈልግ "ማሳወቂያ" ተብሎ ይመዘገባል
     const notification = await Notification.create({
       user: null,
-      title: finalTitle,
+      title: finalTitle || "ማሳወቂያ",
       body: finalBody,
       type: "info",
     });
@@ -376,11 +377,15 @@ router.post("/broadcast", requireAdmin, async (req, res) => {
     try {
       const { bot } = require("../bot");
       if (bot) {
-        // ✅ FIX: ድርብ ኢሞጂ እንዳይመጣ ርዕሱ ላይ ቀድሞ ካለ 📢 ማስወገድ
-        const cleanTitle = finalTitle.replace(/^📢\s*/, "");
-        const text = `📢 <b>${cleanTitle}</b>\n\n${finalBody}`;
+        let text = finalBody;
         
-        // ✅ FIX: የፍሮንትኤንድ ጥያቄ እንዳይጠብቅ ወዲያውኑ ምላሽ መስጠት
+        // ✅ ርዕስ ካለ ብቻ ከላይ ይታያል፣ ከሌለ ፅሁፉ ብቻ ይላካል (Announcement አይባልም)
+        if (finalTitle) {
+          const cleanTitle = finalTitle.replace(/^📢\s*/, "");
+          text = `📢 <b>${cleanTitle}</b>\n\n${finalBody}`;
+        }
+
+        // የፍሮንትኤንድ ጥያቄ እንዳይጠብቅ ወዲያውኑ ምላሽ መስጠት
         res.json({ ok: true, notification });
 
         // በ Background ላይ መልእክቱን መላክ እንጀምር
@@ -392,12 +397,14 @@ router.post("/broadcast", requireAdmin, async (req, res) => {
 
             for (const u of users) {
               try {
-                await bot.telegram.sendMessage(u.telegramId, text, { parse_mode: "HTML" });
+                await bot.telegram.sendMessage(u.telegramId, text, { 
+                  parse_mode: "HTML",
+                  disable_web_page_preview: true 
+                });
                 success++;
                 // የቴሌግራም ገደብ (Rate Limit) እንዳይመታ በየ 50 ሚሊሰከንዱ ማረፍ
                 await new Promise(r => setTimeout(r, 50)); 
               } catch (err) {
-                // 403 (User Blocked Bot) ካለ ችላ ተብሎ ይታለፋል
                 failed++;
               }
             }

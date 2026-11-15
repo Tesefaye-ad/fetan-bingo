@@ -59,13 +59,31 @@ TransactionSchema.index(
   }
 );
 
-// አሸናፊ ክፍያ — አንድ ተጠቃሚ በአንድ ጨዋታ አንድ ጊዜ ብቻ (crash/resume ቢደረግም ድርብ ክፍያ የለም)
+// አሸናፊ ክፍያ — አንድ ተጠቃሚ በአንድ ጨዋታ አንድ ጊዜ ብቻ
+// (crash/resume ቢደረግም ድርብ ክፍያ የለም)
 TransactionSchema.index(
   { game: 1, user: 1 },
   {
     unique: true,
     name: "uniq_prize_per_game_user",
     partialFilterExpression: { type: "prize" },
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// 🔴 TRANSFER IDEMPOTENCY
+//    Client sends idempotencyKey; retry/network-timeout
+//    duplicates are blocked by this unique index.
+// ═══════════════════════════════════════════════════════
+TransactionSchema.index(
+  { user: 1, "meta.idempotencyKey": 1 },
+  {
+    unique: true,
+    name: "uniq_transfer_idem",
+    partialFilterExpression: {
+      type: "transfer_out",
+      "meta.idempotencyKey": { $type: "string" },
+    },
   }
 );
 
@@ -81,9 +99,7 @@ TransactionSchema.index(
   { name: "idx_type_status_created" }
 );
 
-// ═══════════════════════════════════════════════════════
-// 👈 CLEANUP INDEX — ለ cleanup cron (2 ሳምንት አንድ ጊዜ)
-// ═══════════════════════════════════════════════════════
+// Cleanup index
 TransactionSchema.index(
   { status: 1, createdAt: 1 },
   { name: "idx_status_created_cleanup" }

@@ -1,22 +1,46 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   initiateDeposit,
   withdraw as withdrawApi,
   transfer as transferApi,
 } from "./api";
 
-// ✅ FIX: showHistory dead code ተወግዷል — History ገጽ App.jsx ነው
+// ═══════════════════════════════════════════════════════
+// IDEMPOTENCY KEY generator
+// ═══════════════════════════════════════════════════════
+function makeIdempotencyKey() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+}
+
 function Wallet({ balance, setBalance }) {
   const [amount, setAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawPhone, setWithdrawPhone] = useState("");
-  
-  // ✅ FIX: transferId ተቀይሮ ወደ transferPhone ሆኗል
+
   const [transferPhone, setTransferPhone] = useState("");
   const [transferAmount, setTransferAmount] = useState("");
-  
+
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // ═════════════════════════════════════════════════════
+  // 🔴 IDEMPOTENCY refs — MUST be refs, not state
+  //    Because rapid double-clicks happen before React
+  //    updates state (async batching).
+  // ═════════════════════════════════════════════════════
+  const transferKeyRef = useRef(null);
+  const transferBusyRef = useRef(false);
+
+  // Clear key whenever phone or amount changes →
+  // because it's a different transfer now.
+  useEffect(() => {
+    transferKeyRef.current = null;
+  }, [transferPhone, transferAmount]);
 
   const handleDeposit = async (e) => {
     e.preventDefault();
@@ -72,28 +96,70 @@ function Wallet({ balance, setBalance }) {
     }
   };
 
-  // ✅ FIX: አሁን በስልክ ቁጥር ይላካል
+  // ═════════════════════════════════════════════════════
+  // 🔴 TRANSFER — Idempotent
+  //
+  //    Same idempotencyKey is reused across retries:
+  //      - First click fails (network/timeout) → key kept
+  //      - User clicks "Send Money" again → same key sent
+  //      - Server sees existing key → returns success WITHOUT
+  //        transferring twice.
+  //
+  //    Key is cleared only on:
+  //      - Success (new transfer allowed)
+  //      - Phone/amount edit (different transfer intent)
+  // ═════════════════════════════════════════════════════
   const handleTransfer = async (e) => {
     e.preventDefault();
+
+    // 🔴 Ref-based guard — blocks rapid double-clicks that
+    //    happen before React commits `loading` state.
+    if (transferBusyRef.current) return;
+
     if (!transferPhone || !transferAmount || Number(transferAmount) <= 0) {
       setMessage("እባክዎ የተቀባይ ስልክ ቁጥር እና ትክክለኛ መጠን ያስገቡ።");
       return;
     }
+
+    transferBusyRef.current = true;
     setLoading(true);
     setMessage("");
+
+    // Reuse existing key, or create one for this attempt
+    let key = transferKeyRef.current;
+    if (!key) {
+      key = makeIdempotencyKey();
+      transferKeyRef.current = key;
+    }
+
     try {
-      // በ api.js ውስጥ ያለው transferApi ፈንክሽን በስልክ ቁጥር እንዲሰራ መስተካከል አለበት (ከታች ማስታወሻ አለ)
       const newBalance = await transferApi(
         transferPhone,
-        Number(transferAmount)
+        Number(transferAmount),
+        key
       );
+
+      // Success → clear everything
       setMessage("✅ ገንዘቡ በተሳካ ሁኔታ ተላልፏል!");
       if (newBalance !== undefined) setBalance(newBalance);
       setTransferPhone("");
       setTransferAmount("");
+      transferKeyRef.current = null;
     } catch (err) {
-      setMessage(`❌ ${err?.response?.data?.error || err.message}`);
+      // 🔴 On error: keep key so a retry is idempotent.
+      //    The useEffect will clear it IF the user edits
+      //    phone/amount (different transfer).
+      const msg = err?.response?.data?.error || err.message;
+      if (
+        err?.response?.data?.idempotent === true ||
+        /already|duplicate|ቀድሞ/i.test(String(msg))
+      ) {
+        setMessage("ℹ️ ይህ ዝውውር ቀድሞ ተፈጽሟል (idempotent)።");
+      } else {
+        setMessage(`❌ ${msg}`);
+      }
     } finally {
+      transferBusyRef.current = false;
       setLoading(false);
     }
   };
@@ -106,7 +172,7 @@ function Wallet({ balance, setBalance }) {
         margin: "0 auto",
         minHeight: "100%",
         paddingBottom: 120,
-        background: "transparent", 
+        background: "transparent",
       }}
     >
       {/* 💳 Balance Card */}
@@ -275,7 +341,7 @@ function Wallet({ balance, setBalance }) {
             type="tel"
             value={transferPhone}
             onChange={(e) => setTransferPhone(e.target.value)}
-            placeholder="Recipient Phone (09xxxxxxxx)" // ✅ ፕሌስሆልደር ተቀይሯል
+            placeholder="Recipient Phone (09xxxxxxxx)"
             style={inputStyle}
           />
           <input

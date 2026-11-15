@@ -5,7 +5,6 @@ const { verifyAndCreditDeposit } = require("./services/telebirr/depositVerifier"
 const {
   approveTransaction,
   rejectTransaction,
-  isAdminChatId,
 } = require("./services/deposits");
 
 const User = require("./models/User");
@@ -27,8 +26,7 @@ if (ADMIN_TELEGRAM_IDS.length === 0) {
 // BANNER
 // ═══════════════════════════════════════════════════════
 const BANNER_IMAGE_URL =
-  process.env.BOT_BANNER_URL ||
-  "https://i.ibb.co/tMBQz2kt/fb.jpg";
+  process.env.BOT_BANNER_URL || "https://i.ibb.co/tMBQz2kt/fb.jpg";
 
 let bannerFileId = process.env.BOT_BANNER_FILE_ID || null;
 
@@ -84,7 +82,6 @@ const DEPOSIT_PHONE = process.env.DEPOSIT_TELEBIRR_PHONE;
 const DEPOSIT_NAME = process.env.DEPOSIT_TELEBIRR_NAME || "";
 const MIN_DEPOSIT = Number(process.env.MIN_DEPOSIT || 20);
 const MIN_WITHDRAW = Number(process.env.MIN_WITHDRAW || 100);
-const REFERRAL_BONUS = Number(process.env.REFERRAL_BONUS || 5);
 const REGISTRATION_BONUS = 10;
 
 if (!BOT_TOKEN) {
@@ -113,6 +110,31 @@ function getStep(userId) {
 }
 function clearStep(userId) {
   pendingAction.delete(String(userId));
+}
+
+// ═══════════════════════════════════════════════════════
+// BROADCAST DEDUP — Telegram webhook retries protection
+// ═══════════════════════════════════════════════════════
+const recentBroadcasts = new Map(); // key → timestamp
+
+function isDuplicateBroadcast(chatId, text) {
+  const hash = crypto
+    .createHash("sha256")
+    .update(`${chatId}:${text}`)
+    .digest("hex")
+    .slice(0, 16);
+  const key = `broadcast:${hash}`;
+  const now = Date.now();
+  const last = recentBroadcasts.get(key);
+  if (last && now - last < 5 * 60 * 1000) return true;
+  recentBroadcasts.set(key, now);
+
+  if (recentBroadcasts.size > 100) {
+    for (const [k, t] of recentBroadcasts) {
+      if (now - t > 5 * 60 * 1000) recentBroadcasts.delete(k);
+    }
+  }
+  return false;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -229,7 +251,6 @@ async function processReferralBonus(telegramId) {
     );
     if (!claimed) return;
 
-    // ✅ FIX: ለእያንዳንዱ ሰው 5 ብር ከመስጠት ይልቅ ቁጥራቸውን ብቻ መጨመር
     const inviter = await User.findOneAndUpdate(
       { telegramId: claimed.referredBy, isBanned: { $ne: true } },
       { $inc: { referralCount: 1 } },
@@ -237,9 +258,8 @@ async function processReferralBonus(telegramId) {
     );
 
     if (inviter) {
-      // ✅ FIX: 20 ሰው ሲሆን ብቻ 100 ብር መስጠት
       if (inviter.referralCount >= 20 && inviter.bonusBalance < 100) {
-        const updatedInviter = await User.findOneAndUpdate(
+        await User.findOneAndUpdate(
           { telegramId: inviter.telegramId },
           { $inc: { bonusBalance: 100 } },
           { new: true }
@@ -249,19 +269,18 @@ async function processReferralBonus(telegramId) {
           .sendMessage(
             inviter.telegramId,
             `🎉 <b>እንኳን ደስ አለዎት!</b>\n\n` +
-            `20 ጓደኞችዎን በመጋበዝዎ ${100} ETB ቦነስ አግኝተዋል።\n` +
-            `ለመጫወት ዝግጁ ነዎት? 🎮`,
+              `20 ጓደኞችዎን በመጋበዝዎ ${100} ETB ቦነስ አግኝተዋል።\n` +
+              `ለመጫወት ዝግጁ ነዎት? 🎮`,
             { parse_mode: "HTML" }
           )
           .catch(() => {});
       } else {
-        // ✅ ገና 20 ካልሆነ ለመረጃ ብቻ መልእክት መላክ
         bot.telegram
           .sendMessage(
             inviter.telegramId,
             `🎉 Someone joined using your invite link!\n\n` +
-            `📊 እስካሁን የጋበዙት: ${inviter.referralCount}/20\n` +
-            `🎁 20 ሲሆን 100 ETB ያገኛሉ!`,
+              `📊 እስካሁን የጋበዙት: ${inviter.referralCount}/20\n` +
+              `🎁 20 ሲሆን 100 ETB ያገኛሉ!`,
             { parse_mode: "HTML" }
           )
           .catch(() => {});
@@ -269,6 +288,31 @@ async function processReferralBonus(telegramId) {
     }
   } catch (err) {
     console.error("[processReferralBonus] error:", err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// 🔴 Find the user's most recent pending deposit
+//    (created via Wallet "Deposit") so we can pass its
+//    reference to verifyAndCreditDeposit — prevents
+//    orphaned pending rows.
+// ═══════════════════════════════════════════════════════
+async function findPendingDeposit(user) {
+  try {
+    return await Transaction.findOne({
+      user: user._id,
+      type: "deposit",
+      status: "pending",
+      "meta.gateway": "telebirr",
+      "meta.transactionId": { $exists: false },
+      createdAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) },
+    })
+      .sort({ createdAt: -1 })
+      .select("reference amount")
+      .lean();
+  } catch (e) {
+    console.warn("[bot] findPendingDeposit failed:", e.message);
+    return null;
   }
 }
 
@@ -336,7 +380,6 @@ const handleRegister = async (ctx) => {
   );
 };
 
-bot.hears("Register 📝", handleRegister);
 bot.action("action_register", async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -409,7 +452,6 @@ const handleBalance = async (ctx) => {
   await ctx.reply(text, { parse_mode: "HTML", ...keyboard });
 };
 
-bot.hears("Check Balance 💵", handleBalance);
 bot.action("action_balance", async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -466,7 +508,6 @@ const handleDeposit = async (ctx) => {
   }
 };
 
-bot.hears("Deposit 💵", handleDeposit);
 bot.action("action_deposit", async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -527,7 +568,6 @@ const handleWithdraw = async (ctx) => {
   }
 };
 
-bot.hears("Withdraw 📤", handleWithdraw);
 bot.action("action_withdraw", async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -652,11 +692,11 @@ bot.action("cancel_action", async (ctx) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// ADMIN DECISION — ✅ የድርብ ክሬዲት መከላከያ ተጨምሯል
+// ADMIN GUARD — env ADMIN_TELEGRAM_IDS only
 // ═══════════════════════════════════════════════════════
 function isBotAdmin(ctx) {
   const id = String(ctx.from?.id || "");
-  return ADMIN_TELEGRAM_IDS.includes(id) || isAdminChatId(id);
+  return ADMIN_TELEGRAM_IDS.includes(id);
 }
 
 bot.command("smsstatus", async (ctx) => {
@@ -682,64 +722,105 @@ bot.command("smscheck", async (ctx) => {
   }
 });
 
-// ✅ አዲስ የተጨመረ: ለሁሉም ተጠቃሚዎች መልእክት የመላኪያ ትዕዛዝ
+// ═══════════════════════════════════════════════════════
+// 🔴 BROADCAST — non-blocking, dedup, background send
+// ═══════════════════════════════════════════════════════
 bot.command("broadcast", async (ctx) => {
   if (!isBotAdmin(ctx)) return;
 
-  const text = ctx.message.text.split(" ").slice(1).join(" ");
+  const text = String(ctx.message.text || "")
+    .split(/\s+/)
+    .slice(1)
+    .join(" ")
+    .trim();
+
   if (!text) {
-    return ctx.reply("⚠️ እባክዎ መልእክቱን ይጻፉ። ለምሳሌ:\n`/broadcast ሰላም ሁሉም!`", {
-      parse_mode: "Markdown",
-    });
+    return ctx.reply(
+      "⚠️ እባክዎ መልእክቱን ይጻፉ። ለምሳሌ:\n`/broadcast ሰላም ሁሉም!`",
+      { parse_mode: "Markdown" }
+    );
   }
 
-  const msg = await ctx.reply(`⏳ ለሁሉም ተጠቃሚዎች እየተላከ ነው...`);
+  // 🔴 Dedup — webhook retries prevent duplicate broadcasts
+  if (isDuplicateBroadcast(ctx.chat.id, text)) {
+    return ctx
+      .reply("ℹ️ ይህ broadcast በቅርቡ ተልኳል (duplicate ችላ ተብሏል)።")
+      .catch(() => {});
+  }
 
-  try {
-    // የተመዘገቡ ተጠቃሚዎችን በሙሉ ማምጣት (የታገዱ ካሉ ሳይጨምር)
-    const users = await User.find({ isBanned: { $ne: true } })
-      .select("telegramId")
-      .lean();
+  // 🔴 Immediately ack (prevents Telegram webhook retry after 60s)
+  await ctx
+    .reply(
+      `⏳ <b>Broadcast started</b>\n\n` +
+        `ለሁሉም ተጠቃሚዎች በኋላ ላይ እየተላከ ነው...\n` +
+        `ውጤቱ ሲጠናቀቅ ሌላ መልእክት ይመጣል።`,
+      { parse_mode: "HTML" }
+    )
+    .catch(() => {});
 
-    let success = 0;
-    let failed = 0;
+  const chatId = ctx.chat.id;
+  const replyToId = ctx.message.message_id;
+  const rawText = text; // captured before ctx closes
 
-    // የቴሌግራም ገደብ (Rate limit) እንዳይመታ በተከታታይ መላክ
-    for (const u of users) {
-      try {
-        await bot.telegram.sendMessage(u.telegramId, text, {
-          parse_mode: "HTML",
-        });
-        success++;
-        // በየ 50 ሚሊሰከንዱ ማረፍ (Anti-spam)
-        await new Promise((r) => setTimeout(r, 50));
-      } catch (err) {
-        // 403: ተጠቃሚው ቦቱን ካገደው ችላ ተብሎ ይታለፋል
-        if (err.response && err.response.error_code === 403) {
-          failed++;
-        } else {
+  // 🔴 Fire-and-forget
+  (async () => {
+    try {
+      // Create in-app notification (matches admin panel behavior)
+      await Notification.create({
+        user: null,
+        title: "📢 Announcement",
+        body: rawText.slice(0, 2000),
+        type: "info",
+      }).catch((e) =>
+        console.error("[broadcast] Notification.create failed:", e.message)
+      );
+
+      const users = await User.find({ isBanned: { $ne: true } })
+        .select("telegramId")
+        .lean();
+
+      let success = 0;
+      let failed = 0;
+
+      for (const u of users) {
+        try {
+          await bot.telegram.sendMessage(u.telegramId, rawText, {
+            parse_mode: "HTML",
+          });
+          success++;
+          // 50ms spacing — prevents Telegram rate limit
+          await new Promise((r) => setTimeout(r, 50));
+        } catch (err) {
           failed++;
         }
       }
-    }
 
-    await ctx.telegram.editMessageText(
-      ctx.chat.id,
-      msg.message_id,
-      undefined,
-      `✅ መልእክቱ ተልኳል!\n\n📤 ተሳክቷል: ${success}\n❌ አልተሳካም: ${failed}`
-    );
-  } catch (err) {
-    console.error("[/broadcast] error:", err.message);
-    await ctx.telegram.editMessageText(
-      ctx.chat.id,
-      msg.message_id,
-      undefined,
-      "❌ መልእክቱን መላክ አልተቻለም።"
-    );
-  }
+      await bot.telegram
+        .sendMessage(
+          chatId,
+          `✅ <b>Broadcast complete</b>\n\n` +
+            `📤 Success: <b>${success}</b>\n` +
+            `❌ Failed: <b>${failed}</b>`,
+          {
+            parse_mode: "HTML",
+            reply_to_message_id: replyToId,
+          }
+        )
+        .catch(() => {});
+    } catch (err) {
+      console.error("[/broadcast] background failed:", err.message);
+      await bot.telegram
+        .sendMessage(chatId, "❌ Broadcast አልተሳካም።", {
+          reply_to_message_id: replyToId,
+        })
+        .catch(() => {});
+    }
+  })();
 });
 
+// ═══════════════════════════════════════════════════════
+// ADMIN DECISION
+// ═══════════════════════════════════════════════════════
 async function adminDecision(ctx, kind, approve) {
   try {
     if (!isBotAdmin(ctx)) return ctx.answerCbQuery("❌ Admin only");
@@ -750,7 +831,6 @@ async function adminDecision(ctx, kind, approve) {
       return ctx.editMessageText("❌ Invalid transaction id");
     }
 
-    // ✅ የድርብ ክሬዲት መከላከያ: ግብይቱ አስቀድሞ መጠናቀቁን ማረጋገጥ
     const existingTx = await Transaction.findById(txId);
     if (!existingTx) {
       return ctx.editMessageText("❌ Transaction not found");
@@ -799,7 +879,7 @@ bot.action(/^dep_ok:(.+)$/, (ctx) => adminDecision(ctx, "dep", true));
 bot.action(/^dep_no:(.+)$/, (ctx) => adminDecision(ctx, "dep", false));
 
 // ═══════════════════════════════════════════════════════
-// DEPOSIT SMS — ✅ የተሻሻለ (Auto-Approved vs Manual Review)
+// 🔴 DEPOSIT SMS — passes reference from pending deposit
 // ═══════════════════════════════════════════════════════
 async function handleDepositSms(ctx, smsText) {
   const userId = String(ctx.from.id);
@@ -819,9 +899,13 @@ async function handleDepositSms(ctx, smsText) {
 
   let result;
   try {
+    // 🔴 Look up pending deposit so its reference is finalized
+    const pending = await findPendingDeposit(user);
+
     result = await verifyAndCreditDeposit({
       userId: user._id,
       smsText,
+      reference: pending?.reference, // undefined if none
     });
   } catch (err) {
     console.error("[bot deposit] verify error:", err);
@@ -838,7 +922,7 @@ async function handleDepositSms(ctx, smsText) {
       .catch(() => {});
   }
 
-  // ✅ 1. ሲስተሙ በራስ-ሰር ካጸደቀ — ለአድሚኑ ያለ ቁልፍ የመረጃ መልዕክት
+  // Auto-approved
   if (result.ok) {
     clearStep(userId);
     await ctx.reply(
@@ -849,7 +933,6 @@ async function handleDepositSms(ctx, smsText) {
       { parse_mode: "HTML", ...mainKeyboard() }
     );
 
-    // ✅ ለአድሚኑ የመረጃ መልዕክት ብቻ (Approve/Reject ቁልፎች የሉትም)
     await notifyAdmin(
       `✅ <b>Auto-Approved Deposit</b>\n\n` +
         `👤 ${esc(user.firstName || "User")} (${user.telegramId})\n` +
@@ -859,7 +942,7 @@ async function handleDepositSms(ctx, smsText) {
     return;
   }
 
-  // ✅ 2. Manual Review የሚያስፈልገው — ለአድሚኑ በ Approve/Reject ቁልፎች (በ depositVerifier.js ይላካል)
+  // Manual review
   if (result.status === "manual_review") {
     clearStep(userId);
     return ctx.reply(result.message, mainKeyboard());
@@ -997,7 +1080,6 @@ const handleInvite = async (ctx) => {
   }
 };
 
-bot.hears("Invite 🔗", handleInvite);
 bot.action("action_invite", async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -1019,7 +1101,6 @@ const handleInstruction = async (ctx) => {
   await ctx.reply(text, { parse_mode: "HTML" });
 };
 
-bot.hears("Instruction 📖", handleInstruction);
 bot.action("action_instruction", async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -1039,7 +1120,6 @@ const handleSupport = async (ctx) => {
   );
 };
 
-bot.hears("Contact Support ☎️", handleSupport);
 bot.action("action_support", async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -1119,15 +1199,18 @@ function startBot(app) {
 
 module.exports = { startBot, bot };
 
-process.once("SIGINT", () => {
+// ═══════════════════════════════════════════════════════
+// GRACEFUL SHUTDOWN
+// ═══════════════════════════════════════════════════════
+process.once("SIGINT", async () => {
   try {
-    bot.stop("SIGINT");
+    await bot.stop("SIGINT");
   } catch (err) {}
   process.exit(0);
 });
-process.once("SIGTERM", () => {
+process.once("SIGTERM", async () => {
   try {
-    bot.stop("SIGTERM");
+    await bot.stop("SIGTERM");
   } catch (err) {}
   process.exit(0);
 });

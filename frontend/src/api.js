@@ -21,7 +21,6 @@ api.interceptors.response.use(
     const config = error.config;
     if (!config) return Promise.reject(error);
 
-    // ✅ ለ idempotent methods ብቻ retry ያደርጋል (POST ድርብ ክፍያ እንዳያስከትል)
     const method = String(config.method || "get").toLowerCase();
     const isIdempotent = ["get", "head", "options"].includes(method);
 
@@ -211,12 +210,18 @@ export async function withdraw(amount, phone, method) {
   return data.balance;
 }
 
-// ✅ FIX: ትራንስፈር አሁን በስልክ ቁጥር ትክክል ይሰራል
-export async function transfer(phone, amount) {
-  const { data } = await api.post("/api/wallet/transfer", {
-    phone,
-    amount,
-  });
+// ═══════════════════════════════════════════════════════
+// 🔴 TRANSFER — Idempotent
+//    idempotencyKey is optional. If provided, the backend
+//    blocks duplicate requests (double-click / network retry).
+//    If omitted, backend generates nothing and acts normally.
+// ═══════════════════════════════════════════════════════
+export async function transfer(phone, amount, idempotencyKey) {
+  const payload = { phone, amount };
+  if (idempotencyKey && typeof idempotencyKey === "string") {
+    payload.idempotencyKey = idempotencyKey;
+  }
+  const { data } = await api.post("/api/wallet/transfer", payload);
   return data.balance;
 }
 
@@ -346,8 +351,6 @@ export async function adminSaveConfig(ticketPrice, winnerPercent) {
   });
   return data;
 }
-
-// ✅ አዲስ የተጨመረ (Force Win)
 
 export async function adminForceWin(roomCode, cardId) {
   const { data } = await api.post("/api/admin/force-win", { roomCode, cardId });

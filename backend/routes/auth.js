@@ -392,4 +392,5 @@ module.exports = router;
 module.exports.requireAuth = requireAuth;
 module.exports.verifySocketToken = verifySocketToken;
 module.exports.clearBanCache = clearBanCache;
+module.exports.isUserBanned = isUserBanned; 
 module.exports.userRouter = userRouter;

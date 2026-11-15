@@ -12,6 +12,7 @@
     "cleanup": "node scripts/cleanup.js"
   },
   "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
     "axios": "^1.7.2",
     "cheerio": "^1.0.0",
     "cors": "^2.8.5",
