@@ -56,12 +56,11 @@ function PatternPreview({ pattern, size = 70 }) {
       case "any-column":
         for (let r = 0; r < 5; r++) cells.add(key(r, 2));
         break;
-           case "any-diagonal":
+      case "any-diagonal":
         // ✅ FIX: ሁለቱንም ሰያፎች (X) ሳይሆን የመጀመሪያውን ሰያፍ (\) ብቻ ያሳይ
         for (let i = 0; i < 5; i++) {
           cells.add(key(i, i));
         }
-        break;
         break;
       case "four-corners":
         cells.add(key(0, 0));
@@ -793,7 +792,8 @@ export default function LiveGame({
         d.cards.map((card, i) => ({
           cardId: d.cardIds?.[i] || i + 1,
           card,
-          marked: d.markedCards[i],
+          // ✅ FIX: markedCards ሲጎድል ገጹ እንዳይወድቅ የመጀመሪያ ሁኔታ (free space) እንስጥ
+          marked: d.markedCards?.[i] || card.map((row, r) => row.map((_, c) => r === 2 && c === 2)),
         }))
       );
     };
@@ -896,7 +896,10 @@ export default function LiveGame({
       setCalledNumbers([]);
     };
 
-    const onBalanceUpdate = ({ balance: b }) => setBalance(b);
+    const onBalanceUpdate = ({ balance: b }) => {
+      if (typeof setBalance === "function") setBalance(b);
+    };
+    
     const onErrorMessage = ({ message }) => console.warn("[LiveGame]", message);
 
     socket.on("connect", onConnect);
@@ -963,7 +966,7 @@ export default function LiveGame({
   const lastInfo = lastNumber ? getLetter(lastNumber) : null;
   const cardCount = cards.length || 1;
 
-  // ✅ FIX: የአሸናፊዎችን ዝርዝር ማስላት — ደራሹን በራስ-ሰር ያሰላል
+  // ✅ የአሸናፊዎችን ዝርዝር ማስላት — ደራሹን በራስ-ሰር ያሰላል
   const uniqueWinners = useMemo(() => {
     if (!bingoPopup) return [];
 

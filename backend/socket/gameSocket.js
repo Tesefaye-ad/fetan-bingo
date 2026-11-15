@@ -484,7 +484,7 @@ function initGameSocket(io) {
         pattern,
         card: player.card,
         marked: player.marked,
-        prize: prizePerUser, // 🔴 እያንዳንዱ ካርቴላ የራሱን ድርሻ እንዲይዝ
+        prize: prizePerUser,
       }));
 
       await Game.updateOne(
