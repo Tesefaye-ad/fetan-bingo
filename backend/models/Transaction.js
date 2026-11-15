@@ -60,7 +60,7 @@ TransactionSchema.index(
 );
 
 // ═══════════════════════════════════════════════════════
-// 🔴 PRIZE IDEMPOTENCY (አዲስ ማስተካከያ)
+// 🔴 PRIZE IDEMPOTENCY (የደራሽ ክፍያ መከላከያ)
 //    አንድ ተጠቃሚ በአንድ የጨዋታ ዙር (roundId) አንድ ጊዜ ብቻ እንዲከፈለው
 // ═══════════════════════════════════════════════════════
 TransactionSchema.index(
@@ -73,9 +73,7 @@ TransactionSchema.index(
 );
 
 // ═══════════════════════════════════════════════════════
-// 🔴 TRANSFER IDEMPOTENCY
-//    Client sends idempotencyKey; retry/network-timeout
-//    duplicates are blocked by this unique index.
+// 🔴 TRANSFER IDEMPOTENCY (የዝውውር መከላከያ)
 // ═══════════════════════════════════════════════════════
 TransactionSchema.index(
   { user: 1, "meta.idempotencyKey": 1 },

@@ -26,7 +26,7 @@ const CardSchema = new mongoose.Schema(
 
 const WinningCartelaSchema = new mongoose.Schema(
   {
-    // 🔴 userId: ለ Resume/Payout ማዕከላዊ ቁልፍ (አስፈላጊ ነው!)
+    // userId: ለ Resume/Payout ማዕከላዊ ቁልፍ (አስፈላጊ ነው!)
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     telegramId: { type: String },
     name: { type: String },
@@ -34,7 +34,7 @@ const WinningCartelaSchema = new mongoose.Schema(
     pattern: { type: String },
     card: { type: [[Number]] },
     marked: { type: [[Boolean]] },
-    prize: { type: Number }, // 🔴 በወቅቱ የተሰላ ደራሽ (ለታሪክ መዝገብ)
+    prize: { type: Number }, // በወቅቱ የተሰላ ደራሽ (ለታሪክ መዝገብ)
   },
   { _id: false }
 );
