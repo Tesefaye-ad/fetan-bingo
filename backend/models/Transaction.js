@@ -68,7 +68,10 @@ TransactionSchema.index(
   {
     unique: true,
     name: "uniq_prize_per_round_user",
-    partialFilterExpression: { type: "prize" },
+    partialFilterExpression: { 
+      type: "prize", 
+      "meta.roundId": { $type: "string" } // 🔴 ይህ መኖሩ በጣም አስፈላጊ ነው!
+    },
   }
 );
 
