@@ -12,7 +12,7 @@ import { formatCountdown, serverNow } from "./serverClock";
 const TOTAL_CARDS = 1250;
 const WEEKLY_ROOMS = ["ROOM50", "ROOM100"];
 const SYNC_RETRIES = 6;
-const PRIZE_SHARE = 0.8;
+const PRIZE_SHARE = 0.8; // 🔴 የደራሽ መጠን (80%)
 
 // ═══════════════════════════════════════════════════════
 // ✅ Number button — ፍጥነትን ለማሻሻል Custom Memo ተጠቅሟል
@@ -46,7 +46,7 @@ const NumberButton = memo(
             : isTaken
             ? "0 0 12px rgba(231,76,60,0.9), inset 0 0 8px rgba(231,76,60,0.3)"
             : "none",
-          transition: "all 0.1s ease", // ፈጣን እንዲመስል ጊዜውን ቀንሻለሁ
+          transition: "all 0.1s ease",
         }}
       >
         {n}
@@ -353,7 +353,7 @@ export default function CartelaSelection({
       setCurrentBalance(newBal);
       if (setBalanceRef.current) setBalanceRef.current(newBal);
     },
-    [flash] // 🔴 ፍላሽ ብቻ ነው የሚመረኮዘው (ፍላሽም ቋሚ ነው)
+    [flash]
   );
 
   const handleCancel = () => {

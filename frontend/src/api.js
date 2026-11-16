@@ -46,7 +46,7 @@ api.interceptors.request.use((config) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// SOCKET — singleton (token ሲቀየር ይቀዳል)
+// 🔴 SOCKET — Singleton with Reconnection
 // ═══════════════════════════════════════════════════════
 let socket = null;
 let socketToken = null;
@@ -54,6 +54,7 @@ let socketToken = null;
 export function getSocket() {
   const token = localStorage.getItem("bingo_token");
 
+  // ቶከኑ ከተቀየረ አዲስ ግንኙነት መፍጠር
   if (socket && socketToken !== token) {
     console.log("[socket] Token changed — reconnecting");
     socket.disconnect();
@@ -61,7 +62,13 @@ export function getSocket() {
     socketToken = null;
   }
 
-  if (socket) return socket;
+  if (socket) {
+    // 🔴 ግንኙነቱ ከተቋረጠ እንደገና ለመገናኘት መሞከር
+    if (!socket.connected) {
+      socket.connect();
+    }
+    return socket;
+  }
 
   socketToken = token;
   socket = io(API_BASE_URL, {
@@ -74,6 +81,11 @@ export function getSocket() {
     reconnectionAttempts: Infinity,
     timeout: 60000,
   });
+
+  socket.on("connect_error", (err) => {
+    console.error("[socket] Connect error:", err.message);
+  });
+
   return socket;
 }
 
@@ -212,9 +224,6 @@ export async function withdraw(amount, phone, method) {
 
 // ═══════════════════════════════════════════════════════
 // 🔴 TRANSFER — Idempotent
-//    idempotencyKey is optional. If provided, the backend
-//    blocks duplicate requests (double-click / network retry).
-//    If omitted, backend generates nothing and acts normally.
 // ═══════════════════════════════════════════════════════
 export async function transfer(phone, amount, idempotencyKey) {
   const payload = { phone, amount };

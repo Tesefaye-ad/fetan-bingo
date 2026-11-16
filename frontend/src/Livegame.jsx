@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from "react";
-import { getSocket, getBalance } from "./api"; // 🔴 getBalance ተጨምሯል
+import { getSocket, getBalance } from "./api";
 
 const HEADERS = [
   { letter: "B", color: "#4c6ef5" },
@@ -320,14 +320,18 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
     const socket = getSocket();
     socketRef.current = socket;
 
-    // 🔴 ባላንስን ከሰርቨር አምጥቶ የሚያዘምን ፈንክሽን
-    const refreshBalance = async () => {
+    // 🔴 ባላንስን ከሰርቨር አምጥቶ የሚያዘምን ፈንክሽን (Retry Logic)
+    const refreshBalance = async (retries = 0) => {
       try {
         const d = await getBalance();
         if (d && d.balance !== undefined && typeof setBalance === "function" && mountedRef.current) {
           setBalance(d.balance);
         }
-      } catch (e) {}
+      } catch (e) {
+        if (retries < 3 && mountedRef.current) {
+          setTimeout(() => refreshBalance(retries + 1), 1500);
+        }
+      }
     };
 
     const emitJoin = (reason = "initial") => {
@@ -471,8 +475,10 @@ export default function LiveGame({ roomCode, cardIds, onExit, onGameEnded, setBa
       if (soundOnRef.current) sound.bingo();
       if (window.navigator.vibrate) window.navigator.vibrate([100, 50, 100, 50, 200]);
 
-      // 🔴 BINGO ሲመጣ ባላንስን ከሰርቨር ማመሳሰል (ሰርቨሩ ሊዘገይ ስለሚችል ትንሽ ጊዜ መስጠት)
-      setTimeout(refreshBalance, 1500);
+      // 🔴 BINGO ሲመጣ ባላንስን ከሰርቨር ማመሳሰል (3 ጊዜ ሞክሮ)
+      setTimeout(() => refreshBalance(1), 1000);
+      setTimeout(() => refreshBalance(2), 3000);
+      setTimeout(() => refreshBalance(3), 5000);
     };
 
     const onGameOver = () => {
