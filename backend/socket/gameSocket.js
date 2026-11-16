@@ -17,6 +17,9 @@ const rooms = require("../services/rooms");
 const { notifyWinnersGroup } = require("../services/winnerNotify");
 const { cacheClient } = require("../config/redis");
 
+// ═══════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════
 const CALL_INTERVAL_MS = Number(process.env.CALL_INTERVAL_MS || 1700);
 const FIRST_CALL_DELAY_MS = Number(process.env.FIRST_CALL_DELAY_MS || 1700);
 const WINNER_DISPLAY_MS = 10000;
@@ -68,7 +71,7 @@ async function releaseLock(roomCode) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🔴 BALANCE SYNC — client optimistic deduction መመለስ
+// BALANCE SYNC
 // ═══════════════════════════════════════════════════════
 async function syncBalanceToSocket(socket) {
   try {
@@ -193,7 +196,7 @@ function initGameSocket(io) {
     return g;
   }
 
-  // 🔴 FIX: ፈጣን እንዲሆን Transaction.create አልተጠበቀም (Fire & Forget)
+  // 🔴 Fast refund — Transaction.create in background
   async function refund(userId, amount, gameId, meta) {
     try {
       const u = await User.findByIdAndUpdate(
@@ -202,7 +205,7 @@ function initGameSocket(io) {
         { new: true }
       );
       if (!u) return null;
-      
+
       Transaction.create({
         user: u._id,
         type: "refund",
@@ -210,7 +213,7 @@ function initGameSocket(io) {
         balanceAfter: u.balance,
         game: gameId,
         meta,
-      }).catch(e => console.error("[refund] tx error:", e.message));
+      }).catch((e) => console.error("[refund] tx error:", e.message));
 
       emitToUser(u._id, "balance_update", { balance: u.balance });
       return u;
@@ -221,9 +224,24 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // 🔴 PRIZE CREDIT — Idempotent & crash-safe (Using roundId)
+  // 🔴 PRIZE CREDIT — STALE-INDEX-PROOF
+  //
+  //    The old `uniq_prize_per_game_user` index may still
+  //    exist in the MongoDB database (Mongoose does NOT
+  //    auto-drop old indexes when you change the schema).
+  //
+  //    That index on {game, user} blocks multiple wins per
+  //    room because all rounds share the same Game._id.
+  //
+  //    FIX: use a FRESH ObjectId for the `game` field on
+  //    every payout. Store the real Game._id in
+  //    meta.originalGameId. Every (game, user) pair is
+  //    therefore unique → old index can never fire.
   // ═══════════════════════════════════════════════════════
   async function creditUserPrize({ roundId, gameId, userId, amount, cartelas, winsCount }) {
+    // 🔴 Fresh ObjectId — never conflicts with old index
+    const freshGameKey = new mongoose.Types.ObjectId();
+
     let tx;
     try {
       tx = await Transaction.create({
@@ -231,28 +249,63 @@ function initGameSocket(io) {
         type: "prize",
         amount,
         balanceAfter: 0,
-        game: gameId,
+        game: freshGameKey, // 🔴 Fresh — old index can never fire
         status: "completed",
-        meta: { cartelas, roundId },
+        meta: {
+          cartelas,
+          roundId,
+          originalGameId: gameId, // 📎 real Game._id
+        },
       });
     } catch (e) {
       if (e.code !== 11000) throw e;
-      
+
+      // Duplicate → check if this round already has a TX
       tx = await Transaction.findOne({
         user: userId,
         type: "prize",
         "meta.roundId": roundId,
       });
-      if (!tx) throw new Error("prize_tx_missing_after_dup");
-      
+
+      if (!tx) {
+        // 🚨 Some OTHER unique index fired.
+        //    Balance integrity > audit trail: credit directly.
+        console.warn(
+          `[creditUserPrize] ⚠️ Duplicate for user ${userId}, round ${roundId}. Crediting directly.`
+        );
+        const u = await User.findByIdAndUpdate(
+          userId,
+          {
+            $inc: {
+              balance: amount,
+              gamesWon: winsCount,
+              totalWinnings: amount,
+            },
+          },
+          { new: true }
+        );
+        return u
+          ? { user: u, balanceAfter: u.balance, alreadyDone: false }
+          : { user: null, balanceAfter: 0, alreadyDone: true };
+      }
+
+      // Already fully credited → safe to skip
       if (tx.balanceAfter > 0) {
         return { user: null, balanceAfter: tx.balanceAfter, alreadyDone: true };
       }
+      // balanceAfter === 0 → crash recovery, continue
     }
 
+    // 🔴 Credit user balance
     const updated = await User.findByIdAndUpdate(
       userId,
-      { $inc: { balance: amount, gamesWon: winsCount, totalWinnings: amount } },
+      {
+        $inc: {
+          balance: amount,
+          gamesWon: winsCount,
+          totalWinnings: amount,
+        },
+      },
       { new: true }
     );
 
@@ -261,16 +314,21 @@ function initGameSocket(io) {
       return { user: null, balanceAfter: 0, alreadyDone: true };
     }
 
+    // 🔴 Mark transaction as fully credited
     await Transaction.updateOne(
       { _id: tx._id },
       { $set: { balanceAfter: updated.balance } }
     );
 
-    return { user: updated, balanceAfter: updated.balance, alreadyDone: false };
+    return {
+      user: updated,
+      balanceAfter: updated.balance,
+      alreadyDone: false,
+    };
   }
 
   // ═══════════════════════════════════════════════════════
-  // 🔴 RETRY UNPAID PRIZES — crash-recovery
+  // RETRY UNPAID PRIZES — crash-recovery
   // ═══════════════════════════════════════════════════════
   async function retryAllUnpaidPrizes(game) {
     const winners = game.winners || [];
@@ -283,6 +341,7 @@ function initGameSocket(io) {
     let allPaid = true;
 
     for (const userId of winners) {
+      // Lookup by meta.roundId (works regardless of `game` field value)
       const existingTx = await Transaction.findOne({
         user: userId,
         type: "prize",
@@ -435,7 +494,7 @@ function initGameSocket(io) {
         const seen = new Set();
         const players = [];
         const cardMap = new Map((game.allCards || []).map((c) => [c.cardId, c]));
-        
+
         for (const r of game.reservedCards) {
           if (seen.has(r.cardId)) continue;
           seen.add(r.cardId);
@@ -613,7 +672,7 @@ function initGameSocket(io) {
   }
 
   // ═══════════════════════════════════════════════════════
-  // 🔴 WINNERS — Atomic, crash-safe, idempotent
+  // WINNERS — Atomic, crash-safe, idempotent
   // ═══════════════════════════════════════════════════════
   async function processWinners(rt, winners) {
     clearTimeout(rt.timer);
@@ -825,11 +884,17 @@ function initGameSocket(io) {
   // ═══════════════════════════════════════════════════════
   async function retryWinnerNotification(game) {
     const roundId = game.roundId || game._id.toString();
-    const prizeTxs = await Transaction.find({ user: { $in: game.winners }, type: "prize", "meta.roundId": roundId }).lean();
+    const prizeTxs = await Transaction.find({
+      user: { $in: game.winners },
+      type: "prize",
+      "meta.roundId": roundId,
+    }).lean();
     if (prizeTxs.length === 0) return;
 
     const userIds = [...new Set(prizeTxs.map((t) => String(t.user)))];
-    const users = await User.find({ _id: { $in: userIds } }).select("username firstName lastName telegramId").lean();
+    const users = await User.find({ _id: { $in: userIds } })
+      .select("username firstName lastName telegramId")
+      .lean();
     const userById = new Map(users.map((u) => [String(u._id), u]));
 
     const panel = prizeTxs.map((tx) => {
@@ -945,7 +1010,7 @@ function initGameSocket(io) {
           marked: computeMarked(p.card, game.calledNumbers),
           hasWon: false,
         }));
-        
+
         const rt = createRuntime({
           gameId: game._id,
           roundId,
@@ -1135,7 +1200,7 @@ function initGameSocket(io) {
       }
     });
 
-    // 🔴 SELECT_CARD — Parallel DB Queries for speed
+    // SELECT_CARD — Parallel DB Queries for speed
     socket.on("select_card", async ({ roomCode, cardId } = {}) => {
       try {
         if (!socket.allow()) {
@@ -1189,8 +1254,8 @@ function initGameSocket(io) {
         const deadlineField = game.isWeeklyGame
           ? "scheduledStart"
           : "selectionEndsAt";
-          
-        // 🔴 Game update እና Transaction create በአንድ ላይ እንዲሰሩ ማድረግ (Fast)
+
+        // Parallel: game update + transaction create
         const [res] = await Promise.all([
           Game.updateOne(
             {
@@ -1240,7 +1305,7 @@ function initGameSocket(io) {
       }
     });
 
-    // 🔴 DESELECT_CARD — Fast refund
+    // DESELECT_CARD — Fast refund
     socket.on("deselect_card", async ({ roomCode, cardId } = {}) => {
       try {
         if (!socket.allow()) {
@@ -1279,7 +1344,6 @@ function initGameSocket(io) {
           return;
         }
 
-        // refund() is optimized to not await Transaction.create
         await refund(socket.userId, game.entryFee, game._id, {
           action: "deselect",
           cardId,
@@ -1368,7 +1432,7 @@ function initGameSocket(io) {
   });
 }
 
-// ✅ አድሚን የሚጠቀመው ፈንክሽን (Redis ላይ ያስቀምጣል)
+// ✅ Admin helper
 async function setForcedWinner(roomCode, cardId) {
   if (!roomCode) return;
   try {
