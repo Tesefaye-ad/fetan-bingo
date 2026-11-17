@@ -42,6 +42,9 @@ function Wallet({ balance, setBalance }) {
     transferKeyRef.current = null;
   }, [transferPhone, transferAmount]);
 
+  // ─────────────────────────────────────────────────────
+  // DEPOSIT
+  // ─────────────────────────────────────────────────────
   const handleDeposit = async (e) => {
     e.preventDefault();
     if (!amount || Number(amount) <= 0) {
@@ -67,6 +70,9 @@ function Wallet({ balance, setBalance }) {
     }
   };
 
+  // ─────────────────────────────────────────────────────
+  // WITHDRAW
+  // ─────────────────────────────────────────────────────
   const handleWithdraw = async (e) => {
     e.preventDefault();
     if (!withdrawAmount || Number(withdrawAmount) <= 0) {

@@ -293,9 +293,6 @@ async function processReferralBonus(telegramId) {
 
 // ═══════════════════════════════════════════════════════
 // 🔴 Find the user's most recent pending deposit
-//    (created via Wallet "Deposit") so we can pass its
-//    reference to verifyAndCreditDeposit — prevents
-//    orphaned pending rows.
 // ═══════════════════════════════════════════════════════
 async function findPendingDeposit(user) {
   try {
@@ -516,28 +513,12 @@ bot.action("action_deposit", async (ctx) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// WITHDRAW FLOW
+// 🔴 WITHDRAW FLOW (UPDATED)
 // ═══════════════════════════════════════════════════════
 const handleWithdraw = async (ctx) => {
   try {
     const user = await getOrCreateUser(ctx);
     if (!user) return;
-
-    if (!user.phone) {
-      setStep(user.telegramId, { type: "withdraw_phone" });
-      return ctx.reply(
-        `📱 <b>የስልክ ቁጥር ያስፈልጋል</b>\n\n` +
-          `ብር ለማውጣት መጀመሪያ የስልክ ቁጥርዎን መመዝገብ ያስፈልጋል።\n\n` +
-          `👇 የሚከፈልበትን የ Telebirr ስልክ ቁጥር ይላኩ\n` +
-          `(ለምሳሌ: <code>0911223344</code>)`,
-        {
-          parse_mode: "HTML",
-          ...Markup.inlineKeyboard([
-            [Markup.button.callback("❌ Cancel", "cancel_action")],
-          ]),
-        }
-      );
-    }
 
     if (user.balance < MIN_WITHDRAW) {
       return ctx.reply(
@@ -548,19 +529,27 @@ const handleWithdraw = async (ctx) => {
       );
     }
 
-    setStep(user.telegramId, { type: "withdraw_amount" });
+    // 🔴 ሁልጊዜ የስልክ ቁጥር እንዲያስገባ እንጠይቅ (ወደ ሌላ ሰው ለመላክ ስለሚችል)
+    setStep(user.telegramId, { type: "withdraw_phone" });
+
+    const hasPhone = !!user.phone;
+    const inlineButtons = [];
+    if (hasPhone) {
+      inlineButtons.push([
+        Markup.button.callback(`📱 የራሴን ስልክ (${user.phone}) ተጠቀም`, "use_my_phone"),
+      ]);
+    }
+    inlineButtons.push([Markup.button.callback("❌ Cancel", "cancel_action")]);
 
     await ctx.reply(
       `📤 <b>Withdraw Money</b>\n\n` +
         `💰 ያልዎት: <b>${formatMoney(user.balance)} ETB</b>\n` +
-        `📌 አነስተኛ: <b>${MIN_WITHDRAW} ETB</b>\n` +
-        `📱 ወደ: <code>${esc(user.phone)}</code>\n\n` +
-        `👇 ማውጣት የሚፈልጉትን መጠን ይላኩ (ለምሳሌ: <code>1000</code>)`,
+        `📌 አነስተኛ: <b>${MIN_WITHDRAW} ETB</b>\n\n` +
+        `👇 <b>ገንዘቡ የሚላክበትን የ Telebirr ስልክ ቁጥር ያስገቡ</b>\n` +
+        `(ለራስዎም ሆነ ለሌላ ሰው ማስገባት ይችላሉ — ለምሳሌ: <code>0911223344</code>)`,
       {
         parse_mode: "HTML",
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback("❌ Cancel", "cancel_action")],
-        ]),
+        ...Markup.inlineKeyboard(inlineButtons),
       }
     );
   } catch (err) {
@@ -573,6 +562,34 @@ bot.action("action_withdraw", async (ctx) => {
     await ctx.answerCbQuery();
   } catch {}
   await handleWithdraw(ctx);
+});
+
+// 🔴 የራሴን ስልክ የመምረጫ አዝራር
+bot.action("use_my_phone", async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const user = await getOrCreateUser(ctx);
+    if (!user || !user.phone) {
+      return ctx.reply("❌ የተመዘገበ ስልክ ቁጥር አልተገኘም። እባክዎ ስልክ ቁጥር ያስገቡ።");
+    }
+
+    setStep(user.telegramId, { type: "withdraw_amount", phone: user.phone });
+
+    await ctx.editMessageText(
+      `📤 <b>Withdraw Money</b>\n\n` +
+        `💰 ያልዎት: <b>${formatMoney(user.balance)} ETB</b>\n` +
+        `📱 ወደ: <code>${esc(user.phone)}</code>\n\n` +
+        `👇 ማውጣት የሚፈልጉትን መጠን ይላኩ (ለምሳሌ: <code>1000</code>)`,
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback("❌ Cancel", "cancel_action")],
+        ]),
+      }
+    );
+  } catch (err) {
+    console.error("[use_my_phone]", err.message);
+  }
 });
 
 // ═══════════════════════════════════════════════════════
@@ -592,7 +609,8 @@ bot.action("confirm_withdraw", async (ctx) => {
       return ctx.reply("❌ የቆየ ጥያቄ። እንደገና ይጀምሩ።", mainKeyboard());
     }
 
-    const { amount } = step;
+    // 🔴 የወጪውን መጠን እና የስልክ ቁጥሩን ከ step እንውሰድ
+    const { amount, phone: withdrawPhone } = step;
     clearStep(user.telegramId);
 
     const updated = await User.findOneAndUpdate(
@@ -620,7 +638,7 @@ bot.action("confirm_withdraw", async (ctx) => {
         balanceAfter: updated.balance,
         status: "pending",
         meta: {
-          phone: updated.phone,
+          phone: withdrawPhone, // 🔴 በተጠቃሚው የተሰጠው ስልክ ቁጥር
           method: "telebirr",
           source: "bot",
           requestedAt: new Date(),
@@ -637,7 +655,7 @@ bot.action("confirm_withdraw", async (ctx) => {
     await ctx.editMessageText(
       `✅ <b>የወጪ ጥያቄ ተልኳል</b>\n\n` +
         `💰 መጠን: <b>${amount} ETB</b>\n` +
-        `📱 ወደ: <code>${esc(updated.phone)}</code>\n` +
+        `📱 ወደ: <code>${esc(withdrawPhone)}</code>\n` +
         `💳 ቀሪ ሂሳብ: <b>${formatMoney(updated.balance)} ETB</b>\n` +
         `⏳ አስተዳዳሪ ካረጋገጠ በ24 ሰዓት ውስጥ ይከፈላል።`,
       { parse_mode: "HTML" }
@@ -649,8 +667,9 @@ bot.action("confirm_withdraw", async (ctx) => {
         `🆕 <b>Withdrawal Request</b>\n\n` +
         `👤 <b>${esc(updated.firstName || "User")} ${esc(updated.lastName || "")}</b>\n` +
         `🆔 <code>${updated.telegramId}</code>\n` +
-        `📱 <code>${esc(updated.phone)}</code>\n\n` +
-        `💰 መጠን: <b>${amount} ETB</b>\n` +
+        `📱 ወጪ የሚደረግበት ስልክ: <code>${esc(withdrawPhone)}</code>\n` +
+        (updated.phone !== withdrawPhone ? `(የተመዘገበው ስልክ: ${esc(updated.phone || "—")})\n` : "") +
+        `\n💰 መጠን: <b>${amount} ETB</b>\n` +
         `💳 ድምር: <b>${formatMoney(updated.balance)} ETB</b>\n` +
         `🕐 ${new Date().toLocaleString("en-US", {
           timeZone: "Africa/Addis_Ababa",
@@ -972,6 +991,7 @@ bot.on("text", async (ctx, next) => {
     return handleDepositSms(ctx, text);
   }
 
+  // 🔴 የስልክ ቁጥር ማስገቢያ ማሻሻያ
   if (step.type === "withdraw_phone") {
     const phone = text.replace(/[^\d+]/g, "");
     if (!PHONE_RE.test(phone)) {
@@ -980,21 +1000,14 @@ bot.on("text", async (ctx, next) => {
 
     const user = await getOrCreateUser(ctx);
     if (!user) return;
-    await User.updateOne({ telegramId: user.telegramId }, { $set: { phone } });
 
-    if (user.balance < MIN_WITHDRAW) {
-      clearStep(user.telegramId);
-      return ctx.reply(
-        `❌ <b>ቀሪ ሂሳብ በቂ አይደለም</b>\n\n` +
-          `💰 ያልዎት: <b>${formatMoney(user.balance)} ETB</b>\n` +
-          `📌 አነስተኛ: <b>${MIN_WITHDRAW} ETB</b>`,
-        { parse_mode: "HTML", ...mainKeyboard() }
-      );
-    }
+    // 🔴 ስልክ ቁጥሩ የተጠቃሚው የራሱ ካልሆነ በዳታቤዝ አንመዝግበውም።
+    // ለወጪ ጥያቄ ብቻ እንጠቀመው።
+    
+    setStep(user.telegramId, { type: "withdraw_amount", phone });
 
-    setStep(user.telegramId, { type: "withdraw_amount" });
     return ctx.reply(
-      `✅ ስልክ ተመዝግቧል: <code>${phone}</code>\n\n` +
+      `✅ ስልክ ተቀብሏል: <code>${phone}</code>\n\n` +
         `📤 አሁን የማውጣት መጠን ይላኩ (ለምሳሌ: <code>1000</code>)`,
       { parse_mode: "HTML" }
     );
@@ -1014,11 +1027,13 @@ bot.on("text", async (ctx, next) => {
       );
     }
 
-    setStep(user.telegramId, { type: "withdraw_confirm", amount });
+    // 🔴 የስልክ ቁጥሩን ከደረጃው ይዘን ማስቀመጥ
+    setStep(user.telegramId, { type: "withdraw_confirm", amount, phone: step.phone });
+
     return ctx.reply(
       `📤 <b>ማውጣት ማረጋገጫ</b>\n\n` +
         `💰 መጠን: <b>${amount} ETB</b>\n` +
-        `📱 ወደ: <code>${esc(user.phone)}</code>\n\n` +
+        `📱 ወደ: <code>${esc(step.phone)}</code>\n\n` +
         `ይህን ጥያቄ ማረጋገጥ ይፈልጋሉ?`,
       {
         parse_mode: "HTML",

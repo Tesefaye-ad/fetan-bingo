@@ -12,7 +12,7 @@ const HEADERS = [
 const PATTERN_LABELS = {
   "any-row": "Any Row",
   "any-column": "Any Column",
-  "any-diagonal": "Diagonal",
+  "any-diagonal": "Any Diagonal",
   "four-corners": "4 Corners",
   "full-card": "Full Card",
 };

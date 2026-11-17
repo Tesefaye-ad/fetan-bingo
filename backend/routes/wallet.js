@@ -21,6 +21,9 @@ function parseAmount(v) {
 
 const PHONE_RE = /^(09|07|\+2519|\+2517|2519|2517)\d{8}$/;
 
+// ═══════════════════════════════════════════════════════
+// BALANCE
+// ═══════════════════════════════════════════════════════
 router.get("/balance", async (req, res) => {
   try {
     const user = await User.findById(req.userId).select("balance bonusBalance");
@@ -31,6 +34,9 @@ router.get("/balance", async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// HISTORY
+// ═══════════════════════════════════════════════════════
 router.get("/history", async (req, res) => {
   try {
     const transactions = await Transaction.find({ user: req.userId })
@@ -43,6 +49,9 @@ router.get("/history", async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// DEPOSIT INITIATE
+// ═══════════════════════════════════════════════════════
 router.post("/deposit/initiate", async (req, res) => {
   try {
     const amount = parseAmount(req.body.amount);
@@ -83,6 +92,9 @@ router.post("/deposit/initiate", async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// WITHDRAW
+// ═══════════════════════════════════════════════════════
 router.post("/withdraw", async (req, res) => {
   try {
     const amount = parseAmount(req.body.amount);
@@ -125,7 +137,7 @@ router.post("/withdraw", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// 🔴 TRANSFER — Idempotent + Atomic
+// 🔴 TRANSFER — Idempotent + Atomic + Fallback
 // ═══════════════════════════════════════════════════════
 router.post("/transfer", async (req, res) => {
   let session;
@@ -133,10 +145,14 @@ router.post("/transfer", async (req, res) => {
     const amount = parseAmount(req.body.amount);
     const { phone, idempotencyKey } = req.body;
 
-    if (!amount) return res.status(400).json({ error: "Invalid amount" });
-    if (!phone) return res.status(400).json({ error: "Recipient phone number required" });
+    if (!amount || amount < 10) {
+      return res.status(400).json({ error: "Minimum transfer is 10 ETB" });
+    }
+    if (!phone) {
+      return res.status(400).json({ error: "Recipient phone number required" });
+    }
 
-    // 🔴 Idempotency key (optional — falls back if not provided)
+    // 🔴 Idempotency key (optional)
     const idemKey =
       typeof idempotencyKey === "string" &&
       idempotencyKey.length >= 8 &&
@@ -169,31 +185,39 @@ router.post("/transfer", async (req, res) => {
       searchPhone = "0" + searchPhone.slice(3);
     }
 
-    const phoneVariants = [searchPhone, "+251" + searchPhone.slice(1), "251" + searchPhone.slice(1)];
+    const phoneVariants = [
+      searchPhone,
+      "+251" + searchPhone.slice(1),
+      "251" + searchPhone.slice(1),
+    ];
 
     const recipient = await User.findOne({
       phone: { $in: phoneVariants },
       isBanned: { $ne: true },
-    }).select("_id telegramId phone");
+    }).select("_id telegramId phone firstName username");
 
-    if (!recipient) return res.status(404).json({ error: "Recipient not found with this phone number" });
-    if (String(recipient._id) === String(req.userId)) return res.status(400).json({ error: "Cannot transfer to yourself" });
+    if (!recipient) {
+      return res.status(404).json({ error: "Recipient not found with this phone number" });
+    }
+    if (String(recipient._id) === String(req.userId)) {
+      return res.status(400).json({ error: "Cannot transfer to yourself" });
+    }
 
     let sender, recipientUpdated;
-    session = await mongoose.startSession();
 
-    await session.withTransaction(async () => {
+    // 🔴 Helper: Actual Transfer Logic
+    const doTransfer = async (sess) => {
       sender = await User.findOneAndUpdate(
         { _id: req.userId, balance: { $gte: amount }, isBanned: { $ne: true } },
         { $inc: { balance: -amount } },
-        { new: true, session }
+        { new: true, session: sess }
       );
       if (!sender) throw new Error("Insufficient balance");
 
       recipientUpdated = await User.findOneAndUpdate(
         { _id: recipient._id },
         { $inc: { balance: amount } },
-        { new: true, session }
+        { new: true, session: sess }
       );
       if (!recipientUpdated) throw new Error("Recipient not found");
 
@@ -207,7 +231,7 @@ router.post("/transfer", async (req, res) => {
             counterparty: recipientUpdated._id,
             meta: {
               recipientPhone: searchPhone,
-              idempotencyKey: idemKey, // 🔴 idempotency recorded
+              idempotencyKey: idemKey,
             },
           },
           {
@@ -219,10 +243,34 @@ router.post("/transfer", async (req, res) => {
             meta: { senderPhone: sender.phone },
           },
         ],
-        { session }
+        { session: sess }
       );
-    });
+    };
 
+    // 🔴 2. Try MongoDB Transaction
+    session = await mongoose.startSession();
+
+    try {
+      await session.withTransaction(async () => {
+        await doTransfer(session);
+      });
+    } catch (e) {
+      // 🔴 3. Fallback: If DB doesn't support Transactions (Standalone MongoDB)
+      const isNoTxnSupport = 
+        e.codeName === "IllegalOperation" || 
+        /replica set|Transaction numbers/i.test(e.message || "");
+
+      if (isNoTxnSupport) {
+        console.warn("[wallet/transfer] Mongo transactions unavailable — using sequential fallback");
+        await session.endSession().catch(() => {});
+        session = null;
+        await doTransfer(undefined);
+      } else {
+        throw e;
+      }
+    }
+
+    // 4. Notify Recipient
     await Notification.create({
       user: recipientUpdated._id,
       title: "💸 Money Received",
