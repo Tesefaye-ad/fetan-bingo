@@ -14,7 +14,8 @@ const {
 } = require("../utils/bingoCard");
 const { verifySocketToken, isUserBanned } = require("../routes/auth");
 const rooms = require("../services/rooms");
-const { notifyWinnersGroup } = require("../services/winnerNotify");
+// 🔴 አዲስ የተቀየረው የ Import ስም (notifyWinnersGroup -> notifyWinners)
+const { notifyWinners } = require("../services/winnerNotify");
 const { cacheClient } = require("../config/redis");
 
 // ═══════════════════════════════════════════════════════
@@ -225,18 +226,6 @@ function initGameSocket(io) {
 
   // ═══════════════════════════════════════════════════════
   // 🔴 PRIZE CREDIT — STALE-INDEX-PROOF
-  //
-  //    The old `uniq_prize_per_game_user` index may still
-  //    exist in the MongoDB database (Mongoose does NOT
-  //    auto-drop old indexes when you change the schema).
-  //
-  //    That index on {game, user} blocks multiple wins per
-  //    room because all rounds share the same Game._id.
-  //
-  //    FIX: use a FRESH ObjectId for the `game` field on
-  //    every payout. Store the real Game._id in
-  //    meta.originalGameId. Every (game, user) pair is
-  //    therefore unique → old index can never fire.
   // ═══════════════════════════════════════════════════════
   async function creditUserPrize({ roundId, gameId, userId, amount, cartelas, winsCount }) {
     // 🔴 Fresh ObjectId — never conflicts with old index
@@ -824,7 +813,8 @@ function initGameSocket(io) {
 
       if (wasWin && isWeekly && panel.length > 0 && winningCartelas.length > 0) {
         try {
-          const r = await notifyWinnersGroup({
+          // 🔴 አዲስ የተቀየረው የፈንክሽን ጥሪ (notifyWinnersGroup -> notifyWinners)
+          const r = await notifyWinners({
             roomCode,
             entryFee: fee,
             prizePool: rt.prizePool,
@@ -909,7 +899,8 @@ function initGameSocket(io) {
       };
     });
 
-    const r = await notifyWinnersGroup({
+    // 🔴 አዲስ የተቀየረው የፈንክሽን ጥሪ (notifyWinnersGroup -> notifyWinners)
+    const r = await notifyWinners({
       roomCode: game.roomCode,
       entryFee: Number(game.entryFee),
       prizePool: game.prizePool,

@@ -54,8 +54,6 @@ const NumberButton = memo(
     );
   },
   (prevProps, nextProps) => {
-    // 🔴 ይህ ፈንክሽን ቁልፉ መቀየር አለበት ወይስ አይገባም የሚለውን ይወስናል
-    // onSelect ፈንክሽን ቢቀየርም እንኳ እንደገና አይስራም
     return (
       prevProps.isSelected === nextProps.isSelected &&
       prevProps.isTaken === nextProps.isTaken &&
@@ -253,7 +251,10 @@ export default function CartelaSelection({
 
     const onErr = ({ message, cardId }) => {
       flash(message || "ስህተት");
-      if (cardId) setSelectedCards((p) => p.filter((x) => x !== cardId));
+      if (cardId) {
+        setSelectedCards((p) => p.filter((x) => x !== cardId));
+        setTakenCards((p) => p.filter((x) => x !== cardId));
+      }
     };
 
     s.on("connect", watch);
@@ -332,6 +333,9 @@ export default function CartelaSelection({
         // ካርቴላ ሲያስወግዱ
         getSocket().emit("deselect_card", { roomCode: roomCodeRef.current, cardId: id });
         setSelectedCards((p) => p.filter((x) => x !== id));
+        
+        // 🔴 ከተያዙት ካርቴላዎች ዝርዝር ላይ ማስወገድ
+        setTakenCards((p) => p.filter((x) => x !== id));
 
         const newBal = balanceRef.current + currentStake;
         balanceRef.current = newBal;
@@ -347,6 +351,13 @@ export default function CartelaSelection({
       // ካርቴላ ሲመርጡ
       getSocket().emit("select_card", { roomCode: roomCodeRef.current, cardId: id });
       setSelectedCards((p) => [...p, id]);
+      
+      // 🔴 ወዲያውኑ ወደ ተያዙት ካርቴላዎች ዝርዝር መጨመር (Total Derash እንዲጨምር)
+      setTakenCards((p) => {
+        const set = new Set(p);
+        set.add(id);
+        return [...set];
+      });
 
       const newBal = balanceRef.current - currentStake;
       balanceRef.current = newBal;
@@ -387,7 +398,12 @@ export default function CartelaSelection({
   const takenSet = useMemo(() => new Set(takenCards), [takenCards]);
 
   const totalCost = selectedCards.length * stake;
-  const potentialPrize = Math.floor(totalCost * PRIZE_SHARE);
+  
+  // 🔴 የሁሉም ተጫዋቾች ደራሽ ስሌት (Total Prize Pool)
+  // በክፍሉ ውስጥ ያሉ ሁሉም የተያዙ ካርቴላዎች ቁጥር * የካርቴላ ዋጋ * 80%
+  const totalRoomCards = Math.max(takenCards.length, selectedCards.length);
+  const potentialPrize = Math.floor(totalRoomCards * stake * PRIZE_SHARE);
+  
   const maxAffordable = Math.floor(currentBalance / stake);
 
   const timeStr =
@@ -510,6 +526,7 @@ export default function CartelaSelection({
         <span>
           Cost: <b style={{ color: "#f39c12" }}>{totalCost} ETB</b>
         </span>
+        {/* 🔴 ደራሹ አሁን የሁሉንም ተጫዋቾች ድምር ያሳያል */}
         <span>
           Derash: <b style={{ color: "#2ecc71" }}>{potentialPrize} ETB</b>
         </span>

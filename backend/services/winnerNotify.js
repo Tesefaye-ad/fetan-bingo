@@ -1,12 +1,10 @@
 // ═══════════════════════════════════════════════════════
-// WINNER NOTIFY — ለ Play 50 / Play 100 አሸናፊዎችን ለ Telegram ግሩፕ መላክ
+// WINNER NOTIFY — ለ Play 50 / Play 100 አሸናፊዎች በBot (DM) መላክ
 // ═══════════════════════════════════════════════════════
 const User = require("../models/User");
 const { buildWinnerPng } = require("../utils/winnerImage");
 
-const CAPTION_LIMIT = 900; // 👈 1000 → 900 (safety margin)
-const PNG_TIMEOUT_MS = 8000; // 👈 PNG ከ 8 ሰከንድ በላይ ከወሰደ → text-only
-const MAX_IMAGE_WINNERS = 3; // 👈 ምስል ላይ ብዙ አሸናፊ አይሳል
+const PNG_TIMEOUT_MS = 10000; // 👈 PNG ከ 10 ሰከንድ በላይ ከወሰደ → text-only
 const SEND_TIMEOUT_MS = 15000; // 👈 Telegram ምላሽ ገደብ
 
 function htmlEscape(s) {
@@ -16,77 +14,20 @@ function htmlEscape(s) {
     .replace(/>/g, "&gt;");
 }
 
-/** 0911223344 → 09****3344 */
-function maskPhone(phone) {
-  const p = String(phone || "").replace(/\s+/g, "");
-  if (p.length < 7) return "—";
-  return `${p.slice(0, 2)}****${p.slice(-4)}`;
-}
-
-/** 👈 Promise timeout helper */
+/** Promise timeout helper */
 function withTimeout(promise, ms, label) {
   let timer;
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`${label}_timeout`)),
-      ms
-    );
+    timer = setTimeout(() => reject(new Error(`${label}_timeout`)), ms);
   });
-  return Promise.race([promise, timeout]).finally(() =>
-    clearTimeout(timer)
-  );
-}
-
-function buildCaption({ roomCode, entryFee, prizePool, winPattern, winners, phones }) {
-  const date = new Date().toLocaleString("en-US", {
-    timeZone: "Africa/Addis_Ababa",
-  });
-  
-  // ✅ FIX: የጨዋታውን ዓይነት መለየት (ባለ 50 ወይም ባለ 100)
-  const fee = Number(entryFee);
-  const gameName = fee === 50 ? "ባለ 50" : "ባለ 100";
-
-  let text =
-    `🎉 <b>እንኳን ደስ አለዎት!</b>\n` +
-    `🏆 <b>የዛሬውን ${gameName} ብር የቢንጎ ጨዋታ ያሸነፈው/ያሸነፉት፦</b>\n` +
-    `💰 ጠቅላላ ሽልማት: <b>${prizePool} ETB</b>\n` +
-    `🎯 ፓተርን: <b>${htmlEscape(String(winPattern).toUpperCase())}</b>\n` +
-    `🕐 ${htmlEscape(date)}\n`;
-
-  // 👈 ብዙ አሸናፊ ካለ → የመጀመሪያዎቹን ብቻ አሳይ
-  const maxLines = 8; // 👈 ለ caption ገደብ
-  const shown = Math.min(winners.length, maxLines);
-
-  for (let i = 0; i < shown; i++) {
-    const w = winners[i];
-    const cartelas = w.cartelas.map((c) => `#${c}`).join(", ");
-    const line =
-      `\n🏅 <b>${htmlEscape(w.name)}</b> — ${cartelas} — ` +
-      `<b>${w.prize} ETB</b> — 📱 <code>${maskPhone(
-        phones[w.telegramId]
-      )}</code>`;
-
-    if ((text + line).length > CAPTION_LIMIT) break;
-    text += line;
-  }
-
-  if (winners.length > shown) {
-    text += `\n… +${winners.length - shown} ተጨማሪ አሸናፊዎች`;
-  }
-  return text;
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 /**
- * 👈 የአሸናፊዎች ፓናል ምስል + መግለጫ ወደ ግሩፕ ይልካል.
- *    ጨዋታውን ፈጽሞ አያስተጓጉልም — ስህተት ቢኖር ይዘነጋል.
+ * የአሸናፊዎችን ውጤት ለእያንዳንዱ ተጠቃሚ በቀጥታ (DM) ይልካል።
+ * ምስል + የግል መልእክት ይይዛል።
  */
-async function notifyWinnersGroup(round) {
-  const groupChatId = process.env.WINNERS_GROUP_CHAT_ID;
-  if (!groupChatId) {
-    console.warn("[notify] ❌ WINNERS_GROUP_CHAT_ID is not set — skipped");
-    return { ok: false, reason: "no_group_id" };
-  }
-
+async function notifyWinners(round) {
   try {
     const { bot } = require("../bot");
     if (!bot) {
@@ -94,34 +35,9 @@ async function notifyWinnersGroup(round) {
       return { ok: false, reason: "no_bot" };
     }
 
-    // ─── 1. Phone lookup (አንድ ጥያቄ ብቻ) ───
-    const telegramIds = round.winners
-      .map((w) => w.telegramId)
-      .filter(Boolean);
-
-    let phones = {};
-    if (telegramIds.length > 0) {
-      try {
-        const users = await withTimeout(
-          User.find({ telegramId: { $in: telegramIds } })
-            .select("telegramId phone")
-            .lean(),
-          5000,
-          "user_lookup"
-        );
-        phones = Object.fromEntries(users.map((u) => [u.telegramId, u.phone]));
-      } catch (err) {
-        console.warn("[notify] user lookup failed:", err.message);
-      }
-    }
-
-    // ─── 2. Caption (ፈጣን) ───
-    const caption = buildCaption({ ...round, phones });
-
-    // ─── 3. PNG (timeout ጋር — ቢዘገይ text-only) ───
+    // ─── 1. PNG (ለሁሉም አንድ ጊዜ ብቻ ይሰራል) ───
     let png = null;
-    const imageCartelas = round.winningCartelas.slice(0, MAX_IMAGE_WINNERS);
-    if (imageCartelas.length > 0) {
+    if (round.winningCartelas && round.winningCartelas.length > 0) {
       try {
         png = await withTimeout(
           buildWinnerPng({
@@ -132,8 +48,8 @@ async function notifyWinnersGroup(round) {
             dateText: new Date().toLocaleString("en-US", {
               timeZone: "Africa/Addis_Ababa",
             }),
-            winners: round.winners.slice(0, MAX_IMAGE_WINNERS),
-            cartelas: imageCartelas,
+            winners: round.winners,
+            cartelas: round.winningCartelas, // የመጀመሪያው ካርቴላ በምስሉ ላይ ይታያል
           }),
           PNG_TIMEOUT_MS,
           "png_render"
@@ -143,39 +59,60 @@ async function notifyWinnersGroup(round) {
       }
     }
 
-    // ─── 4. Send (timeout ጋር & Fallback logic) ───
-    let sent = false;
+    const fee = Number(round.entryFee);
+    const gameName = fee === 50 ? "ባለ 50" : "ባለ 100";
 
-    // ሀ. ፎቶ ካለ በፎቶ ለመላክ ሞክር
-    if (png) {
-      try {
-        await withTimeout(
-          bot.telegram.sendPhoto(
-            groupChatId,
-            { source: png, filename: `${round.roomCode}-winners.png` },
-            { caption, parse_mode: "HTML" }
-          ),
-          SEND_TIMEOUT_MS,
-          "send_photo"
-        );
-        sent = true;
-        console.log(`[notify] ✅ ${round.roomCode} አሸናፊዎች በፎቶ ተልከዋል`);
-      } catch (photoErr) {
-        console.error(`[notify] ❌ ፎቶ መላክ አልተቻለም: ${photoErr.message} — ወደ ጽሑፍ ይቀየራል`);
+    // ─── 2. ለእያንዳንዱ አሸናፊ በተናጠል መላክ ───
+    for (const w of round.winners) {
+      if (!w.telegramId) continue;
+
+      // የግል መልእክት (Caption)
+      const caption =
+        `🎉 <b>እንኳን ደስ አለዎት!</b>\n\n` +
+        `🏆 <b>የዛሬውን ${gameName} ብር የቢንጎ ጨዋታ አሸንፈዋል!</b>\n\n` +
+        `🎯 ፓተርን: <b>${htmlEscape(String(round.winPattern).toUpperCase())}</b>\n` +
+        `🎴 ካርቴላ: <b>#${w.cartelas.join(", #")}</b>\n` +
+        `💰 ደራሽ: <b>+${w.prize} ETB</b>\n` +
+        `💳 አዲስ ቀሪ ሂሳብ: <b>${w.newBalance} ETB</b>\n\n` +
+        `🎮 ተጨማሪ ለመጫወት ዝግጁ ነዎት?`;
+
+      let sent = false;
+
+      // ሀ. ፎቶ ካለ በፎቶ ለመላክ ሞክር
+      if (png) {
+        try {
+          await withTimeout(
+            bot.telegram.sendPhoto(
+              w.telegramId,
+              { source: png, filename: "winner.png" },
+              { caption, parse_mode: "HTML" }
+            ),
+            SEND_TIMEOUT_MS,
+            "send_photo"
+          );
+          sent = true;
+          console.log(`[notify] ✅ ለ ${w.telegramId} በፎቶ ተልኳል`);
+        } catch (photoErr) {
+          console.error(`[notify] ❌ ፎቶ መላክ አልተቻለም (${w.telegramId}): ${photoErr.message} — ወደ ጽሑፍ ይቀየራል`);
+        }
       }
-    }
 
-    // ለ. ፎቶ ካልተላከ (ወይም ፎቶ ከሌለ) በጽሑፍ ላክ
-    if (!sent) {
-      await withTimeout(
-        bot.telegram.sendMessage(groupChatId, caption, {
-          parse_mode: "HTML",
-          disable_web_page_preview: true,
-        }),
-        SEND_TIMEOUT_MS,
-        "send_message"
-      );
-      console.log(`[notify] ✅ ${round.roomCode} አሸናፊዎች በጽሑፍ ተልከዋል`);
+      // ለ. ፎቶ ካልተላከ (ወይም ፎቶ ከሌለ) በጽሑፍ ላክ
+      if (!sent) {
+        try {
+          await withTimeout(
+            bot.telegram.sendMessage(w.telegramId, caption, {
+              parse_mode: "HTML",
+              disable_web_page_preview: true,
+            }),
+            SEND_TIMEOUT_MS,
+            "send_message"
+          );
+          console.log(`[notify] ✅ ለ ${w.telegramId} በጽሑፍ ተልኳል`);
+        } catch (msgErr) {
+          console.error(`[notify] ❌ መልእክት መላክ አልተቻለም (${w.telegramId}): ${msgErr.message}`);
+        }
+      }
     }
 
     return { ok: true };
@@ -185,4 +122,4 @@ async function notifyWinnersGroup(round) {
   }
 }
 
-module.exports = { notifyWinnersGroup, maskPhone };
+module.exports = { notifyWinners };
